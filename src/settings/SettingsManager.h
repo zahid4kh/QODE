@@ -80,6 +80,9 @@ public:
     void removeRecentProject(const QString &path);
     void clearRecentProjects();
 
+    QString runCommand(const QString &key) const; // per file type, see RunConfigDialog::keyFor
+    void setRunCommand(const QString &key, const QString &command);
+
     QStringList recentCommands() const; // most recent first
     void setRecentCommands(const QStringList &commands);
 

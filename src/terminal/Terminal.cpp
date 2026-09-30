@@ -136,6 +136,18 @@ void Terminal::restart()
     startShell();
 }
 
+void Terminal::runCommand(const QString &command)
+{
+    const bool wasRunning = m_shell->isRunning();
+    ensureStarted();
+    if (!m_shell->isRunning())
+        return;
+    if (wasRunning)
+        m_shell->write(QByteArray("\x03")); // Ctrl+C: stop a previous run / discard a half-typed line
+    m_view->scrollToBottom();
+    m_shell->write(command.toUtf8() + '\r');
+}
+
 void Terminal::clear()
 {
     m_view->screen()->clearScrollback();

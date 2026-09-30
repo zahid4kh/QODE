@@ -246,6 +246,19 @@ void SettingsManager::setLastDirectory(const QString &d)
     m_settings.setValue(QStringLiteral("session/lastDir"), d);
 }
 
+QString SettingsManager::runCommand(const QString &key) const
+{
+    return m_settings.value(QStringLiteral("run/") + key).toString();
+}
+
+void SettingsManager::setRunCommand(const QString &key, const QString &command)
+{
+    if (command.isEmpty())
+        m_settings.remove(QStringLiteral("run/") + key);
+    else
+        m_settings.setValue(QStringLiteral("run/") + key, command);
+}
+
 QStringList SettingsManager::recentCommands() const
 {
     return m_settings.value(QStringLiteral("session/recentCommands")).toStringList();

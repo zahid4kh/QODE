@@ -19,6 +19,8 @@ public:
 
     // Starts the shell if it is not running yet (never runs any project command itself).
     void ensureStarted();
+    // Types `command` into the shell (interrupting whatever is running) so its output shows in the panel.
+    void runCommand(const QString &command);
     void restart();
     void stop();
     bool isRunning() const;

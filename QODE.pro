@@ -42,6 +42,7 @@ SOURCES += \
     src/dialogs/NewProjectDialog.cpp \
     src/dialogs/NewFileDialog.cpp \
     src/dialogs/UnsavedChangesDialog.cpp \
+    src/dialogs/RunConfigDialog.cpp \
     src/editor/Language.cpp \
     src/editor/SyntaxHighlighter.cpp \
     src/editor/Document.cpp \
@@ -86,6 +87,7 @@ HEADERS += \
     src/dialogs/NewProjectDialog.h \
     src/dialogs/NewFileDialog.h \
     src/dialogs/UnsavedChangesDialog.h \
+    src/dialogs/RunConfigDialog.h \
     src/editor/Language.h \
     src/editor/SyntaxHighlighter.h \
     src/editor/Document.h \

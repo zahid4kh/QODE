@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "dialogs/NewProjectDialog.h"
+#include "dialogs/RunConfigDialog.h"
 #include "git/BranchButton.h"
 #include "git/BranchPopup.h"
 #include "git/DiffDialog.h"
@@ -203,6 +204,20 @@ void MainWindow::createActions()
     m_explorerAct->setChecked(true);
     m_terminalAct = make(tr("Terminal"), QKeySequence(C | K::Key_J), QStringLiteral(":/new-icons/terminal.svg"));
     m_terminalAct->setCheckable(true);
+    m_runAct = make(tr("Run File"), QKeySequence(K::Key_F5));
+    m_runAct->setToolTip(tr("Run this file (F5)"));
+    m_runConfigAct = make(tr("Run Configuration…"), {}, QStringLiteral(":/new-icons/cog.svg"));
+    m_runConfigAct->setToolTip(tr("Set the command that runs this type of file"));
+    {
+        // Green outlined play button; recoloured with the theme since green must differ on light/dark.
+        auto paint = [this] {
+            const bool dark = SettingsManager::instance().theme() != QLatin1String("light");
+            m_runAct->setIcon(Icons::tinted(QStringLiteral(":/new-icons/play.svg"),
+                                            QColor(dark ? QStringLiteral("#4ec969") : QStringLiteral("#1a8f3c"))));
+        };
+        paint();
+        connect(&SettingsManager::instance(), &SettingsManager::themeChanged, m_runAct, paint);
+    }
     m_fullscreenAct = make(tr("Toggle Fullscreen"), QKeySequence(K::Key_F11));
     m_wordWrapAct = make(tr("Word Wrap"), QKeySequence(A | K::Key_Z));
     m_wordWrapAct->setCheckable(true);
@@ -296,6 +311,8 @@ void MainWindow::createActions()
 
     connect(m_explorerAct, &QAction::toggled, m_side, &QWidget::setVisible);
     connect(m_terminalAct, &QAction::triggered, this, &MainWindow::toggleTerminal);
+    connect(m_runAct, &QAction::triggered, this, &MainWindow::runCurrentFile);
+    connect(m_runConfigAct, &QAction::triggered, this, &MainWindow::configureRun);
     connect(m_fullscreenAct, &QAction::triggered, this, [this] { setWindowState(windowState() ^ Qt::WindowFullScreen); });
     connect(m_wordWrapAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setWordWrap(on); });
     connect(m_breadcrumbsAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setShowBreadcrumbs(on); });
@@ -401,6 +418,9 @@ void MainWindow::createMenus()
     view->addAction(m_explorerAct);
     view->addAction(m_terminalAct);
     view->addSeparator();
+    view->addAction(m_runAct);
+    view->addAction(m_runConfigAct);
+    view->addSeparator();
     view->addAction(m_wordWrapAct);
     view->addAction(m_indentGuidesAct);
     view->addAction(m_minimapAct);
@@ -440,6 +460,9 @@ void MainWindow::createToolBar()
     tb->addSeparator();
     tb->addAction(m_scmAct);
     tb->addAction(m_terminalAct);
+    tb->addSeparator();
+    tb->addAction(m_runAct);
+    tb->addAction(m_runConfigAct);
 }
 
 void MainWindow::createStatusBar()
@@ -682,6 +705,8 @@ void MainWindow::updateActions()
     for (QAction *a : {m_foldAct, m_unfoldAct, m_foldAllAct, m_unfoldAllAct})
         a->setEnabled(hasDoc);
     m_replaceAct->setEnabled(hasDoc);
+    m_runAct->setEnabled(!currentFilePath().isEmpty() || (hasDoc && m_editors->currentDocument()->isUntitled()));
+    m_runConfigAct->setEnabled(!currentFilePath().isEmpty());
 
     const bool repo = m_git->isRepo();
     const QString path = currentFilePath();
@@ -730,14 +755,59 @@ void MainWindow::updateStatus()
     m_modeLabel->setText(e->overwriteMode() ? tr("OVR") : tr("INS"));
 }
 
+void MainWindow::showTerminal()
+{
+    if (m_terminal->isVisible())
+        return;
+    m_terminal->show();
+    const int total = m_vsplit->height();
+    const int h = qBound(80, m_terminalHeight, qMax(80, total - 100));
+    m_vsplit->setSizes({total - h, h});
+    m_terminalAct->setChecked(true);
+}
+
+void MainWindow::configureRun()
+{
+    const QString path = currentFilePath();
+    if (path.isEmpty())
+        return;
+    const QString key = RunConfigDialog::keyFor(path);
+    SettingsManager &s = SettingsManager::instance();
+    RunConfigDialog dlg(path, s.runCommand(key), this);
+    if (dlg.exec() == QDialog::Accepted)
+        s.setRunCommand(key, dlg.command());
+}
+
+void MainWindow::runCurrentFile()
+{
+    Document *doc = m_editors->currentDocument();
+    if (!doc)
+        return;
+    if (doc->isUntitled() && !m_editors->saveCurrent())
+        return;
+    const QString path = currentFilePath();
+    if (path.isEmpty())
+        return;
+    SettingsManager &s = SettingsManager::instance();
+    const QString key = RunConfigDialog::keyFor(path);
+    if (s.runCommand(key).isEmpty()) {
+        // First run of this file type: ask for the command, then carry on.
+        configureRun();
+        if (s.runCommand(key).isEmpty())
+            return;
+    }
+    if (doc->isModified() && !m_editors->saveCurrent())
+        return;
+    showTerminal();
+    m_terminal->runCommand(RunConfigDialog::expand(s.runCommand(key), path, m_projects->project().root));
+    m_terminal->focusTerminal();
+}
+
 void MainWindow::toggleTerminal()
 {
     const bool show = !m_terminal->isVisible();
     if (show) {
-        m_terminal->show();
-        const int total = m_vsplit->height();
-        const int h = qBound(80, m_terminalHeight, qMax(80, total - 100));
-        m_vsplit->setSizes({total - h, h});
+        showTerminal();
         m_terminal->ensureStarted();
         m_terminal->focusTerminal();
     } else {

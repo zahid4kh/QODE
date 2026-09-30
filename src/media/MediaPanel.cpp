@@ -292,6 +292,7 @@ MediaPanel::MediaPanel(QWidget *parent)
     il->addSpacing(6);
     il->addLayout(bl);
     il->addStretch(1);
+    connect(&SettingsManager::instance(), &SettingsManager::themeChanged, this, &MediaPanel::refreshInfo);
     connect(copyBtn, &QPushButton::clicked, this, [this] { QApplication::clipboard()->setText(m_path); });
     connect(revealBtn, &QPushButton::clicked, this, [this] {
         if (!m_path.isEmpty())
@@ -491,7 +492,7 @@ void MediaPanel::addInfo(const QString &key, const QString &value, bool wrapPath
 {
     const int row = m_info->rowCount();
     auto *k = new QLabel(key);
-    k->setStyleSheet(QStringLiteral("color: palette(mid);"));
+    k->setStyleSheet(QStringLiteral("color: %1;").arg(Theme::byName(SettingsManager::instance().theme()).textMuted.name()));
     k->setAlignment(Qt::AlignRight | Qt::AlignTop);
     auto *v = new QLabel;
     v->setText(wrapPath ? QString(value).replace(QLatin1Char('/'), QStringLiteral("/​")) : value);

@@ -63,12 +63,18 @@ public:
     QString lastDirectory() const;
     void setLastDirectory(const QString &dir);
 
+    QStringList recentProjects() const; // most recent first
+    void addRecentProject(const QString &path);
+    void removeRecentProject(const QString &path);
+    void clearRecentProjects();
+
     QStringList recentCommands() const; // most recent first
     void setRecentCommands(const QStringList &commands);
 
 signals:
     void editorSettingsChanged();
     void themeChanged(const QString &theme);
+    void recentProjectsChanged();
 
 private:
     SettingsManager();

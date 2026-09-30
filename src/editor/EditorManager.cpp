@@ -3,6 +3,7 @@
 #include "CodeEditor.h"
 #include "Breadcrumbs.h"
 #include "Document.h"
+#include "WelcomePage.h"
 #include "FindBar.h"
 #include "dialogs/UnsavedChangesDialog.h"
 #include "filesystem/FileManager.h"
@@ -70,35 +71,17 @@ EditorManager::EditorManager(QWidget *parent)
     editorLayout->setSpacing(0);
     editorLayout->addWidget(m_tabs);
 
-    auto *welcome = new QWidget(this);
-    auto *wl = new QVBoxLayout(welcome);
-    wl->setAlignment(Qt::AlignCenter);
-    wl->setSpacing(10);
-    auto *title = new QLabel(QStringLiteral("QODE"), welcome);
-    title->setObjectName(QStringLiteral("emptyTitle"));
-    title->setAlignment(Qt::AlignCenter);
-    wl->addWidget(title);
-    auto *heading = new QLabel(tr("No project or file is open.\nCreate or select one to get started."), welcome);
-    heading->setAlignment(Qt::AlignCenter);
-    heading->setObjectName(QStringLiteral("emptyText"));
-    wl->addWidget(heading);
-    auto addButton = [&](const QString &text, void (EditorManager::*sig)()) {
-        auto *b = new QPushButton(text, welcome);
-        b->setMinimumWidth(200);
-        connect(b, &QPushButton::clicked, this, sig);
-        wl->addWidget(b, 0, Qt::AlignCenter);
-    };
-    addButton(tr("New Project…"), &EditorManager::newProjectRequested);
-    addButton(tr("Open Project…"), &EditorManager::openProjectRequested);
-    addButton(tr("New File"), &EditorManager::newFileRequested);
-    addButton(tr("Open File…"), &EditorManager::openFileRequested);
-    auto *hint = new QLabel(tr("<span>Ctrl+Shift+O open project &nbsp;·&nbsp; Ctrl+O open file &nbsp;·&nbsp; Ctrl+J terminal</span>"), welcome);
-    hint->setAlignment(Qt::AlignCenter);
-    hint->setObjectName(QStringLiteral("emptyText"));
-    wl->addWidget(hint);
+    m_welcome = new WelcomePage(this);
+    connect(m_welcome, &WelcomePage::newProjectRequested, this, &EditorManager::newProjectRequested);
+    connect(m_welcome, &WelcomePage::openProjectRequested, this, &EditorManager::openProjectRequested);
+    connect(m_welcome, &WelcomePage::newFileRequested, this, &EditorManager::newFileRequested);
+    connect(m_welcome, &WelcomePage::openFileRequested, this, &EditorManager::openFileRequested);
+    connect(m_welcome, &WelcomePage::openRecentRequested, this, &EditorManager::openRecentProjectRequested);
+    connect(m_welcome, &WelcomePage::removeRecentRequested, this, &EditorManager::removeRecentProjectRequested);
+    connect(m_welcome, &WelcomePage::clearRecentRequested, this, &EditorManager::clearRecentProjectsRequested);
 
     m_stack = new QStackedWidget(this);
-    m_stack->addWidget(welcome);
+    m_stack->addWidget(m_welcome);
     m_stack->addWidget(editorPage);
 
     auto *layout = new QVBoxLayout(this);
@@ -348,6 +331,11 @@ void EditorManager::updateAllCrumbs()
 {
     for (Document *d : documents())
         updateCrumbs(d);
+}
+
+void EditorManager::setRecentProjects(const QStringList &paths)
+{
+    m_welcome->setRecentProjects(paths);
 }
 
 void EditorManager::setProjectRoot(const QString &root)

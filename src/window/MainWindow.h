@@ -66,6 +66,8 @@ private:
     void showQuickOpen(const QString &initialQuery = {});
     void noteRecentFile();
     void showSearch();
+    void refreshRecentProjects();
+    void openRecentProject(const QString &path);
     void replaceInFiles(const QStringList &paths, const SearchOptions &options, const QString &replacement);
     void forwardToFocus(const char *slot);
 
@@ -104,6 +106,7 @@ private:
     QAction *m_projNewFileAct, *m_projNewFolderAct, *m_openProjectFolderAct;
     QAction *m_explorerAct, *m_terminalAct, *m_fullscreenAct, *m_wordWrapAct, *m_darkThemeAct, *m_lightThemeAct;
     QAction *m_nextTabAct, *m_prevTabAct, *m_aboutAct, *m_paletteAct, *m_quickOpenAct, *m_gotoLineAct, *m_searchAct, *m_matchBracketAct, *m_indentGuidesAct, *m_minimapAct, *m_breadcrumbsAct;
+    QMenu *m_recentMenu;
     QAction *m_foldAct, *m_unfoldAct, *m_foldAllAct, *m_unfoldAllAct;
 
     QAction *m_scmAct, *m_gitRefreshAct, *m_gitFetchAct, *m_gitPullAct, *m_gitPushAct, *m_gitInitAct, *m_gitNewBranchAct;

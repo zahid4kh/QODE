@@ -48,6 +48,7 @@ SOURCES += \
     src/editor/MiniMap.cpp \
     src/editor/FindBar.cpp \
     src/editor/EditorManager.cpp \
+    src/editor/WelcomePage.cpp \
     src/terminal/TerminalScreen.cpp \
     src/terminal/ShellProcess.cpp \
     src/terminal/TerminalView.cpp \
@@ -89,6 +90,7 @@ HEADERS += \
     src/editor/MiniMap.h \
     src/editor/FindBar.h \
     src/editor/EditorManager.h \
+    src/editor/WelcomePage.h \
     src/terminal/TerminalScreen.h \
     src/terminal/ShellProcess.h \
     src/terminal/TerminalView.h \

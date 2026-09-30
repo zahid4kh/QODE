@@ -124,6 +124,11 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_editors, &EditorManager::openProjectRequested, m_openProjectAct, &QAction::trigger);
     connect(m_editors, &EditorManager::newFileRequested, m_newFileAct, &QAction::trigger);
     connect(m_editors, &EditorManager::openFileRequested, m_openFileAct, &QAction::trigger);
+    connect(m_editors, &EditorManager::openRecentProjectRequested, this, &MainWindow::openRecentProject);
+    connect(m_editors, &EditorManager::removeRecentProjectRequested, &SettingsManager::instance(), &SettingsManager::removeRecentProject);
+    connect(m_editors, &EditorManager::clearRecentProjectsRequested, &SettingsManager::instance(), &SettingsManager::clearRecentProjects);
+    connect(&SettingsManager::instance(), &SettingsManager::recentProjectsChanged, this, &MainWindow::refreshRecentProjects);
+    refreshRecentProjects();
 
     m_searchPanel->setOverridesProvider([this] {
         QHash<QString, QString> out;
@@ -295,6 +300,24 @@ void MainWindow::createMenus()
     QMenu *file = menuBar()->addMenu(tr("&File"));
     file->addAction(m_newProjectAct);
     file->addAction(m_openProjectAct);
+    m_recentMenu = file->addMenu(tr("Open Recent"));
+    connect(m_recentMenu, &QMenu::aboutToShow, this, [this] {
+        m_recentMenu->clear();
+        const QStringList recent = SettingsManager::instance().recentProjects();
+        int n = 0;
+        for (const QString &path : recent) {
+            if (!QFileInfo(path).isDir())
+                continue;
+            m_recentMenu->addAction(QFileInfo(path).fileName() + QStringLiteral("  —  ") + FileManager::displayPath(path), this,
+                                    [this, path] { openRecentProject(path); });
+            ++n;
+        }
+        if (n == 0)
+            m_recentMenu->addAction(tr("No recent projects"))->setEnabled(false);
+        m_recentMenu->addSeparator();
+        QAction *clear = m_recentMenu->addAction(tr("Clear Recent Projects"), this, [] { SettingsManager::instance().clearRecentProjects(); });
+        clear->setEnabled(n > 0);
+    });
     file->addAction(m_closeProjectAct);
     file->addSeparator();
     file->addAction(m_newFileAct);
@@ -528,8 +551,24 @@ bool MainWindow::closeProject()
     return true;
 }
 
+void MainWindow::refreshRecentProjects()
+{
+    m_editors->setRecentProjects(SettingsManager::instance().recentProjects());
+}
+
+void MainWindow::openRecentProject(const QString &path)
+{
+    if (!QFileInfo(path).isDir()) {
+        QMessageBox::warning(this, tr("Unable to open project"), tr("\"%1\" no longer exists.").arg(FileManager::displayPath(path)));
+        SettingsManager::instance().removeRecentProject(path);
+        return;
+    }
+    openProjectPath(path);
+}
+
 void MainWindow::onProjectOpened(const Project &p)
 {
+    SettingsManager::instance().addRecentProject(p.root);
     m_explorer->setProjectRoot(p.root);
     m_projectFiles->setRoot(p.root);
     m_editors->setProjectRoot(p.root);

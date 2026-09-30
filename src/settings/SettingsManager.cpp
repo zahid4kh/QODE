@@ -206,3 +206,32 @@ void SettingsManager::setRecentCommands(const QStringList &c)
 {
     m_settings.setValue(QStringLiteral("session/recentCommands"), c);
 }
+
+QStringList SettingsManager::recentProjects() const
+{
+    return m_settings.value(QStringLiteral("session/recentProjects")).toStringList();
+}
+
+void SettingsManager::addRecentProject(const QString &path)
+{
+    QStringList list = recentProjects();
+    list.removeAll(path);
+    list.prepend(path);
+    m_settings.setValue(QStringLiteral("session/recentProjects"), QStringList(list.mid(0, 10)));
+    emit recentProjectsChanged();
+}
+
+void SettingsManager::removeRecentProject(const QString &path)
+{
+    QStringList list = recentProjects();
+    if (list.removeAll(path) > 0) {
+        m_settings.setValue(QStringLiteral("session/recentProjects"), list);
+        emit recentProjectsChanged();
+    }
+}
+
+void SettingsManager::clearRecentProjects()
+{
+    m_settings.remove(QStringLiteral("session/recentProjects"));
+    emit recentProjectsChanged();
+}

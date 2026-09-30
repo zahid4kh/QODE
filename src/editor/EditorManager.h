@@ -5,6 +5,7 @@
 
 class CodeEditor;
 class Document;
+class WelcomePage;
 class FindBar;
 class QFileSystemWatcher;
 class QStackedWidget;
@@ -48,6 +49,7 @@ public:
     void pathRenamed(const QString &oldPath, const QString &newPath);
 
     void setProjectRoot(const QString &root); // breadcrumbs show paths relative to it
+    void setRecentProjects(const QStringList &paths); // listed on the welcome page
 
     void nextTab();
     void previousTab();
@@ -67,6 +69,9 @@ signals:
     void openProjectRequested();
     void newFileRequested();
     void openFileRequested();
+    void openRecentProjectRequested(const QString &path);
+    void removeRecentProjectRequested(const QString &path);
+    void clearRecentProjectsRequested();
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
@@ -96,6 +101,7 @@ private:
     void onWatchedFileChanged(const QString &path);
     void processPendingChanges();
 
+    WelcomePage *m_welcome;
     QStackedWidget *m_stack;
     QTabWidget *m_tabs;
     FindBar *m_find;

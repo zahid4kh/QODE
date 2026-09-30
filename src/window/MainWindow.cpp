@@ -1,6 +1,8 @@
 #include "MainWindow.h"
 
 #include "dialogs/NewProjectDialog.h"
+#include "git/BranchButton.h"
+#include "git/BranchPopup.h"
 #include "git/DiffDialog.h"
 #include "git/GitDiff.h"
 #include "git/GitPanel.h"
@@ -11,7 +13,9 @@
 #include "explorer/ProjectExplorer.h"
 #include "filesystem/FileManager.h"
 #include "project/ProjectManager.h"
+#include "settings/Icons.h"
 #include "settings/SettingsManager.h"
+#include "settings/Theme.h"
 #include "terminal/Terminal.h"
 
 #include <QAction>
@@ -22,6 +26,7 @@
 #include <QDragEnterEvent>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QHBoxLayout>
 #include <QIcon>
 #include <QKeySequence>
 #include <QLabel>
@@ -121,7 +126,7 @@ void MainWindow::createActions()
         if (!key.isEmpty())
             a->setShortcut(key);
         if (!icon.isEmpty())
-            a->setIcon(QIcon(icon));
+            Icons::bind(a, icon);
         return a;
     };
     using K = Qt::Key;
@@ -299,16 +304,38 @@ void MainWindow::createStatusBar()
         statusBar()->addPermanentWidget(l);
         return l;
     };
-    m_branchButton = new QToolButton(this);
-    m_branchButton->setIcon(QIcon(QStringLiteral(":/icons/branch.svg")));
-    m_branchButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    m_branchButton->setPopupMode(QToolButton::InstantPopup);
-    m_branchButton->setAutoRaise(true);
+    // Git indicator: branch switcher, ahead/behind counters and a changes pill, centred on one line.
+    m_gitStatusWidget = new QWidget(this);
+    auto *gl = new QHBoxLayout(m_gitStatusWidget);
+    gl->setContentsMargins(2, 0, 2, 0);
+    gl->setSpacing(4);
+    m_branchButton = new BranchButton(true, m_gitStatusWidget);
     m_branchButton->setToolTip(tr("Switch or create branch"));
-    m_gitBranchMenu = new QMenu(m_branchButton);
-    m_branchButton->setMenu(m_gitBranchMenu);
-    m_branchButton->hide();
-    statusBar()->addWidget(m_branchButton);
+    connect(m_branchButton, &QAbstractButton::clicked, this, [this] { BranchPopup::open(m_git, m_branchButton, true); });
+    auto counter = [this, gl](const QString &tip) {
+        auto *b = new QToolButton(m_gitStatusWidget);
+        b->setAutoRaise(true);
+        b->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        b->setIconSize(QSize(12, 12));
+        b->setToolTip(tip);
+        b->setCursor(Qt::PointingHandCursor);
+        b->setStyleSheet(QStringLiteral("QToolButton { padding: 1px 4px; font-size: 8pt; }"));
+        b->hide();
+        gl->addWidget(b, 0, Qt::AlignVCenter);
+        return b;
+    };
+    gl->addWidget(m_branchButton, 0, Qt::AlignVCenter);
+    m_behindBtn = counter(tr("Pull"));
+    m_aheadBtn = counter(tr("Push"));
+    connect(m_behindBtn, &QToolButton::clicked, m_git, &GitRepository::pull);
+    connect(m_aheadBtn, &QToolButton::clicked, m_git, &GitRepository::push);
+    m_changesPill = new QLabel(m_gitStatusWidget);
+    m_changesPill->setObjectName(QStringLiteral("countPill"));
+    m_changesPill->setFixedHeight(16);
+    m_changesPill->setAlignment(Qt::AlignCenter);
+    gl->addWidget(m_changesPill, 0, Qt::AlignVCenter);
+    m_gitStatusWidget->hide();
+    statusBar()->addWidget(m_gitStatusWidget);
     m_fileLabel = new QLabel(this);
     statusBar()->addWidget(m_fileLabel, 1);
     m_langLabel = mk(90);
@@ -694,6 +721,7 @@ void MainWindow::setupGit()
     connect(m_explorer, &ProjectExplorer::contentsChanged, m_git, &GitRepository::scheduleRefresh);
 
     connect(m_git, &GitRepository::statusChanged, this, &MainWindow::onGitStatusChanged);
+    connect(&SettingsManager::instance(), &SettingsManager::themeChanged, this, [this] { onGitStatusChanged(); });
     connect(m_git, &GitRepository::repositoryChanged, this, [this] { updateActions(); });
     connect(m_git, &GitRepository::errorOccurred, this, [this](const QString &title, const QString &detail) {
         QMessageBox::warning(this, tr("Git — %1").arg(title), detail);
@@ -721,10 +749,6 @@ void MainWindow::setupGit()
     });
     poll->start();
 
-    connect(m_gitBranchMenu, &QMenu::aboutToShow, this, [this] {
-        m_gitBranchMenu->clear();
-        GitPanel::populateBranchMenu(m_git, m_gitBranchMenu, this);
-    });
     onGitStatusChanged();
 }
 
@@ -732,17 +756,22 @@ void MainWindow::onGitStatusChanged()
 {
     // Status bar branch indicator
     if (m_git->isRepo()) {
-        QString text = m_git->branch().isEmpty() ? tr("(no branch)") : m_git->branch();
-        if (m_git->ahead() > 0)
-            text += QStringLiteral(" ↑%1").arg(m_git->ahead());
-        if (m_git->behind() > 0)
-            text += QStringLiteral(" ↓%1").arg(m_git->behind());
-        if (!m_git->changes().isEmpty())
-            text += QStringLiteral(" ●%1").arg(m_git->changes().size());
-        m_branchButton->setText(text);
-        m_branchButton->show();
+        const QString name = m_git->branch().isEmpty() ? tr("(no branch)") : m_git->branch();
+        m_branchButton->setLabel(m_git->isDetached() ? tr("%1 (detached)").arg(name) : name);
+        const Theme t = Theme::byName(SettingsManager::instance().theme());
+        m_aheadBtn->setIcon(Icons::tinted(QStringLiteral(":/icons/arrow-up.svg"), t.textMuted));
+        m_behindBtn->setIcon(Icons::tinted(QStringLiteral(":/icons/arrow-down.svg"), t.textMuted));
+        m_aheadBtn->setText(QString::number(m_git->ahead()));
+        m_behindBtn->setText(QString::number(m_git->behind()));
+        m_aheadBtn->setVisible(m_git->ahead() > 0);
+        m_behindBtn->setVisible(m_git->behind() > 0);
+        const int changes = m_git->changes().size();
+        m_changesPill->setText(QString::number(changes));
+        m_changesPill->setToolTip(tr("%n changed file(s)", nullptr, changes));
+        m_changesPill->setVisible(changes > 0);
+        m_gitStatusWidget->show();
     } else {
-        m_branchButton->hide();
+        m_gitStatusWidget->hide();
     }
     const int n = m_git->isRepo() ? m_git->changes().size() : 0;
     m_sideTabs->setTabText(1, n > 0 ? tr("Source Control (%1)").arg(n) : tr("Source Control"));

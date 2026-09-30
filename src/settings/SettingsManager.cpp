@@ -15,10 +15,9 @@ SettingsManager &SettingsManager::instance()
 
 QFont SettingsManager::editorFont() const
 {
-    QFont f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-    const QString family = m_settings.value(QStringLiteral("editor/fontFamily")).toString();
-    if (!family.isEmpty())
-        f.setFamily(family);
+    QFont f(m_settings.value(QStringLiteral("editor/fontFamily"), QStringLiteral("JetBrains Mono")).toString());
+    if (!QFontDatabase::families().contains(f.family()))
+        f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     f.setPointSize(m_settings.value(QStringLiteral("editor/fontSize"), 11).toInt());
     f.setStyleHint(QFont::Monospace);
     return f;

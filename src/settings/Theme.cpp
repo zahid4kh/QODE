@@ -135,7 +135,7 @@ QTabBar { background: %1; qproperty-drawBase: 0; }
 QTabBar::tab { background: %1; color: %7; padding: 5px 10px; border: none; border-right: 1px solid %3; min-width: 60px; }
 QTabBar::tab:selected { background: %8; color: %2; border-top: 2px solid %9; }
 QTabBar::tab:hover:!selected { background: %4; }
-QTabBar::close-button { image: url(:/icons/close.svg); subcontrol-position: right; border-radius: 2px; }
+QTabBar::close-button { image: url(%14); subcontrol-position: right; border-radius: 2px; }
 QTabBar::close-button:hover { background: %6; }
 QLineEdit, QSpinBox, QComboBox { background: %8; color: %2; border: 1px solid %3; border-radius: 3px; padding: 3px 5px; selection-background-color: %6; }
 QLineEdit:focus { border-color: %9; }
@@ -143,6 +143,22 @@ QPushButton { background: %4; color: %2; border: 1px solid %3; border-radius: 3p
 QPushButton:hover { border-color: %9; }
 QPushButton:default { border-color: %9; }
 QPushButton:disabled { color: %7; }
+QToolButton::menu-indicator { image: none; width: 0; }
+QToolButton { padding: 4px 5px; }
+QTabBar#scmTabs { background: %1; }
+QTabBar#scmTabs::tab { background: transparent; color: %7; padding: 7px 12px; border: none; border-bottom: 2px solid transparent; min-width: 0; }
+QTabBar#scmTabs::tab:selected { background: transparent; color: %2; border-top: none; border-bottom: 2px solid %9; }
+QTabBar#scmTabs::tab:hover:!selected { background: %4; }
+QPushButton#primaryBtn { background: %9; color: %11; border: 1px solid %9; border-radius: 6px; padding: 6px 12px; font-weight: 600; }
+QPushButton#primaryBtn:hover { background: %12; border-color: %12; }
+QPushButton#primaryBtn:disabled { background: %4; color: %7; border-color: %3; }
+QPushButton#flatBtn { background: transparent; border: none; border-top: 1px solid %3; border-radius: 0; padding: 8px 10px; text-align: left; }
+QPushButton#flatBtn:hover { background: %4; }
+QFrame#branchPopup { background: %5; border: 1px solid %10; border-radius: 8px; }
+QFrame#branchPopup QListWidget { background: transparent; outline: 0; }
+QPlainTextEdit { background: %8; border: 1px solid %3; border-radius: 6px; padding: 4px; selection-background-color: %6; }
+QPlainTextEdit:focus { border-color: %9; }
+QLabel#countPill { background: %13; color: %9; border-radius: 8px; padding: 0 7px; font-weight: 700; font-size: 8pt; }
 QToolButton#findBtn { padding: 2px 6px; }
 QFrame#findBar { background: %5; border-bottom: 1px solid %3; }
 QScrollBar:vertical { background: transparent; width: 12px; margin: 0; }
@@ -163,5 +179,9 @@ QMessageBox, QInputDialog { background: %1; }
              textMuted.name(),   // 7
              editorBg.name(),    // 8
              accent.name(),      // 9
-             gutterFg.name());   // 10
+             gutterFg.name(),    // 10
+             onAccent().name(),  // 11
+             accent.lighter(dark ? 115 : 108).name(), // 12
+             QColor(accent.red(), accent.green(), accent.blue(), dark ? 48 : 36).name(QColor::HexArgb), // 13
+             dark ? QStringLiteral(":/icons/close.svg") : QStringLiteral(":/icons/close-light.svg")); // 14
 }

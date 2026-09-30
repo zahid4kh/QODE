@@ -4,6 +4,7 @@
         <file>icons/folder.svg</file>
         <file>icons/file.svg</file>
         <file>icons/close.svg</file>
+        <file>icons/close-light.svg</file>
         <file>icons/terminal.svg</file>
         <file>icons/new-file.svg</file>
         <file>icons/new-folder.svg</file>
@@ -12,5 +13,45 @@
         <file>icons/find.svg</file>
         <file>icons/refresh.svg</file>
         <file>icons/branch.svg</file>
+        <file>icons/arrow-down.svg</file>
+        <file>icons/arrow-up.svg</file>
+        <file>icons/more.svg</file>
+        <file>icons/plus.svg</file>
+        <file>icons/minus.svg</file>
+        <file>icons/undo.svg</file>
+        <file>icons/chevron-down.svg</file>
+        <file>icons/chevron-right.svg</file>
+        <file>icons/check.svg</file>
+        <file>icons/open-file.svg</file>
+        <file>fonts/JetBrainsMono-Bold.ttf</file>
+        <file>fonts/JetBrainsMono-BoldItalic.ttf</file>
+        <file>fonts/JetBrainsMono-ExtraBold.ttf</file>
+        <file>fonts/JetBrainsMono-ExtraBoldItalic.ttf</file>
+        <file>fonts/JetBrainsMono-ExtraLight.ttf</file>
+        <file>fonts/JetBrainsMono-ExtraLightItalic.ttf</file>
+        <file>fonts/JetBrainsMono-Italic.ttf</file>
+        <file>fonts/JetBrainsMono-Light.ttf</file>
+        <file>fonts/JetBrainsMono-LightItalic.ttf</file>
+        <file>fonts/JetBrainsMono-Medium.ttf</file>
+        <file>fonts/JetBrainsMono-MediumItalic.ttf</file>
+        <file>fonts/JetBrainsMono-Regular.ttf</file>
+        <file>fonts/JetBrainsMono-SemiBold.ttf</file>
+        <file>fonts/JetBrainsMono-SemiBoldItalic.ttf</file>
+        <file>fonts/JetBrainsMono-Thin.ttf</file>
+        <file>fonts/JetBrainsMono-ThinItalic.ttf</file>
+        <file>fonts/PlusJakartaSans-Bold.ttf</file>
+        <file>fonts/PlusJakartaSans-BoldItalic.ttf</file>
+        <file>fonts/PlusJakartaSans-ExtraBold.ttf</file>
+        <file>fonts/PlusJakartaSans-ExtraBoldItalic.ttf</file>
+        <file>fonts/PlusJakartaSans-ExtraLight.ttf</file>
+        <file>fonts/PlusJakartaSans-ExtraLightItalic.ttf</file>
+        <file>fonts/PlusJakartaSans-Italic.ttf</file>
+        <file>fonts/PlusJakartaSans-Light.ttf</file>
+        <file>fonts/PlusJakartaSans-LightItalic.ttf</file>
+        <file>fonts/PlusJakartaSans-Medium.ttf</file>
+        <file>fonts/PlusJakartaSans-MediumItalic.ttf</file>
+        <file>fonts/PlusJakartaSans-Regular.ttf</file>
+        <file>fonts/PlusJakartaSans-SemiBold.ttf</file>
+        <file>fonts/PlusJakartaSans-SemiBoldItalic.ttf</file>
     </qresource>
 </RCC>

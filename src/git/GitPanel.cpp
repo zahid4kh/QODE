@@ -1,8 +1,11 @@
 #include "GitPanel.h"
 
+#include "BranchButton.h"
+#include "BranchPopup.h"
 #include "GitRepository.h"
 #include "PatchDialog.h"
 #include "filesystem/FileManager.h"
+#include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
 
@@ -30,6 +33,7 @@
 #include <QTabBar>
 #include <QTimer>
 #include <QToolButton>
+#include <QToolTip>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -50,13 +54,23 @@ enum Role {
     RoleRefs
 };
 
-// Glyph, tooltip for each row action
-QString glyphFor(int action)
+const char *iconFor(int action)
 {
     switch (action) {
-    case 0: return QStringLiteral("+");     // stage
-    case 1: return QStringLiteral("−");     // unstage
-    default: return QStringLiteral("↩");    // discard
+    case 0: return ":/icons/plus.svg";     // stage
+    case 1: return ":/icons/minus.svg";    // unstage
+    case 2: return ":/icons/undo.svg";     // discard
+    default: return ":/icons/open-file.svg";
+    }
+}
+
+QString tipFor(int action)
+{
+    switch (action) {
+    case 0: return QObject::tr("Stage");
+    case 1: return QObject::tr("Unstage");
+    case 2: return QObject::tr("Discard");
+    default: return QObject::tr("Open File");
     }
 }
 
@@ -90,6 +104,20 @@ public:
             } else if (event->type() == QEvent::Leave) {
                 m_mouse = QPoint(-1, -1);
                 m_view->viewport()->update();
+            } else if (event->type() == QEvent::ToolTip) {
+                const QModelIndex idx = m_view->indexAt(m_mouse);
+                if (idx.isValid()) {
+                    QStyleOptionViewItem o;
+                    o.rect = m_view->visualRect(idx);
+                    o.font = m_view->font();
+                    const Geometry g = geometry(o, idx);
+                    for (const Button &b : g.buttons) {
+                        if (b.rect.contains(m_mouse)) {
+                            QToolTip::showText(QCursor::pos(), tipFor(b.action), m_view->viewport());
+                            return true;
+                        }
+                    }
+                }
             }
         }
         return QStyledItemDelegate::eventFilter(obj, event);
@@ -97,9 +125,8 @@ public:
 
     QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override
     {
-        QSize s = QStyledItemDelegate::sizeHint(option, index);
-        s.setHeight(qMax(s.height(), 24));
-        return s;
+        Q_UNUSED(option)
+        return QSize(0, index.data(RoleIsSection).toBool() ? 30 : 26);
     }
 
     void paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const override
@@ -113,65 +140,66 @@ public:
 
         const bool isSection = index.data(RoleIsSection).toBool();
         const QString letter = index.data(RoleLetter).toString();
-        const QPoint cursor = m_mouse;
-        const bool hover = opt.rect.contains(cursor);
+        const bool hover = opt.rect.contains(m_mouse);
+        const Geometry g = geometry(opt, index);
+        const QFontMetrics fm(opt.font);
+        const int cy = opt.rect.center().y();
 
         p->save();
         p->setRenderHint(QPainter::Antialiasing);
-        const QFontMetrics fm(opt.font);
-        const int cy = opt.rect.center().y();
-        int right = opt.rect.right() - 8;
 
-        // Trailing marker: status letter for files, count pill for sections.
         if (isSection) {
+            const bool open = m_view->isExpanded(index);
+            p->drawPixmap(opt.rect.left() + 10, cy - 5, Icons::pixmap(open ? QStringLiteral(":/icons/chevron-down.svg") : QStringLiteral(":/icons/chevron-right.svg"), m_theme.textMuted, 10));
             const QString count = QString::number(index.data(RoleCount).toInt());
-            const int w = qMax(18, fm.horizontalAdvance(count) + 10);
-            const QRect pill(right - w, cy - 8, w, 16);
             p->setPen(Qt::NoPen);
-            p->setBrush(m_theme.currentLine.lighter(dark() ? 130 : 95));
-            p->drawRoundedRect(pill, 8, 8);
-            p->setPen(m_theme.textMuted);
-            p->setFont(opt.font);
-            p->drawText(pill, Qt::AlignCenter, count);
-            right = pill.left() - 6;
+            p->setBrush(m_theme.accent);
+            QColor tint = m_theme.accent;
+            tint.setAlpha(m_theme.dark ? 50 : 38);
+            p->setBrush(tint);
+            p->drawRoundedRect(g.badge, g.badge.height() / 2.0, g.badge.height() / 2.0);
+            QFont cf = opt.font;
+            cf.setPointSizeF(qMax(7.0, opt.font.pointSizeF() - 1));
+            cf.setWeight(QFont::Bold);
+            p->setFont(cf);
+            p->setPen(m_theme.accent);
+            p->drawText(g.badge, Qt::AlignCenter, count);
         } else if (!letter.isEmpty()) {
+            const GitKind kind = gitKindOfCode(letter.at(0));
+            QColor tint = m_theme.gitColor(kind);
+            tint.setAlpha(m_theme.dark ? 45 : 34);
+            p->setPen(Qt::NoPen);
+            p->setBrush(tint);
+            p->drawRoundedRect(g.badge, 4, 4);
             QFont f = opt.font;
-            f.setBold(true);
+            f.setPointSizeF(qMax(7.0, opt.font.pointSizeF() - 1.5));
+            f.setWeight(QFont::Bold);
             p->setFont(f);
-            const QChar l = gitBadgeLetter(letter.at(0));
-            p->setPen(m_theme.gitColor(gitKindOfCode(letter.at(0))));
-            const int w = QFontMetrics(f).horizontalAdvance(l);
-            p->drawText(QRect(right - w, opt.rect.top(), w, opt.rect.height()), Qt::AlignCenter, QString(l));
-            right -= w + 8;
+            p->setPen(m_theme.gitColor(kind));
+            p->drawText(g.badge, Qt::AlignCenter, QString(gitBadgeLetter(letter.at(0))));
         }
 
-        // Hover actions (drawn right-to-left, in front of the trailing marker).
-        const QList<int> acts = actionsFor(index);
+        // Hover actions sit in front of the badge.
         if (hover) {
-            for (int i = acts.size() - 1; i >= 0; --i) {
-                const QRect b(right - 20, cy - 10, 20, 20);
-                if (b.contains(cursor)) {
+            for (const Button &b : g.buttons) {
+                if (b.rect.contains(m_mouse)) {
                     p->setPen(Qt::NoPen);
-                    p->setBrush(m_theme.selection);
-                    p->drawRoundedRect(b, 3, 3);
+                    p->setBrush(m_theme.dark ? m_theme.selection : m_theme.border);
+                    p->drawRoundedRect(b.rect, 4, 4);
                 }
-                QFont f = opt.font;
-                f.setPointSizeF(opt.font.pointSizeF() + 2);
-                p->setFont(f);
-                p->setPen(m_theme.editorFg);
-                p->drawText(b, Qt::AlignCenter, glyphFor(acts.at(i)));
-                right = b.left() - 2;
+                p->drawPixmap(b.rect.center().x() - 7, b.rect.center().y() - 7, Icons::pixmap(QString::fromLatin1(iconFor(b.action)), m_theme.editorFg, 14));
             }
         }
 
         // Text
-        const int textLeft = opt.rect.left() + 6;
-        QRect textRect(textLeft, opt.rect.top(), qMax(0, right - textLeft), opt.rect.height());
+        const int textLeft = opt.rect.left() + (isSection ? 26 : 22);
+        QRect textRect(textLeft, opt.rect.top(), qMax(0, g.textRight - textLeft), opt.rect.height());
         p->setClipRect(textRect);
         if (isSection) {
             QFont f = opt.font;
-            f.setBold(true);
-            f.setPointSizeF(qMax(7.0, opt.font.pointSizeF() - 1));
+            f.setWeight(QFont::Bold);
+            f.setPointSizeF(qMax(7.0, opt.font.pointSizeF() - 1.5));
+            f.setLetterSpacing(QFont::AbsoluteSpacing, 0.7);
             p->setFont(f);
             p->setPen(m_theme.textMuted);
             p->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, index.data(Qt::DisplayRole).toString().toUpper());
@@ -204,21 +232,24 @@ public:
         if (event->type() == QEvent::MouseButtonRelease) {
             auto *me = static_cast<QMouseEvent *>(event);
             if (me->button() == Qt::LeftButton) {
-                const QList<int> acts = actionsFor(index);
-                const QRect base = trailingRect(option, index);
-                int right = base.left();
-                const int cy = option.rect.center().y();
-                for (int i = acts.size() - 1; i >= 0; --i) {
-                    const QRect b(right - 20, cy - 10, 20, 20);
-                    if (b.contains(me->pos())) {
+                const bool isSection = index.data(RoleIsSection).toBool();
+                const Geometry g = geometry(option, index);
+                for (const Button &b : g.buttons) {
+                    if (b.rect.contains(me->pos())) {
                         const QString path = index.data(RolePath).toString();
                         const int section = index.data(RoleSection).toInt();
-                        const bool isSection = index.data(RoleIsSection).toBool();
-                        const int action = acts.at(i);
+                        const int action = b.action;
                         QTimer::singleShot(0, m_view, [this, path, section, action, isSection] { m_handler(path, section, action, isSection); });
                         return true;
                     }
-                    right = b.left() - 2;
+                }
+                if (isSection) {
+                    const QPersistentModelIndex pi(index);
+                    QTimer::singleShot(0, m_view, [this, pi] {
+                        if (pi.isValid())
+                            m_view->setExpanded(pi, !m_view->isExpanded(pi));
+                    });
+                    return true;
                 }
             }
         }
@@ -226,35 +257,61 @@ public:
     }
 
 private:
-    bool dark() const { return m_theme.dark; }
+    struct Button {
+        int action;
+        QRect rect;
+    };
+    struct Geometry {
+        QRect badge;          // status letter / count pill
+        QList<Button> buttons; // hover actions, left-to-right
+        int textRight = 0;
+    };
+
+    // The single source of truth for where things are, shared by paint(), hit testing and tooltips.
+    Geometry geometry(const QStyleOptionViewItem &option, const QModelIndex &index) const
+    {
+        Geometry g;
+        const QFontMetrics fm(option.font);
+        const QRect r = option.rect;
+        const int cy = r.center().y();
+        int right = r.right() - 10;
+        if (index.data(RoleIsSection).toBool()) {
+            const QString count = QString::number(index.data(RoleCount).toInt());
+            const int w = qMax(20, fm.horizontalAdvance(count) + 12);
+            g.badge = QRect(right - w + 1, cy - 9, w, 18);
+        } else if (!index.data(RoleLetter).toString().isEmpty()) {
+            g.badge = QRect(right - 17, cy - 9, 18, 18);
+        } else {
+            g.badge = QRect(right, cy, 0, 0);
+        }
+        right = g.badge.left() - 4;
+        const bool hover = r.contains(m_mouse);
+        if (hover) {
+            const QList<int> acts = actionsFor(index);
+            for (int i = acts.size() - 1; i >= 0; --i) {
+                g.buttons.prepend({acts.at(i), QRect(right - 22, cy - 11, 22, 22)});
+                right -= 24;
+            }
+        }
+        g.textRight = right - 4;
+        return g;
+    }
 
     static QList<int> actionsFor(const QModelIndex &index)
     {
         const int section = index.data(RoleSection).toInt();
+        const bool isSection = index.data(RoleIsSection).toBool();
+        const bool deleted = index.data(RoleLetter).toString() == QLatin1String("D");
+        QList<int> a;
+        if (!isSection && !deleted)
+            a << 3;
         if (section == 1) // staged
-            return {1};
-        if (section == 0) // conflicts
-            return {0};
-        return {2, 0};
-    }
-
-    // The area taken by the trailing marker; hover buttons sit to the left of it.
-    QRect trailingRect(const QStyleOptionViewItem &option, const QModelIndex &index) const
-    {
-        const QFontMetrics fm(option.font);
-        int right = option.rect.right() - 8;
-        if (index.data(RoleIsSection).toBool()) {
-            const QString count = QString::number(index.data(RoleCount).toInt());
-            const int w = qMax(18, fm.horizontalAdvance(count) + 10);
-            return QRect(right - w - 6, option.rect.top(), w + 6, option.rect.height());
-        }
-        const QString letter = index.data(RoleLetter).toString();
-        if (letter.isEmpty())
-            return QRect(right, option.rect.top(), 0, option.rect.height());
-        QFont f = option.font;
-        f.setBold(true);
-        const int w = QFontMetrics(f).horizontalAdvance(gitBadgeLetter(letter.at(0))) + 8;
-        return QRect(right - w, option.rect.top(), w, option.rect.height());
+            a << 1;
+        else if (section == 0) // conflicts
+            a << 0;
+        else
+            a << 2 << 0;
+        return a;
     }
 
     QTreeWidget *m_view;
@@ -277,7 +334,7 @@ public:
 
     QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &) const override
     {
-        return QSize(0, QFontMetrics(option.font).height() * 2 + 12);
+        return QSize(0, QFontMetrics(option.font).height() * 2 + 14);
     }
 
     void paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const override
@@ -289,45 +346,62 @@ public:
         style->drawControl(QStyle::CE_ItemViewItem, &opt, p, opt.widget);
 
         p->save();
+        p->setRenderHint(QPainter::Antialiasing);
         const QFontMetrics fm(opt.font);
-        QRect r = opt.rect.adjusted(10, 4, -8, -4);
+        const bool placeholder = index.data(RoleHash).toString().isEmpty();
+
+        // Timeline: a rail through every row with a dot per commit (the tip commit is green).
+        const int railX = opt.rect.left() + 16;
+        const int dotY = opt.rect.top() + 4 + fm.height() / 2 + 1;
+        if (!placeholder) {
+            const QTreeWidget *tree = qobject_cast<const QTreeWidget *>(opt.widget);
+            const bool last = tree && index.row() == tree->topLevelItemCount() - 1;
+            p->setPen(QPen(m_theme.border.lighter(m_theme.dark ? 180 : 100), 1.5));
+            p->drawLine(railX, index.row() == 0 ? dotY : opt.rect.top(), railX, last ? dotY : opt.rect.bottom() + 1);
+            p->setPen(QPen(index.row() == 0 ? m_theme.gitAdded : m_theme.accent, 2));
+            p->setBrush(m_theme.panel);
+            p->drawEllipse(QPointF(railX, dotY), 4, 4);
+        }
+
+        QRect r = opt.rect.adjusted(placeholder ? 10 : 32, 4, -10, -4);
         p->setClipRect(r);
-        // Line 1: ref labels + subject
         int x = r.left();
         const QString refs = index.data(RoleRefs).toString();
         if (!refs.isEmpty()) {
             QFont f = opt.font;
             f.setPointSizeF(qMax(7.0, opt.font.pointSizeF() - 1.5));
-            f.setBold(true);
+            f.setWeight(QFont::Bold);
             p->setFont(f);
             const QFontMetrics rf(f);
             for (QString ref : refs.split(QLatin1String(", "), Qt::SkipEmptyParts)) {
+                const bool head = ref.startsWith(QLatin1String("HEAD -> "));
                 ref.replace(QLatin1String("HEAD -> "), QString());
-                const int w = rf.horizontalAdvance(ref) + 10;
+                const int w = rf.horizontalAdvance(ref) + 12;
                 if (x + w > r.right())
                     break;
                 const QRect pill(x, r.top() + 1, w, fm.height() - 2);
+                const QColor c = head ? m_theme.gitAdded : m_theme.accent;
+                QColor bg = c;
+                bg.setAlpha(m_theme.dark ? 48 : 36);
                 p->setPen(Qt::NoPen);
-                p->setBrush(m_theme.accent);
-                p->setRenderHint(QPainter::Antialiasing);
-                p->drawRoundedRect(pill, 3, 3);
-                p->setPen(m_theme.window);
+                p->setBrush(bg);
+                p->drawRoundedRect(pill, pill.height() / 2.0, pill.height() / 2.0);
+                p->setPen(c);
                 p->drawText(pill, Qt::AlignCenter, ref);
-                x += w + 5;
+                x += w + 6;
             }
         }
         p->setFont(opt.font);
-        p->setPen(m_theme.editorFg);
+        p->setPen(placeholder ? m_theme.textMuted : m_theme.editorFg);
         const QString subject = index.data(Qt::DisplayRole).toString();
         p->drawText(QRect(x, r.top(), r.right() - x, fm.height()), Qt::AlignVCenter | Qt::AlignLeft,
                     fm.elidedText(subject, Qt::ElideRight, r.right() - x));
-        // Line 2: hash · author · date
         QFont mf = opt.font;
         mf.setPointSizeF(qMax(7.0, opt.font.pointSizeF() - 1));
         p->setFont(mf);
         p->setPen(m_theme.textMuted);
         const QFontMetrics mfm(mf);
-        p->drawText(QRect(r.left(), r.top() + fm.height() + 2, r.width(), mfm.height()), Qt::AlignVCenter | Qt::AlignLeft,
+        p->drawText(QRect(r.left(), r.top() + fm.height() + 3, r.width(), mfm.height()), Qt::AlignVCenter | Qt::AlignLeft,
                     mfm.elidedText(index.data(RoleMeta).toString(), Qt::ElideRight, r.width()));
         p->restore();
     }
@@ -336,12 +410,14 @@ private:
     Theme m_theme;
 };
 
-QToolButton *makeToolButton(QWidget *parent, const QString &text, const QString &tip)
+QToolButton *makeToolButton(QWidget *parent, const QString &tip)
 {
     auto *b = new QToolButton(parent);
-    b->setText(text);
     b->setToolTip(tip);
     b->setAutoRaise(true);
+    b->setCursor(Qt::PointingHandCursor);
+    b->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    b->setIconSize(QSize(16, 16));
     return b;
 }
 
@@ -374,22 +450,15 @@ GitPanel::GitPanel(GitRepository *repo, QWidget *parent)
 
     auto *bar = new QWidget(repoPage);
     auto *bl = new QHBoxLayout(bar);
-    bl->setContentsMargins(6, 4, 6, 4);
+    bl->setContentsMargins(8, 8, 8, 8);
     bl->setSpacing(2);
-    m_branchBtn = new QToolButton(bar);
-    m_branchBtn->setIcon(QIcon(QStringLiteral(":/icons/branch.svg")));
-    m_branchBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    m_branchBtn->setPopupMode(QToolButton::InstantPopup);
+    m_branchBtn = new BranchButton(false, bar);
     m_branchBtn->setToolTip(tr("Switch or create branch"));
-    m_branchBtn->setMenu(new QMenu(m_branchBtn));
-    connect(m_branchBtn->menu(), &QMenu::aboutToShow, this, [this] {
-        m_branchBtn->menu()->clear();
-        populateBranchMenu(m_repo, m_branchBtn->menu(), this);
-    });
-    m_pullBtn = makeToolButton(bar, QStringLiteral("↓"), tr("Pull"));
-    m_pushBtn = makeToolButton(bar, QStringLiteral("↑"), tr("Push"));
-    m_refreshBtn = makeToolButton(bar, QStringLiteral("⟳"), tr("Refresh"));
-    m_moreBtn = makeToolButton(bar, QStringLiteral("⋯"), tr("More actions"));
+    connect(m_branchBtn, &QAbstractButton::clicked, this, [this] { BranchPopup::open(m_repo, m_branchBtn, false); });
+    m_pullBtn = makeToolButton(bar, tr("Pull"));
+    m_pushBtn = makeToolButton(bar, tr("Push"));
+    m_refreshBtn = makeToolButton(bar, tr("Refresh"));
+    m_moreBtn = makeToolButton(bar, tr("More actions"));
     m_moreBtn->setPopupMode(QToolButton::InstantPopup);
     m_moreBtn->setMenu(new QMenu(m_moreBtn));
     connect(m_moreBtn->menu(), &QMenu::aboutToShow, this, &GitPanel::showMoreMenu);
@@ -397,6 +466,7 @@ GitPanel::GitPanel(GitRepository *repo, QWidget *parent)
     m_busyLabel->setObjectName(QStringLiteral("emptyText"));
     m_busyLabel->hide();
     bl->addWidget(m_branchBtn);
+    bl->addSpacing(6);
     bl->addWidget(m_busyLabel);
     bl->addStretch(1);
     bl->addWidget(m_pullBtn);
@@ -408,6 +478,7 @@ GitPanel::GitPanel(GitRepository *repo, QWidget *parent)
     connect(m_refreshBtn, &QToolButton::clicked, m_repo, &GitRepository::refresh);
 
     m_tabs = new QTabBar(repoPage);
+    m_tabs->setObjectName(QStringLiteral("scmTabs"));
     m_tabs->addTab(tr("Changes"));
     m_tabs->addTab(tr("History"));
     m_tabs->setExpanding(true);
@@ -420,17 +491,21 @@ GitPanel::GitPanel(GitRepository *repo, QWidget *parent)
     cl->setSpacing(0);
     auto *commitBox = new QWidget(changes);
     auto *cbl = new QVBoxLayout(commitBox);
-    cbl->setContentsMargins(8, 8, 8, 8);
-    cbl->setSpacing(6);
+    cbl->setContentsMargins(10, 10, 10, 10);
+    cbl->setSpacing(8);
     m_message = new QPlainTextEdit(commitBox);
     m_message->setPlaceholderText(tr("Message (Ctrl+Enter to commit)"));
-    m_message->setFixedHeight(64);
+    m_message->setFixedHeight(72);
     m_message->setTabChangesFocus(true);
     auto *row = new QHBoxLayout;
-    m_commitBtn = new QPushButton(tr("✓ Commit"), commitBox);
+    m_commitBtn = new QPushButton(tr("Commit"), commitBox);
+    m_commitBtn->setObjectName(QStringLiteral("primaryBtn"));
+    m_commitBtn->setCursor(Qt::PointingHandCursor);
+    m_commitBtn->setIconSize(QSize(14, 14));
     m_commitBtn->setDefault(false);
     m_amend = new QCheckBox(tr("Amend"), commitBox);
     m_amend->setToolTip(tr("Replace the last commit instead of creating a new one"));
+    row->setSpacing(10);
     row->addWidget(m_commitBtn, 1);
     row->addWidget(m_amend);
     cbl->addWidget(m_message);
@@ -442,13 +517,15 @@ GitPanel::GitPanel(GitRepository *repo, QWidget *parent)
     m_tree->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_tree->setMouseTracking(true);
     m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
-    m_tree->setIndentation(6);
+    m_tree->setIndentation(0);
+    m_tree->setRootIsDecorated(false);
+    m_tree->setFocusPolicy(Qt::NoFocus);
     m_tree->setUniformRowHeights(true);
     m_tree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_tree->setItemDelegate(new ChangeDelegate(m_tree, [this](const QString &path, int section, int action, bool isSection) {
         onAction(path, section, action, isSection);
     }));
-    m_noChanges = new QLabel(tr("No changes"), changes);
+    m_noChanges = new QLabel(tr("No changes — working tree clean"), changes);
     m_noChanges->setObjectName(QStringLiteral("emptyText"));
     m_noChanges->setAlignment(Qt::AlignCenter);
     cl->addWidget(m_tree, 1);
@@ -519,6 +596,8 @@ GitPanel::GitPanel(GitRepository *repo, QWidget *parent)
     connect(m_repo, &GitRepository::repositoryChanged, this, &GitPanel::onRepositoryChanged);
     connect(m_repo, &GitRepository::statusChanged, this, &GitPanel::onStatusChanged);
     connect(m_repo, &GitRepository::busyChanged, this, [this] { updateToolbar(); });
+    connect(&SettingsManager::instance(), &SettingsManager::themeChanged, this, [this] { applyTheme(); });
+    applyTheme();
     onRepositoryChanged();
 }
 
@@ -571,15 +650,25 @@ void GitPanel::updateToolbar()
     QString branch = m_repo->branch();
     if (branch.isEmpty())
         branch = tr("(no branch)");
-    m_branchBtn->setText(m_repo->isDetached() ? tr("%1 (detached)").arg(branch) : branch);
-    m_pullBtn->setText(m_repo->behind() > 0 ? QStringLiteral("↓%1").arg(m_repo->behind()) : QStringLiteral("↓"));
-    m_pushBtn->setText(m_repo->ahead() > 0 ? QStringLiteral("↑%1").arg(m_repo->ahead()) : QStringLiteral("↑"));
+    m_branchBtn->setLabel(m_repo->isDetached() ? tr("%1 (detached)").arg(branch) : branch);
+    m_pullBtn->setText(m_repo->behind() > 0 ? QString::number(m_repo->behind()) : QString());
+    m_pushBtn->setText(m_repo->ahead() > 0 ? QString::number(m_repo->ahead()) : QString());
     m_pullBtn->setToolTip(m_repo->upstream().isEmpty() ? tr("Pull") : tr("Pull from %1 (%2 behind)").arg(m_repo->upstream()).arg(m_repo->behind()));
     m_pushBtn->setToolTip(m_repo->upstream().isEmpty() ? tr("Publish branch") : tr("Push to %1 (%2 ahead)").arg(m_repo->upstream()).arg(m_repo->ahead()));
     for (QWidget *w : {static_cast<QWidget *>(m_pullBtn), static_cast<QWidget *>(m_pushBtn), static_cast<QWidget *>(m_commitBtn)})
         w->setEnabled(idle);
     m_busyLabel->setVisible(!idle);
-    m_commitBtn->setText(m_amend->isChecked() ? tr("✓ Amend Commit") : tr("✓ Commit"));
+    m_commitBtn->setText(m_amend->isChecked() ? tr("Amend Commit") : tr("Commit"));
+}
+
+void GitPanel::applyTheme()
+{
+    const Theme t = Theme::byName(SettingsManager::instance().theme());
+    m_pullBtn->setIcon(Icons::tinted(QStringLiteral(":/icons/arrow-down.svg"), t.editorFg));
+    m_pushBtn->setIcon(Icons::tinted(QStringLiteral(":/icons/arrow-up.svg"), t.editorFg));
+    m_refreshBtn->setIcon(Icons::tinted(QStringLiteral(":/icons/refresh.svg"), t.editorFg));
+    m_moreBtn->setIcon(Icons::tinted(QStringLiteral(":/icons/more.svg"), t.editorFg));
+    m_commitBtn->setIcon(Icons::tinted(QStringLiteral(":/icons/check.svg"), t.onAccent(), t.onAccent()));
 }
 
 QList<GitFileChange> GitPanel::changesForSection(int section) const
@@ -682,6 +771,7 @@ void GitPanel::onAction(const QString &path, int section, int action, bool isSec
     case ActStage: m_repo->stage(paths); break;
     case ActUnstage: m_repo->unstage(paths); break;
     case ActDiscard: discardPaths(paths); break;
+    case ActOpen: emit openFileRequested(path); break;
     }
 }
 
@@ -859,8 +949,28 @@ void GitPanel::populateBranchMenu(GitRepository *repo, QMenu *menu, QWidget *dia
 {
     QMenu *remote = nullptr;
     QMenu *del = nullptr;
+    const Theme theme = Theme::byName(SettingsManager::instance().theme());
+    auto dot = [](const QColor &c) {
+        QPixmap pm(32, 32);
+        pm.fill(Qt::transparent);
+        if (c.isValid()) {
+            QPainter p(&pm);
+            p.setRenderHint(QPainter::Antialiasing);
+            p.setPen(Qt::NoPen);
+            p.setBrush(c);
+            p.drawEllipse(QRectF(8, 8, 16, 16));
+        }
+        pm.setDevicePixelRatio(2.0);
+        return QIcon(pm);
+    };
+    QSet<QString> locals;
+    for (const GitBranchInfo &b : repo->branches())
+        if (!b.remote)
+            locals.insert(b.name);
     for (const GitBranchInfo &b : repo->branches()) {
         if (b.remote) {
+            if (locals.contains(b.name.section(QLatin1Char('/'), 1)))
+                continue;
             if (!remote)
                 remote = new QMenu(QObject::tr("Remote Branches"), menu);
             const QString name = b.name;
@@ -868,9 +978,12 @@ void GitPanel::populateBranchMenu(GitRepository *repo, QMenu *menu, QWidget *dia
             continue;
         }
         const QString name = b.name;
-        QAction *a = menu->addAction(name, repo, [repo, name] { repo->checkout(name); });
-        a->setCheckable(true);
-        a->setChecked(b.current);
+        QAction *a = menu->addAction(dot(b.current ? theme.gitAdded : QColor()), name, repo, [repo, name] { repo->checkout(name); });
+        if (b.current) {
+            QFont f = menu->font();
+            f.setBold(true);
+            a->setFont(f);
+        }
         if (!b.current) {
             if (!del)
                 del = new QMenu(QObject::tr("Delete Branch"), menu);

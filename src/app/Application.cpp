@@ -7,6 +7,9 @@
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
 
+#include <QDir>
+#include <QFont>
+#include <QFontDatabase>
 #include <QIcon>
 #include <QPalette>
 #include <QStyleFactory>
@@ -20,6 +23,14 @@ Application::Application(int &argc, char **argv)
     setDesktopFileName(QStringLiteral("qode"));
     setWindowIcon(QIcon(QStringLiteral(":/icons/qode.svg")));
     setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+
+    // Bundled fonts: Plus Jakarta Sans for the UI, JetBrains Mono for code (see SettingsManager::editorFont).
+    const QStringList fonts = QDir(QStringLiteral(":/fonts")).entryList({QStringLiteral("*.ttf")});
+    for (const QString &f : fonts)
+        QFontDatabase::addApplicationFont(QStringLiteral(":/fonts/") + f);
+    QFont ui(QStringLiteral("Plus Jakarta Sans"));
+    ui.setPointSizeF(9.5);
+    setFont(ui);
 
     applyTheme(SettingsManager::instance().theme());
     connect(&SettingsManager::instance(), &SettingsManager::themeChanged, this, &Application::applyTheme);

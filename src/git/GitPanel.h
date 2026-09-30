@@ -5,6 +5,7 @@
 #include <QSet>
 #include <QWidget>
 
+class BranchButton;
 class GitRepository;
 class QCheckBox;
 class QLabel;
@@ -39,11 +40,12 @@ signals:
 
 private:
     enum Section { SecConflicts = 0, SecStaged = 1, SecChanges = 2 };
-    enum Action { ActStage, ActUnstage, ActDiscard };
+    enum Action { ActStage, ActUnstage, ActDiscard, ActOpen };
 
     void onRepositoryChanged();
     void onStatusChanged();
     void updateToolbar();
+    void applyTheme();
     void rebuildTree();
     void loadHistory();
     void commit();
@@ -61,7 +63,8 @@ private:
     QLabel *m_messageLabel;
     QPushButton *m_initButton;
 
-    QToolButton *m_branchBtn, *m_pullBtn, *m_pushBtn, *m_refreshBtn, *m_moreBtn;
+    BranchButton *m_branchBtn;
+    QToolButton *m_pullBtn, *m_pushBtn, *m_refreshBtn, *m_moreBtn;
     QLabel *m_busyLabel;
     QTabBar *m_tabs;
     QStackedWidget *m_body;    // 0 changes, 1 history

@@ -20,5 +20,6 @@ struct Theme {
     static Theme byName(const QString &name);
 
     QColor gitColor(GitKind kind) const;
+    QColor onAccent() const { return dark ? window : QColor(Qt::white); } // text on accent-filled buttons
     QString styleSheet() const;
 };

@@ -19,6 +19,7 @@ SOURCES += \
     src/app/Application.cpp \
     src/settings/SettingsManager.cpp \
     src/settings/Theme.cpp \
+    src/settings/Icons.cpp \
     src/filesystem/FileManager.cpp \
     src/project/ProjectManager.cpp \
     src/project/ProjectModel.cpp \
@@ -27,6 +28,8 @@ SOURCES += \
     src/git/GitDiff.cpp \
     src/git/GitRepository.cpp \
     src/git/GitPanel.cpp \
+    src/git/BranchButton.cpp \
+    src/git/BranchPopup.cpp \
     src/git/DiffDialog.cpp \
     src/git/PatchDialog.cpp \
     src/dialogs/NewProjectDialog.cpp \
@@ -48,6 +51,7 @@ HEADERS += \
     src/app/Application.h \
     src/settings/SettingsManager.h \
     src/settings/Theme.h \
+    src/settings/Icons.h \
     src/filesystem/FileManager.h \
     src/project/Project.h \
     src/project/ProjectManager.h \
@@ -58,6 +62,8 @@ HEADERS += \
     src/git/GitDiff.h \
     src/git/GitRepository.h \
     src/git/GitPanel.h \
+    src/git/BranchButton.h \
+    src/git/BranchPopup.h \
     src/git/DiffDialog.h \
     src/git/PatchDialog.h \
     src/dialogs/NewProjectDialog.h \

@@ -1,6 +1,7 @@
 #include "FindBar.h"
 
 #include "CodeEditor.h"
+#include "settings/Icons.h"
 
 #include <QEvent>
 #include <QHBoxLayout>
@@ -40,7 +41,7 @@ FindBar::FindBar(QWidget *parent)
     nextBtn->setToolTip(tr("Next match (Enter)"));
     auto *close = new QToolButton(this);
     close->setObjectName(QStringLiteral("findBtn"));
-    close->setIcon(QIcon(QStringLiteral(":/icons/close.svg")));
+    Icons::bind(close, QStringLiteral(":/icons/close.svg"));
     close->setToolTip(tr("Close (Esc)"));
 
     auto *findRow = new QHBoxLayout;

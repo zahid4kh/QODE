@@ -19,6 +19,7 @@ class QMenu;
 class QSplitter;
 class QStackedWidget;
 class QTabBar;
+class BranchButton;
 class QToolButton;
 class Terminal;
 
@@ -95,8 +96,10 @@ private:
 
     QAction *m_scmAct, *m_gitRefreshAct, *m_gitFetchAct, *m_gitPullAct, *m_gitPushAct, *m_gitInitAct, *m_gitNewBranchAct;
     QAction *m_gitStageFileAct, *m_gitUnstageFileAct, *m_gitDiscardFileAct, *m_gitDiffFileAct, *m_nextChangeAct, *m_prevChangeAct;
-    QMenu *m_gitBranchMenu;
-    QToolButton *m_branchButton;
+    QWidget *m_gitStatusWidget;
+    BranchButton *m_branchButton;
+    QToolButton *m_aheadBtn, *m_behindBtn;
+    QLabel *m_changesPill;
     QString m_lastHead, m_lastRoot;
     QHash<QString, QPointer<DiffDialog>> m_diffs;
 

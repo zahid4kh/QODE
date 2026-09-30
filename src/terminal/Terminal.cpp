@@ -4,6 +4,7 @@
 #include "TerminalScreen.h"
 #include "TerminalView.h"
 #include "filesystem/FileManager.h"
+#include "settings/Icons.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -34,7 +35,7 @@ Terminal::Terminal(QWidget *parent)
     auto *clearBtn = makeBtn(tr("Clear"), tr("Clear terminal (scrollback and screen)"));
     m_restartBtn = makeBtn(tr("Restart"), tr("Terminate the shell and start a new one"));
     auto *closeBtn = new QToolButton(this);
-    closeBtn->setIcon(QIcon(QStringLiteral(":/icons/close.svg")));
+    Icons::bind(closeBtn, QStringLiteral(":/icons/close.svg"));
     closeBtn->setToolTip(tr("Hide terminal (Ctrl+J)"));
     closeBtn->setAutoRaise(true);
 

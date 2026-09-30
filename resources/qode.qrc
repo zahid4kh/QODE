@@ -1,6 +1,13 @@
 <RCC>
     <qresource prefix="/">
         <file>icons/qode.svg</file>
+        <file>icons/qode-16.png</file>
+        <file>icons/qode-32.png</file>
+        <file>icons/qode-48.png</file>
+        <file>icons/qode-64.png</file>
+        <file>icons/qode-128.png</file>
+        <file>icons/qode-256.png</file>
+        <file>icons/qode-512.png</file>
         <file>new-icons/cog.svg</file>
         <file>new-icons/file-code.svg</file>
         <file>new-icons/file-json.svg</file>

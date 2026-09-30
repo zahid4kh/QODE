@@ -117,3 +117,8 @@ desktop.path = $$PREFIX/share/applications
 icon.files = resources/icons/qode.svg
 icon.path = $$PREFIX/share/icons/hicolor/scalable/apps
 INSTALLS += target desktop icon
+for(sz, 16 32 48 64 128 256 512) {
+    icon$${sz}.files = resources/icons/qode-$${sz}.png
+    icon$${sz}.path = $$PREFIX/share/icons/hicolor/$${sz}x$${sz}/apps
+    INSTALLS += icon$${sz}
+}

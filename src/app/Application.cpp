@@ -21,7 +21,10 @@ Application::Application(int &argc, char **argv)
     setOrganizationName(QStringLiteral("QODE"));
     setApplicationVersion(QStringLiteral(QODE_VERSION));
     setDesktopFileName(QStringLiteral("qode"));
-    setWindowIcon(QIcon(QStringLiteral(":/icons/qode.svg")));
+    QIcon appIcon;
+    for (int size : {16, 32, 48, 64, 128, 256, 512})
+        appIcon.addFile(QStringLiteral(":/icons/qode-%1.png").arg(size), QSize(size, size));
+    setWindowIcon(appIcon);
     setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
 
     // Bundled fonts: Plus Jakarta Sans for the UI, JetBrains Mono for code (see SettingsManager::editorFont).

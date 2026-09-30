@@ -15,12 +15,27 @@ SOURCES += \
     src/app/Application.cpp \
     src/settings/SettingsManager.cpp \
     src/settings/Theme.cpp \
+    src/filesystem/FileManager.cpp \
+    src/project/ProjectManager.cpp \
+    src/project/ProjectModel.cpp \
+    src/explorer/ProjectExplorer.cpp \
+    src/dialogs/NewProjectDialog.cpp \
+    src/dialogs/NewFileDialog.cpp \
+    src/dialogs/UnsavedChangesDialog.cpp \
     src/window/MainWindow.cpp
 
 HEADERS += \
     src/app/Application.h \
     src/settings/SettingsManager.h \
     src/settings/Theme.h \
+    src/filesystem/FileManager.h \
+    src/project/Project.h \
+    src/project/ProjectManager.h \
+    src/project/ProjectModel.h \
+    src/explorer/ProjectExplorer.h \
+    src/dialogs/NewProjectDialog.h \
+    src/dialogs/NewFileDialog.h \
+    src/dialogs/UnsavedChangesDialog.h \
     src/window/MainWindow.h
 
 RESOURCES += resources/qode.qrc

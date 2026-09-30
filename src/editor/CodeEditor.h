@@ -1,5 +1,7 @@
 #pragma once
 
+#include "git/GitDiff.h"
+
 #include <QElapsedTimer>
 #include <QPlainTextEdit>
 
@@ -29,6 +31,15 @@ public:
     void applySettings(); // font, tab size, wrapping from SettingsManager
     void applyTheme();
 
+    // --- Git change markers -------------------------------------------------
+    // The committed (HEAD) text of this file; the gutter marks lines that differ from it.
+    void setDiffBase(const QStringList &lines);
+    void clearDiffBase();
+    bool hasDiffBase() const { return m_hasBase; }
+    int changeCount() const { return m_hunks.size(); }
+    void gotoChange(bool next);
+    void gutterClicked(const QPoint &pos);
+
 signals:
     void filesDropped(const QStringList &paths);
     void searchResultsChanged();
@@ -52,6 +63,9 @@ private:
     void indentSelection(bool outdent);
     void handleBackspaceInIndent(QKeyEvent *event);
     bool selectionIsMatch() const;
+    void recomputeDiff();
+    void showHunkPopup(int hunkIndex, const QPoint &globalPos);
+    void revertHunk(int hunkIndex);
 
     QWidget *m_lineArea;
     QString m_term;
@@ -63,4 +77,12 @@ private:
     bool m_indentAfterColon = false;
 
     QColor m_gutterBg, m_gutterFg, m_gutterActive, m_currentLine, m_matchBg, m_border;
+    QColor m_markAdded, m_markModified, m_markDeleted, m_diffAddBg, m_diffDelBg;
+
+    bool m_hasBase = false;
+    QStringList m_base;
+    QVector<GitDiff::Hunk> m_hunks;
+    QHash<int, int> m_hunkAtLine; // line -> hunk index (added/modified lines)
+    QHash<int, int> m_deletedAt;  // line above which lines were removed -> hunk index
+    QTimer *m_diffTimer;
 };

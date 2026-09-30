@@ -1,5 +1,8 @@
 #include "ProjectModel.h"
 
+#include "git/GitRepository.h"
+
+#include <QDir>
 #include <QFileInfo>
 #include <QFileSystemModel>
 
@@ -12,6 +15,25 @@ void ProjectModel::setProjectRoot(const QString &root)
 {
     m_root = root;
     invalidateFilter();
+}
+
+QVariant ProjectModel::data(const QModelIndex &index, int role) const
+{
+    if (role == PathRole || role == Qt::ToolTipRole) {
+        if (auto *fs = qobject_cast<QFileSystemModel *>(sourceModel())) {
+            const QString path = fs->filePath(mapToSource(index));
+            if (role == PathRole)
+                return path;
+            QString tip = QDir::toNativeSeparators(path);
+            if (m_git) {
+                const GitPathState st = m_git->stateOf(path);
+                if (st.kind != GitKind::None)
+                    tip += QLatin1Char('\n') + gitDescribe(st);
+            }
+            return tip;
+        }
+    }
+    return QSortFilterProxyModel::data(index, role);
 }
 
 bool ProjectModel::filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const

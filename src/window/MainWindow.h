@@ -1,15 +1,25 @@
 #pragma once
 
+#include "git/GitTypes.h"
 #include "project/Project.h"
 
+#include <QHash>
 #include <QMainWindow>
+#include <QPointer>
 
+class DiffDialog;
 class Document;
+class GitPanel;
+class GitRepository;
 class EditorManager;
 class ProjectManager;
 class ProjectExplorer;
 class QLabel;
+class QMenu;
 class QSplitter;
+class QStackedWidget;
+class QTabBar;
+class QToolButton;
 class Terminal;
 
 class MainWindow : public QMainWindow
@@ -50,7 +60,25 @@ private:
     void about();
     void forwardToFocus(const char *slot);
 
+    // Git
+    void createGitActions();
+    void createGitMenu(QMenu *menu);
+    void setupGit();
+    void onGitStatusChanged();
+    void refreshGutter(Document *doc);
+    void refreshAllGutters();
+    void showDiff(const QString &path, GitDiffMode mode);
+    void showSourceControl();
+    void showChangesForCurrentFile();
+    void discardPaths(const QStringList &paths);
+    QString currentFilePath() const;
+
     ProjectManager *m_projects;
+    GitRepository *m_git;
+    GitPanel *m_gitPanel;
+    QWidget *m_side;
+    QTabBar *m_sideTabs;
+    QStackedWidget *m_sideStack;
     ProjectExplorer *m_explorer;
     EditorManager *m_editors;
     Terminal *m_terminal;
@@ -64,6 +92,13 @@ private:
     QAction *m_projNewFileAct, *m_projNewFolderAct, *m_openProjectFolderAct;
     QAction *m_explorerAct, *m_terminalAct, *m_fullscreenAct, *m_wordWrapAct, *m_darkThemeAct, *m_lightThemeAct;
     QAction *m_nextTabAct, *m_prevTabAct, *m_aboutAct;
+
+    QAction *m_scmAct, *m_gitRefreshAct, *m_gitFetchAct, *m_gitPullAct, *m_gitPushAct, *m_gitInitAct, *m_gitNewBranchAct;
+    QAction *m_gitStageFileAct, *m_gitUnstageFileAct, *m_gitDiscardFileAct, *m_gitDiffFileAct, *m_nextChangeAct, *m_prevChangeAct;
+    QMenu *m_gitBranchMenu;
+    QToolButton *m_branchButton;
+    QString m_lastHead, m_lastRoot;
+    QHash<QString, QPointer<DiffDialog>> m_diffs;
 
     QLabel *m_fileLabel, *m_langLabel, *m_encLabel, *m_eolLabel, *m_posLabel, *m_modeLabel;
 };

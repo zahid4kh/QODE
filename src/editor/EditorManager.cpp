@@ -121,6 +121,12 @@ CodeEditor *EditorManager::currentEditor() const
     return qobject_cast<CodeEditor *>(m_tabs->currentWidget());
 }
 
+CodeEditor *EditorManager::editorFor(Document *doc) const
+{
+    const int i = indexOf(doc);
+    return i < 0 ? nullptr : entryAt(i).editor;
+}
+
 QList<Document *> EditorManager::documents() const
 {
     QList<Document *> out;
@@ -229,6 +235,7 @@ EditorManager::Entry EditorManager::addDocument(Document *doc)
         updateTabTitle(doc);
         editor->setIndentAfterColon(doc->languageName() == QLatin1String("Python"));
         emit documentStateChanged();
+        emit documentPathChanged(doc);
     });
     connect(editor, &QPlainTextEdit::cursorPositionChanged, this, [this, editor] {
         if (editor == currentEditor())
@@ -246,6 +253,7 @@ EditorManager::Entry EditorManager::addDocument(Document *doc)
     updateTabTitle(doc);
     updateStack();
     emit countChanged(m_tabs->count());
+    emit documentAdded(doc);
     return {doc, editor};
 }
 

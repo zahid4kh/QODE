@@ -1,6 +1,10 @@
 #include "MainWindow.h"
 
 #include "dialogs/NewProjectDialog.h"
+#include "git/DiffDialog.h"
+#include "git/GitDiff.h"
+#include "git/GitPanel.h"
+#include "git/GitRepository.h"
 #include "editor/CodeEditor.h"
 #include "editor/Document.h"
 #include "editor/EditorManager.h"
@@ -24,17 +28,43 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
+#include <QMenu>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QStatusBar>
+#include <QTabBar>
+#include <QTimer>
 #include <QToolBar>
+#include <QToolButton>
+#include <QVBoxLayout>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     setAcceptDrops(true);
     m_projects = new ProjectManager(this);
+    m_git = new GitRepository(this);
     m_explorer = new ProjectExplorer(this);
+    m_explorer->setGitRepository(m_git);
+    m_gitPanel = new GitPanel(m_git, this);
     m_editors = new EditorManager(this);
+
+    // Left side: Explorer / Source Control switcher
+    m_side = new QWidget(this);
+    m_sideTabs = new QTabBar(m_side);
+    m_sideTabs->addTab(tr("Explorer"));
+    m_sideTabs->addTab(tr("Source Control"));
+    m_sideTabs->setExpanding(true);
+    m_sideTabs->setDrawBase(false);
+    m_sideStack = new QStackedWidget(m_side);
+    m_sideStack->addWidget(m_explorer);
+    m_sideStack->addWidget(m_gitPanel);
+    auto *sideLayout = new QVBoxLayout(m_side);
+    sideLayout->setContentsMargins(0, 0, 0, 0);
+    sideLayout->setSpacing(0);
+    sideLayout->addWidget(m_sideTabs);
+    sideLayout->addWidget(m_sideStack, 1);
+    connect(m_sideTabs, &QTabBar::currentChanged, m_sideStack, &QStackedWidget::setCurrentIndex);
 
     m_terminal = new Terminal(this);
 
@@ -48,7 +78,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_hsplit = new QSplitter(Qt::Horizontal, this);
     m_hsplit->setChildrenCollapsible(false);
-    m_hsplit->addWidget(m_explorer);
+    m_hsplit->addWidget(m_side);
     m_hsplit->addWidget(m_vsplit);
     m_hsplit->setStretchFactor(0, 0);
     m_hsplit->setStretchFactor(1, 1);
@@ -77,6 +107,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_editors, &EditorManager::documentStateChanged, this, [this] { updateStatus(); updateActions(); updateTitle(); });
     connect(m_editors, &EditorManager::cursorInfoChanged, this, &MainWindow::updateStatus);
 
+    setupGit();
     restoreSettings();
     onProjectClosed();
     updateStatus();
@@ -170,7 +201,7 @@ void MainWindow::createActions()
     connect(m_projNewFileAct, &QAction::triggered, this, [this] { m_explorer->createFileIn(m_explorer->currentDirectory()); });
     connect(m_projNewFolderAct, &QAction::triggered, this, [this] { m_explorer->createFolderIn(m_explorer->currentDirectory()); });
 
-    connect(m_explorerAct, &QAction::toggled, m_explorer, &QWidget::setVisible);
+    connect(m_explorerAct, &QAction::toggled, m_side, &QWidget::setVisible);
     connect(m_terminalAct, &QAction::triggered, this, &MainWindow::toggleTerminal);
     connect(m_fullscreenAct, &QAction::triggered, this, [this] { setWindowState(windowState() ^ Qt::WindowFullScreen); });
     connect(m_wordWrapAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setWordWrap(on); });
@@ -179,6 +210,7 @@ void MainWindow::createActions()
     connect(m_nextTabAct, &QAction::triggered, m_editors, &EditorManager::nextTab);
     connect(m_prevTabAct, &QAction::triggered, m_editors, &EditorManager::previousTab);
     connect(m_aboutAct, &QAction::triggered, this, &MainWindow::about);
+    createGitActions();
 
     // Window-wide shortcuts must also work while an editor (which handles Tab itself) has focus.
     for (QAction *a : {m_nextTabAct, m_prevTabAct})
@@ -235,6 +267,8 @@ void MainWindow::createMenus()
     project->addAction(m_openProjectFolderAct);
     project->addAction(m_closeProjectAct);
 
+    createGitMenu(menuBar()->addMenu(tr("&Git")));
+
     QMenu *help = menuBar()->addMenu(tr("&Help"));
     help->addAction(m_aboutAct);
 }
@@ -253,6 +287,7 @@ void MainWindow::createToolBar()
     tb->addAction(m_saveAct);
     tb->addAction(m_findAct);
     tb->addSeparator();
+    tb->addAction(m_scmAct);
     tb->addAction(m_terminalAct);
 }
 
@@ -264,6 +299,16 @@ void MainWindow::createStatusBar()
         statusBar()->addPermanentWidget(l);
         return l;
     };
+    m_branchButton = new QToolButton(this);
+    m_branchButton->setIcon(QIcon(QStringLiteral(":/icons/branch.svg")));
+    m_branchButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_branchButton->setPopupMode(QToolButton::InstantPopup);
+    m_branchButton->setAutoRaise(true);
+    m_branchButton->setToolTip(tr("Switch or create branch"));
+    m_gitBranchMenu = new QMenu(m_branchButton);
+    m_branchButton->setMenu(m_gitBranchMenu);
+    m_branchButton->hide();
+    statusBar()->addWidget(m_branchButton);
     m_fileLabel = new QLabel(this);
     statusBar()->addWidget(m_fileLabel, 1);
     m_langLabel = mk(90);
@@ -378,6 +423,7 @@ bool MainWindow::closeProject()
 void MainWindow::onProjectOpened(const Project &p)
 {
     m_explorer->setProjectRoot(p.root);
+    m_git->setWorkDirectory(p.root);
     // The shell always starts in the project root; nothing is executed automatically.
     m_terminal->setWorkingDirectory(p.root);
     if (m_terminal->isRunning())
@@ -391,6 +437,7 @@ void MainWindow::onProjectOpened(const Project &p)
 void MainWindow::onProjectClosed()
 {
     m_explorer->setProjectRoot({});
+    m_git->setWorkDirectory({});
     m_terminal->setWorkingDirectory(QDir::homePath());
     m_terminal->stop();
     updateTitle();
@@ -436,6 +483,23 @@ void MainWindow::updateActions()
     m_closeFileAct->setEnabled(hasDoc);
     m_findAct->setEnabled(hasDoc);
     m_replaceAct->setEnabled(hasDoc);
+
+    const bool repo = m_git->isRepo();
+    const QString path = currentFilePath();
+    const bool fileInRepo = repo && !path.isEmpty() && !m_git->relativePath(path).isEmpty();
+    const GitFileChange *change = fileInRepo ? m_git->changeFor(path) : nullptr;
+    m_gitRefreshAct->setEnabled(hasProject);
+    m_gitFetchAct->setEnabled(repo);
+    m_gitPullAct->setEnabled(repo);
+    m_gitPushAct->setEnabled(repo);
+    m_gitNewBranchAct->setEnabled(repo);
+    m_gitInitAct->setEnabled(hasProject && !repo && m_git->gitAvailable() && m_git->isResolved());
+    m_gitStageFileAct->setEnabled(change && (change->isUnstaged() || change->untracked || change->conflicted));
+    m_gitUnstageFileAct->setEnabled(change && change->isStaged());
+    m_gitDiscardFileAct->setEnabled(change && (change->isUnstaged() || change->untracked));
+    m_gitDiffFileAct->setEnabled(fileInRepo);
+    m_nextChangeAct->setEnabled(m_editors->currentEditor() && m_editors->currentEditor()->hasDiffBase());
+    m_prevChangeAct->setEnabled(m_nextChangeAct->isEnabled());
 }
 
 void MainWindow::updateTitle()
@@ -505,7 +569,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
     saveSession();
     auto &s = SettingsManager::instance();
     s.setWindowGeometry(saveGeometry());
-    if (m_explorer->isVisible())
+    if (m_side->isVisible())
         s.setExplorerWidth(m_hsplit->sizes().value(0));
     if (m_terminal->isVisible())
         m_terminalHeight = m_vsplit->sizes().value(1, m_terminalHeight);
@@ -532,4 +596,231 @@ void MainWindow::dropEvent(QDropEvent *event)
             openProjectPath(fi.absoluteFilePath());
     }
     event->acceptProposedAction();
+}
+
+// --- Git ------------------------------------------------------------------------------------------
+
+QString MainWindow::currentFilePath() const
+{
+    Document *d = m_editors->currentDocument();
+    return d && !d->isUntitled() ? d->filePath() : QString();
+}
+
+void MainWindow::createGitActions()
+{
+    using K = Qt::Key;
+    const auto C = Qt::CTRL;
+    const auto S = Qt::SHIFT;
+    const auto A = Qt::ALT;
+    auto make = [this](const QString &text, const QKeySequence &key = {}, const QString &icon = {}) {
+        auto *a = new QAction(text, this);
+        if (!key.isEmpty())
+            a->setShortcut(key);
+        if (!icon.isEmpty())
+            a->setIcon(QIcon(icon));
+        return a;
+    };
+    m_scmAct = make(tr("Source Control"), QKeySequence(C | S | K::Key_G), QStringLiteral(":/icons/branch.svg"));
+    m_gitRefreshAct = make(tr("Refresh Status"));
+    m_gitFetchAct = make(tr("Fetch"));
+    m_gitPullAct = make(tr("Pull"));
+    m_gitPushAct = make(tr("Push"));
+    m_gitInitAct = make(tr("Initialize Repository"));
+    m_gitNewBranchAct = make(tr("Create Branch…"));
+    m_gitStageFileAct = make(tr("Stage Current File"));
+    m_gitUnstageFileAct = make(tr("Unstage Current File"));
+    m_gitDiscardFileAct = make(tr("Discard Changes in Current File…"));
+    m_gitDiffFileAct = make(tr("Show Changes in Current File"));
+    m_nextChangeAct = make(tr("Next Change"), QKeySequence(A | K::Key_F3));
+    m_prevChangeAct = make(tr("Previous Change"), QKeySequence(S | A | K::Key_F3));
+    for (QAction *a : {m_nextChangeAct, m_prevChangeAct}) {
+        a->setShortcutContext(Qt::WindowShortcut);
+        addAction(a);
+    }
+
+    connect(m_scmAct, &QAction::triggered, this, &MainWindow::showSourceControl);
+    connect(m_gitRefreshAct, &QAction::triggered, m_git, &GitRepository::refresh);
+    connect(m_gitFetchAct, &QAction::triggered, m_git, &GitRepository::fetch);
+    connect(m_gitPullAct, &QAction::triggered, m_git, &GitRepository::pull);
+    connect(m_gitPushAct, &QAction::triggered, m_git, &GitRepository::push);
+    connect(m_gitInitAct, &QAction::triggered, m_git, &GitRepository::init);
+    connect(m_gitNewBranchAct, &QAction::triggered, this, [this] { GitPanel::promptNewBranch(m_git, this); });
+    connect(m_gitStageFileAct, &QAction::triggered, this, [this] { m_git->stage({currentFilePath()}); });
+    connect(m_gitUnstageFileAct, &QAction::triggered, this, [this] { m_git->unstage({currentFilePath()}); });
+    connect(m_gitDiscardFileAct, &QAction::triggered, this, [this] { discardPaths({currentFilePath()}); });
+    connect(m_gitDiffFileAct, &QAction::triggered, this, &MainWindow::showChangesForCurrentFile);
+    connect(m_nextChangeAct, &QAction::triggered, this, [this] { if (auto *e = m_editors->currentEditor()) e->gotoChange(true); });
+    connect(m_prevChangeAct, &QAction::triggered, this, [this] { if (auto *e = m_editors->currentEditor()) e->gotoChange(false); });
+}
+
+void MainWindow::createGitMenu(QMenu *menu)
+{
+    menu->addAction(m_scmAct);
+    menu->addAction(m_gitRefreshAct);
+    menu->addSeparator();
+    menu->addAction(m_gitDiffFileAct);
+    menu->addAction(m_gitStageFileAct);
+    menu->addAction(m_gitUnstageFileAct);
+    menu->addAction(m_gitDiscardFileAct);
+    menu->addSeparator();
+    menu->addAction(m_nextChangeAct);
+    menu->addAction(m_prevChangeAct);
+    menu->addSeparator();
+    QMenu *branches = menu->addMenu(tr("Switch Branch"));
+    connect(branches, &QMenu::aboutToShow, this, [this, branches] {
+        branches->clear();
+        if (m_git->isRepo())
+            GitPanel::populateBranchMenu(m_git, branches, this);
+    });
+    menu->addAction(m_gitNewBranchAct);
+    menu->addSeparator();
+    menu->addAction(m_gitFetchAct);
+    menu->addAction(m_gitPullAct);
+    menu->addAction(m_gitPushAct);
+    menu->addSeparator();
+    menu->addAction(m_gitInitAct);
+}
+
+void MainWindow::setupGit()
+{
+    connect(m_gitPanel, &GitPanel::openFileRequested, m_editors, &EditorManager::openFile);
+    connect(m_gitPanel, &GitPanel::diffRequested, this, &MainWindow::showDiff);
+
+    connect(m_explorer, &ProjectExplorer::gitStageRequested, m_git, &GitRepository::stage);
+    connect(m_explorer, &ProjectExplorer::gitUnstageRequested, m_git, &GitRepository::unstage);
+    connect(m_explorer, &ProjectExplorer::gitDiscardRequested, this, &MainWindow::discardPaths);
+    connect(m_explorer, &ProjectExplorer::gitDiffRequested, this, &MainWindow::showDiff);
+    connect(m_explorer, &ProjectExplorer::gitIgnoreRequested, m_git, &GitRepository::addToGitignore);
+    connect(m_explorer, &ProjectExplorer::contentsChanged, m_git, &GitRepository::scheduleRefresh);
+
+    connect(m_git, &GitRepository::statusChanged, this, &MainWindow::onGitStatusChanged);
+    connect(m_git, &GitRepository::repositoryChanged, this, [this] { updateActions(); });
+    connect(m_git, &GitRepository::errorOccurred, this, [this](const QString &title, const QString &detail) {
+        QMessageBox::warning(this, tr("Git — %1").arg(title), detail);
+    });
+    connect(m_git, &GitRepository::operationFinished, this, [this](const QString &title, const QString &output) {
+        const QString first = output.section(QLatin1Char('\n'), 0, 0).trimmed();
+        statusBar()->showMessage(first.isEmpty() ? tr("%1 completed").arg(title) : tr("%1: %2").arg(title, first), 6000);
+    });
+
+    // Change markers in the gutter follow the committed text of each open file.
+    connect(m_editors, &EditorManager::documentAdded, this, &MainWindow::refreshGutter);
+    connect(m_editors, &EditorManager::documentPathChanged, this, &MainWindow::refreshGutter);
+    connect(m_editors, &EditorManager::documentStateChanged, m_git, &GitRepository::scheduleRefresh);
+
+    // Pick up changes made outside the editor (terminal, other tools).
+    connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState st) {
+        if (st == Qt::ApplicationActive)
+            m_git->scheduleRefresh();
+    });
+    auto *poll = new QTimer(this);
+    poll->setInterval(10000);
+    connect(poll, &QTimer::timeout, this, [this] {
+        if (isActiveWindow() && !m_git->busy())
+            m_git->scheduleRefresh();
+    });
+    poll->start();
+
+    connect(m_gitBranchMenu, &QMenu::aboutToShow, this, [this] {
+        m_gitBranchMenu->clear();
+        GitPanel::populateBranchMenu(m_git, m_gitBranchMenu, this);
+    });
+    onGitStatusChanged();
+}
+
+void MainWindow::onGitStatusChanged()
+{
+    // Status bar branch indicator
+    if (m_git->isRepo()) {
+        QString text = m_git->branch().isEmpty() ? tr("(no branch)") : m_git->branch();
+        if (m_git->ahead() > 0)
+            text += QStringLiteral(" ↑%1").arg(m_git->ahead());
+        if (m_git->behind() > 0)
+            text += QStringLiteral(" ↓%1").arg(m_git->behind());
+        if (!m_git->changes().isEmpty())
+            text += QStringLiteral(" ●%1").arg(m_git->changes().size());
+        m_branchButton->setText(text);
+        m_branchButton->show();
+    } else {
+        m_branchButton->hide();
+    }
+    const int n = m_git->isRepo() ? m_git->changes().size() : 0;
+    m_sideTabs->setTabText(1, n > 0 ? tr("Source Control (%1)").arg(n) : tr("Source Control"));
+
+    // Committed text changed (new commit, other branch, other repository) => re-read every open file's base.
+    if (m_git->headOid() != m_lastHead || m_git->root() != m_lastRoot) {
+        m_lastHead = m_git->headOid();
+        m_lastRoot = m_git->root();
+        refreshAllGutters();
+    }
+    updateActions();
+}
+
+void MainWindow::refreshAllGutters()
+{
+    for (Document *d : m_editors->documents())
+        refreshGutter(d);
+}
+
+void MainWindow::refreshGutter(Document *doc)
+{
+    CodeEditor *ed = m_editors->editorFor(doc);
+    if (!ed)
+        return;
+    const QString path = doc->filePath();
+    const QString rel = path.isEmpty() || !m_git->isRepo() ? QString() : m_git->relativePath(path);
+    if (rel.isEmpty() || m_git->isIgnored(path)) {
+        ed->clearDiffBase();
+        return;
+    }
+    const GitFileChange *c = m_git->changeFor(path);
+    const QString headRel = c && !c->origRelPath.isEmpty() ? c->origRelPath : rel;
+    m_git->readBlob(QStringLiteral("HEAD:") + headRel, ed, [ed](const GitRepository::Result &r) {
+        // A file that is not in HEAD yet is entirely "added".
+        ed->setDiffBase(r.ok() ? GitDiff::splitLines(QString::fromUtf8(r.out)) : QStringList());
+    });
+}
+
+void MainWindow::showSourceControl()
+{
+    if (!m_explorerAct->isChecked())
+        m_explorerAct->setChecked(true);
+    m_sideTabs->setCurrentIndex(1);
+}
+
+void MainWindow::showDiff(const QString &path, GitDiffMode mode)
+{
+    const QString key = QString::number(static_cast<int>(mode)) + path;
+    if (DiffDialog *existing = m_diffs.value(key)) {
+        existing->show();
+        existing->raise();
+        existing->activateWindow();
+        return;
+    }
+    auto *dlg = new DiffDialog(m_git, path, mode, this);
+    m_diffs.insert(key, dlg);
+    dlg->show();
+}
+
+void MainWindow::showChangesForCurrentFile()
+{
+    const QString path = currentFilePath();
+    if (path.isEmpty())
+        return;
+    const GitFileChange *c = m_git->changeFor(path);
+    GitDiffMode mode = GitDiffMode::Head;
+    if (c)
+        mode = c->isStaged() && !c->isUnstaged() ? GitDiffMode::Staged : GitDiffMode::Unstaged;
+    showDiff(path, mode);
+}
+
+void MainWindow::discardPaths(const QStringList &paths)
+{
+    QList<GitFileChange> changes;
+    for (const QString &p : paths)
+        if (const GitFileChange *c = m_git->changeFor(p))
+            if (c->isUnstaged() || c->untracked)
+                changes << *c;
+    if (GitPanel::confirmDiscard(changes, this))
+        m_git->discard(paths);
 }

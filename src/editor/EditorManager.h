@@ -23,6 +23,7 @@ public:
 
     Document *currentDocument() const;
     CodeEditor *currentEditor() const;
+    CodeEditor *editorFor(Document *doc) const;
     QList<Document *> documents() const;
     QList<Document *> modifiedDocuments() const;
     QStringList openFilePaths() const;
@@ -52,6 +53,8 @@ signals:
     void documentStateChanged(); // modified flag / title changed
     void cursorInfoChanged();    // cursor position or overwrite mode
     void countChanged(int count);
+    void documentAdded(Document *doc);       // a tab was created for this document
+    void documentPathChanged(Document *doc); // saved as / renamed
     // Empty-state (welcome page) buttons
     void newProjectRequested();
     void openProjectRequested();

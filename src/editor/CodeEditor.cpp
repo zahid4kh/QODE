@@ -4,8 +4,15 @@
 #include "settings/Theme.h"
 
 #include <QApplication>
+#include <QFrame>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QPlainTextEdit>
+#include <QPushButton>
+#include <QVBoxLayout>
 #include <QKeyEvent>
 #include <QMimeData>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QScrollBar>
 #include <QTextBlock>
@@ -23,6 +30,11 @@ public:
 
 protected:
     void paintEvent(QPaintEvent *event) override { m_editor->lineNumberAreaPaintEvent(event); }
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::LeftButton)
+            m_editor->gutterClicked(event->pos());
+    }
 
 private:
     CodeEditor *m_editor;
@@ -54,7 +66,13 @@ CodeEditor::CodeEditor(QWidget *parent)
     connect(this, &QPlainTextEdit::textChanged, this, [this] {
         if (!m_term.isEmpty())
             m_matchTimer->start();
+        if (m_hasBase)
+            m_diffTimer->start();
     });
+    m_diffTimer = new QTimer(this);
+    m_diffTimer->setSingleShot(true);
+    m_diffTimer->setInterval(200);
+    connect(m_diffTimer, &QTimer::timeout, this, &CodeEditor::recomputeDiff);
 
     applyTheme();
     applySettings();
@@ -72,6 +90,11 @@ void CodeEditor::applyTheme()
     m_gutterActive = t.gutterActiveFg;
     m_currentLine = t.currentLine;
     m_border = t.border;
+    m_markAdded = t.gitAdded;
+    m_markModified = t.accent;
+    m_markDeleted = t.gitDeleted;
+    m_diffAddBg = t.diffAddBg;
+    m_diffDelBg = t.diffDelBg;
     m_matchBg = t.dark ? QColor(QStringLiteral("#614d1f")) : QColor(QStringLiteral("#f5e08a"));
     QPalette p = palette();
     p.setColor(QPalette::Base, t.editorBg);
@@ -148,6 +171,23 @@ void CodeEditor::lineNumberAreaPaintEvent(QPaintEvent *event)
             painter.setPen(number == current ? m_gutterActive : m_gutterFg);
             painter.drawText(0, top, m_lineArea->width() - 8, fontMetrics().height(), Qt::AlignRight,
                              QString::number(number + 1));
+            if (m_hasBase) {
+                const int h = bottom - top;
+                const auto it = m_hunkAtLine.constFind(number);
+                if (it != m_hunkAtLine.constEnd())
+                    painter.fillRect(0, top, 3, h, m_hunks.at(it.value()).isAdded() ? m_markAdded : m_markModified);
+                // Removed lines are marked with a small triangle on the boundary where they used to be.
+                auto triangle = [&](int y) {
+                    painter.setPen(Qt::NoPen);
+                    painter.setBrush(m_markDeleted);
+                    const QPoint pts[3] = {QPoint(0, y - 4), QPoint(6, y), QPoint(0, y + 4)};
+                    painter.drawPolygon(pts, 3);
+                };
+                if (m_deletedAt.contains(number))
+                    triangle(top);
+                if (number == blockCount() - 1 && m_deletedAt.contains(number + 1))
+                    triangle(bottom);
+            }
         }
         block = block.next();
         top = bottom;
@@ -518,4 +558,176 @@ void CodeEditor::insertFromMimeData(const QMimeData *source)
         }
     }
     QPlainTextEdit::insertFromMimeData(source);
+}
+
+// --- Git change markers --------------------------------------------------------
+
+void CodeEditor::setDiffBase(const QStringList &lines)
+{
+    m_base = lines;
+    m_hasBase = true;
+    recomputeDiff();
+}
+
+void CodeEditor::clearDiffBase()
+{
+    m_hasBase = false;
+    m_base.clear();
+    m_diffTimer->stop();
+    recomputeDiff();
+}
+
+void CodeEditor::recomputeDiff()
+{
+    m_hunks.clear();
+    m_hunkAtLine.clear();
+    m_deletedAt.clear();
+    if (m_hasBase) {
+        QStringList cur;
+        cur.reserve(blockCount());
+        for (QTextBlock b = document()->begin(); b.isValid(); b = b.next())
+            cur << b.text();
+        m_hunks = GitDiff::compute(m_base, cur);
+        for (int i = 0; i < m_hunks.size(); ++i) {
+            const GitDiff::Hunk &h = m_hunks.at(i);
+            if (h.isDeleted())
+                m_deletedAt.insert(h.newStart, i);
+            else
+                for (int l = h.newStart; l < h.newStart + h.newCount; ++l)
+                    m_hunkAtLine.insert(l, i);
+        }
+    }
+    m_lineArea->update();
+}
+
+void CodeEditor::gotoChange(bool next)
+{
+    if (m_hunks.isEmpty())
+        return;
+    const int line = textCursor().blockNumber();
+    int target = -1;
+    if (next) {
+        for (int i = 0; i < m_hunks.size(); ++i)
+            if (m_hunks.at(i).newStart > line) {
+                target = i;
+                break;
+            }
+        if (target < 0)
+            target = 0;
+    } else {
+        for (int i = m_hunks.size() - 1; i >= 0; --i)
+            if (m_hunks.at(i).newStart < line) {
+                target = i;
+                break;
+            }
+        if (target < 0)
+            target = m_hunks.size() - 1;
+    }
+    const int l = qMin(m_hunks.at(target).newStart, blockCount() - 1);
+    QTextCursor c(document()->findBlockByNumber(l));
+    setTextCursor(c);
+    centerCursor();
+}
+
+void CodeEditor::gutterClicked(const QPoint &pos)
+{
+    if (!m_hasBase || pos.x() > 8)
+        return;
+    const int line = cursorForPosition(QPoint(0, pos.y())).blockNumber();
+    int idx = m_hunkAtLine.value(line, -1);
+    if (idx < 0)
+        idx = m_deletedAt.value(line, -1);
+    if (idx < 0 && line == blockCount() - 1)
+        idx = m_deletedAt.value(line + 1, -1);
+    if (idx >= 0)
+        showHunkPopup(idx, m_lineArea->mapToGlobal(QPoint(m_lineArea->width(), pos.y())));
+}
+
+void CodeEditor::showHunkPopup(int hunkIndex, const QPoint &globalPos)
+{
+    const GitDiff::Hunk h = m_hunks.at(hunkIndex);
+    auto *popup = new QFrame(this, Qt::Popup);
+    popup->setAttribute(Qt::WA_DeleteOnClose);
+    popup->setFrameShape(QFrame::StyledPanel);
+    auto *lay = new QVBoxLayout(popup);
+    lay->setContentsMargins(8, 8, 8, 8);
+    lay->setSpacing(6);
+
+    QString what;
+    if (h.isAdded())
+        what = tr("Added %n line(s)", nullptr, h.newCount);
+    else if (h.isDeleted())
+        what = tr("Removed %n line(s)", nullptr, h.oldCount);
+    else
+        what = tr("Changed %n line(s)", nullptr, h.newCount);
+    auto *title = new QLabel(what, popup);
+    title->setObjectName(QStringLiteral("emptyText"));
+    lay->addWidget(title);
+
+    if (h.oldCount > 0) {
+        auto *view = new QPlainTextEdit(popup);
+        view->setReadOnly(true);
+        view->setFont(font());
+        view->setLineWrapMode(QPlainTextEdit::NoWrap);
+        view->setPlainText(m_base.mid(h.oldStart, h.oldCount).join(QLatin1Char('\n')));
+        QPalette pal = view->palette();
+        pal.setColor(QPalette::Base, m_diffDelBg);
+        pal.setColor(QPalette::Text, palette().color(QPalette::Text));
+        view->setPalette(pal);
+        const int lines = qMin(h.oldCount, 12);
+        view->setFixedHeight(fontMetrics().lineSpacing() * lines + 14);
+        view->setMinimumWidth(qMin(width() - lineNumberAreaWidth() - 40, 520));
+        lay->addWidget(view);
+    }
+
+    auto *row = new QHBoxLayout;
+    auto *revert = new QPushButton(tr("Revert Change"), popup);
+    connect(revert, &QPushButton::clicked, this, [this, popup, hunkIndex] {
+        popup->close();
+        revertHunk(hunkIndex);
+    });
+    row->addWidget(revert);
+    row->addStretch(1);
+    lay->addLayout(row);
+    popup->move(globalPos);
+    popup->show();
+}
+
+// Puts the committed text of one hunk back into the buffer (undoable as a single step).
+void CodeEditor::revertHunk(int hunkIndex)
+{
+    if (hunkIndex < 0 || hunkIndex >= m_hunks.size() || isReadOnly())
+        return;
+    const GitDiff::Hunk h = m_hunks.at(hunkIndex);
+    const QStringList oldLines = m_base.mid(h.oldStart, h.oldCount);
+    QTextDocument *doc = document();
+    const int blocks = doc->blockCount();
+    const bool endsAtBlock = h.newStart + h.newCount < blocks;
+
+    QTextCursor c(doc);
+    c.beginEditBlock();
+    if (h.newCount == 0) {
+        // Pure deletion: re-insert the old lines before `newStart` (or after the last line).
+        if (h.newStart < blocks) {
+            c.setPosition(doc->findBlockByNumber(h.newStart).position());
+            c.insertText(oldLines.join(QLatin1Char('\n')) + QLatin1Char('\n'));
+        } else {
+            c.movePosition(QTextCursor::End);
+            c.insertText(QLatin1Char('\n') + oldLines.join(QLatin1Char('\n')));
+        }
+    } else {
+        int start = doc->findBlockByNumber(h.newStart).position();
+        const int end = endsAtBlock ? doc->findBlockByNumber(h.newStart + h.newCount).position()
+                                    : doc->findBlockByNumber(blocks - 1).position() + doc->findBlockByNumber(blocks - 1).length() - 1;
+        QString replacement = oldLines.join(QLatin1Char('\n'));
+        if (endsAtBlock)
+            replacement += oldLines.isEmpty() ? QString() : QStringLiteral("\n");
+        else if (oldLines.isEmpty() && h.newStart > 0)
+            start = doc->findBlockByNumber(h.newStart - 1).position() + doc->findBlockByNumber(h.newStart - 1).length() - 1;
+        c.setPosition(start);
+        c.setPosition(end, QTextCursor::KeepAnchor);
+        c.insertText(replacement);
+    }
+    c.endEditBlock();
+    recomputeDiff();
 }

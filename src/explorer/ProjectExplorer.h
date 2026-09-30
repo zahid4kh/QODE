@@ -1,11 +1,15 @@
 #pragma once
 
+#include "git/GitTypes.h"
+
 #include <QWidget>
 
 class QFileSystemModel;
+class QMenu;
 class QLabel;
 class QTreeView;
 class ProjectModel;
+class GitRepository;
 
 class ProjectExplorer : public QWidget
 {
@@ -14,6 +18,7 @@ public:
     explicit ProjectExplorer(QWidget *parent = nullptr);
 
     void setProjectRoot(const QString &root); // empty => no project
+    void setGitRepository(GitRepository *repo); // enables status colours/badges and Git context actions
     QString projectRoot() const { return m_root; }
 
     // Directory that "New File"/"New Folder" should target by default.
@@ -29,6 +34,13 @@ signals:
     void pathRenamed(const QString &oldPath, const QString &newPath);
     void pathDeleted(const QString &path);
     void closeProjectRequested();
+    void contentsChanged(); // the file system model saw files appear/disappear/change
+    // Git context-menu actions
+    void gitStageRequested(const QStringList &paths);
+    void gitUnstageRequested(const QStringList &paths);
+    void gitDiscardRequested(const QStringList &paths);
+    void gitDiffRequested(const QString &path, GitDiffMode mode);
+    void gitIgnoreRequested(const QString &path);
 
 private:
     void onDoubleClicked(const QModelIndex &proxyIndex);
@@ -37,6 +49,7 @@ private:
     void renamePath(const QString &path);
     void deletePath(const QString &path);
     void showError(const QString &title, const QString &text);
+    void addGitActions(QMenu *menu, const QString &path);
 
     QString m_root;
     QLabel *m_title;
@@ -44,4 +57,5 @@ private:
     QTreeView *m_tree;
     QFileSystemModel *m_fsModel;
     ProjectModel *m_proxy;
+    GitRepository *m_git = nullptr;
 };

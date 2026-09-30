@@ -11,5 +11,6 @@
         <file>icons/open.svg</file>
         <file>icons/find.svg</file>
         <file>icons/refresh.svg</file>
+        <file>icons/branch.svg</file>
     </qresource>
 </RCC>

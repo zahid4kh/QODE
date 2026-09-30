@@ -23,6 +23,12 @@ SOURCES += \
     src/project/ProjectManager.cpp \
     src/project/ProjectModel.cpp \
     src/explorer/ProjectExplorer.cpp \
+    src/explorer/GitItemDelegate.cpp \
+    src/git/GitDiff.cpp \
+    src/git/GitRepository.cpp \
+    src/git/GitPanel.cpp \
+    src/git/DiffDialog.cpp \
+    src/git/PatchDialog.cpp \
     src/dialogs/NewProjectDialog.cpp \
     src/dialogs/NewFileDialog.cpp \
     src/dialogs/UnsavedChangesDialog.cpp \
@@ -47,6 +53,13 @@ HEADERS += \
     src/project/ProjectManager.h \
     src/project/ProjectModel.h \
     src/explorer/ProjectExplorer.h \
+    src/explorer/GitItemDelegate.h \
+    src/git/GitTypes.h \
+    src/git/GitDiff.h \
+    src/git/GitRepository.h \
+    src/git/GitPanel.h \
+    src/git/DiffDialog.h \
+    src/git/PatchDialog.h \
     src/dialogs/NewProjectDialog.h \
     src/dialogs/NewFileDialog.h \
     src/dialogs/UnsavedChangesDialog.h \

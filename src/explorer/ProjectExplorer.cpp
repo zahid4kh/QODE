@@ -1,7 +1,9 @@
 #include "ProjectExplorer.h"
 
+#include "GitItemDelegate.h"
 #include "dialogs/NewFileDialog.h"
 #include "filesystem/FileManager.h"
+#include "git/GitRepository.h"
 #include "project/ProjectModel.h"
 
 #include <QApplication>
@@ -58,8 +60,21 @@ ProjectExplorer::ProjectExplorer(QWidget *parent)
     layout->addWidget(m_tree, 1);
     layout->addWidget(m_placeholder, 1);
 
+    for (auto sig : {&QAbstractItemModel::rowsInserted, &QAbstractItemModel::rowsRemoved})
+        connect(m_fsModel, sig, this, &ProjectExplorer::contentsChanged);
+    connect(m_fsModel, &QAbstractItemModel::dataChanged, this, &ProjectExplorer::contentsChanged);
+    connect(m_fsModel, &QFileSystemModel::fileRenamed, this, &ProjectExplorer::contentsChanged);
+
     connect(m_tree, &QTreeView::doubleClicked, this, &ProjectExplorer::onDoubleClicked);
     connect(m_tree, &QTreeView::customContextMenuRequested, this, &ProjectExplorer::showContextMenu);
+}
+
+void ProjectExplorer::setGitRepository(GitRepository *repo)
+{
+    m_git = repo;
+    m_proxy->setGitRepository(repo);
+    m_tree->setItemDelegate(new GitItemDelegate(repo, m_tree));
+    connect(repo, &GitRepository::statusChanged, m_tree->viewport(), qOverload<>(&QWidget::update));
 }
 
 void ProjectExplorer::setProjectRoot(const QString &root)
@@ -207,6 +222,7 @@ void ProjectExplorer::showContextMenu(const QPoint &pos)
         menu.addAction(tr("New File"), this, [this, dir] { createFileIn(dir); });
         menu.addAction(tr("New Folder"), this, [this, dir] { createFolderIn(dir); });
         menu.addSeparator();
+        addGitActions(&menu, path);
         menu.addAction(tr("Refresh"), this, &ProjectExplorer::refresh);
         menu.addAction(tr("Open in File Manager"), this, [path] { FileManager::revealInFileManager(path); });
         menu.addSeparator();
@@ -223,6 +239,7 @@ void ProjectExplorer::showContextMenu(const QPoint &pos)
             menu.addAction(tr("New File"), this, [this, dir] { createFileIn(dir); });
         }
         menu.addSeparator();
+        addGitActions(&menu, path);
         menu.addAction(tr("Rename"), this, [this, path] { renamePath(path); });
         menu.addAction(tr("Delete"), this, [this, path] { deletePath(path); });
         menu.addSeparator();
@@ -230,4 +247,44 @@ void ProjectExplorer::showContextMenu(const QPoint &pos)
         menu.addAction(tr("Reveal in File Manager"), this, [path] { FileManager::revealInFileManager(path); });
     }
     menu.exec(m_tree->viewport()->mapToGlobal(pos));
+}
+
+// Stage/unstage/discard/compare entries for the clicked file or folder.
+void ProjectExplorer::addGitActions(QMenu *menu, const QString &path)
+{
+    if (!m_git || !m_git->isRepo() || m_git->relativePath(path).isEmpty())
+        return;
+
+    // Everything below a folder that has git changes, or just the file itself.
+    QStringList staged, unstaged;
+    const QString prefix = path + QLatin1Char('/');
+    for (const GitFileChange &c : m_git->changes()) {
+        if (c.path != path && !c.path.startsWith(prefix))
+            continue;
+        if (c.isStaged())
+            staged << c.path;
+        if (c.isUnstaged() || c.untracked)
+            unstaged << c.path;
+    }
+    const GitFileChange *own = m_git->changeFor(path);
+    const bool isFile = QFileInfo(path).isFile();
+
+    QMenu *git = menu->addMenu(tr("Git"));
+    QAction *stage = git->addAction(tr("Stage Changes"), this, [this, unstaged] { emit gitStageRequested(unstaged); });
+    stage->setEnabled(!unstaged.isEmpty());
+    QAction *unstage = git->addAction(tr("Unstage Changes"), this, [this, staged] { emit gitUnstageRequested(staged); });
+    unstage->setEnabled(!staged.isEmpty());
+    QAction *discard = git->addAction(tr("Discard Changes…"), this, [this, unstaged] { emit gitDiscardRequested(unstaged); });
+    discard->setEnabled(!unstaged.isEmpty());
+    if (isFile) {
+        git->addSeparator();
+        QAction *changes = git->addAction(tr("Open Changes"), this, [this, path, own] {
+            emit gitDiffRequested(path, own && own->isStaged() && !own->isUnstaged() ? GitDiffMode::Staged : GitDiffMode::Unstaged);
+        });
+        changes->setEnabled(own != nullptr);
+    }
+    git->addSeparator();
+    QAction *ignore = git->addAction(tr("Add to .gitignore"), this, [this, path] { emit gitIgnoreRequested(path); });
+    ignore->setEnabled(!m_git->isIgnored(path) && (!own || own->untracked) && path != m_git->root());
+    menu->addSeparator();
 }

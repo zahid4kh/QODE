@@ -27,6 +27,16 @@ Theme Theme::dark_()
     t.attribute = "#d19a66";
     t.termBg = "#191b20";
     t.termFg = "#c5c8d0";
+    t.gitAdded = "#81b88b";
+    t.gitModified = "#e2c08d";
+    t.gitDeleted = "#c74e39";
+    t.gitUntracked = "#73c991";
+    t.gitRenamed = "#56b6c2";
+    t.gitConflict = "#e4676b";
+    t.gitIgnored = "#5c6370";
+    t.diffAddBg = "#1f3a2a";
+    t.diffDelBg = "#442328";
+    t.diffFillBg = "#262a31";
     return t;
 }
 
@@ -57,12 +67,37 @@ Theme Theme::light_()
     t.attribute = "#986801";
     t.termBg = "#ffffff";
     t.termFg = "#383a42";
+    t.gitAdded = "#2e7d32";
+    t.gitModified = "#946a00";
+    t.gitDeleted = "#c0392b";
+    t.gitUntracked = "#1e8e4e";
+    t.gitRenamed = "#0e7c86";
+    t.gitConflict = "#d32f2f";
+    t.gitIgnored = "#a0a1a7";
+    t.diffAddBg = "#dff3e2";
+    t.diffDelBg = "#fbe0e0";
+    t.diffFillBg = "#ececef";
     return t;
 }
 
 Theme Theme::byName(const QString &name)
 {
     return name == QLatin1String("light") ? light_() : dark_();
+}
+
+QColor Theme::gitColor(GitKind kind) const
+{
+    switch (kind) {
+    case GitKind::Added: return gitAdded;
+    case GitKind::Modified: return gitModified;
+    case GitKind::Deleted: return gitDeleted;
+    case GitKind::Untracked: return gitUntracked;
+    case GitKind::Renamed: return gitRenamed;
+    case GitKind::Conflicted: return gitConflict;
+    case GitKind::Ignored: return gitIgnored;
+    case GitKind::None: break;
+    }
+    return editorFg;
 }
 
 QString Theme::styleSheet() const

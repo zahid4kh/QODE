@@ -84,6 +84,7 @@ private:
     void updateLineNumberArea(const QRect &rect, int dy);
     void refreshSelections();
     void paintIndentGuides();
+    void paintRoundedSelection();
     int indentDepth(const QTextBlock &block, bool *blank = nullptr) const; // guides to the left of the text
     int effectiveDepth(const QTextBlock &block) const;                      // blank lines borrow from neighbours
     void updateGuideScope();
@@ -126,7 +127,7 @@ private:
     int m_foldedCount = 0;
     QTimer *m_foldTimer;
     QVector<QPair<QRect, int>> m_foldPills; // inline "…" markers of the last paint -> header block number
-    QColor m_bracketOk, m_bracketBad, m_guide, m_guideActive;
+    QColor m_bracketOk, m_bracketBad, m_guide, m_guideActive, m_selectionFill;
     bool m_indentGuides = true;
     struct { int level = -1, first = 0, last = -1; } m_guideScope; // the guide of the caret's block, and the blocks it spans
     QColor m_markAdded, m_markModified, m_markDeleted, m_diffAddBg, m_diffDelBg;

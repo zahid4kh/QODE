@@ -145,6 +145,7 @@ QPushButton:default { border-color: %9; }
 QPushButton:disabled { color: %7; }
 QToolButton::menu-indicator { image: none; width: 0; }
 QToolButton { padding: 4px 5px; }
+QTabBar#sideTabs::tab { padding: 6px 7px; min-width: 0; }
 QTabBar#scmTabs { background: %1; }
 QTabBar#scmTabs::tab { background: transparent; color: %7; padding: 7px 12px; border: none; border-bottom: 2px solid transparent; min-width: 0; }
 QTabBar#scmTabs::tab:selected { background: transparent; color: %2; border-top: none; border-bottom: 2px solid %9; }

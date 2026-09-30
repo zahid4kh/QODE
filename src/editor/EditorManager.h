@@ -20,8 +20,10 @@ public:
 
     bool openFile(const QString &path);
     // Opens `path` and puts the cursor on 1-based `line` (and `column` when > 0).
-    bool openFileAt(const QString &path, int line, int column = 0);
-    void gotoLine(int line, int column = 0);
+    // `length` > 0 selects that many characters from the position (used by search results).
+    bool openFileAt(const QString &path, int line, int column = 0, int length = 0);
+    void gotoLine(int line, int column = 0, int length = 0);
+    Document *documentForPath(const QString &path) const; // nullptr when not open
     void newUntitled();
 
     Document *currentDocument() const;

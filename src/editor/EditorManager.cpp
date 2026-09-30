@@ -215,15 +215,23 @@ bool EditorManager::openFile(const QString &pathIn)
     return true;
 }
 
-bool EditorManager::openFileAt(const QString &path, int line, int column)
+bool EditorManager::openFileAt(const QString &path, int line, int column, int length)
 {
     if (!openFile(path))
         return false;
-    gotoLine(line, column);
+    gotoLine(line, column, length);
     return true;
 }
 
-void EditorManager::gotoLine(int line, int column)
+Document *EditorManager::documentForPath(const QString &path) const
+{
+    for (Document *d : documents())
+        if (!d->isUntitled() && d->filePath() == path)
+            return d;
+    return nullptr;
+}
+
+void EditorManager::gotoLine(int line, int column, int length)
 {
     CodeEditor *e = currentEditor();
     if (!e || line < 1)
@@ -231,6 +239,8 @@ void EditorManager::gotoLine(int line, int column)
     QTextCursor c(e->document()->findBlockByNumber(qMin(line, e->blockCount()) - 1));
     if (column > 1)
         c.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor, qMin(column - 1, c.block().length() - 1));
+    if (length > 0)
+        c.movePosition(QTextCursor::Right, QTextCursor::KeepAnchor, qMin(length, c.block().length() - 1 - c.positionInBlock()));
     e->setTextCursor(c);
     e->centerCursor();
     e->setFocus();

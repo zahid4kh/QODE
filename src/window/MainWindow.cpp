@@ -15,6 +15,8 @@
 #include "filesystem/FileManager.h"
 #include "project/ProjectFiles.h"
 #include "project/ProjectManager.h"
+#include "search/ProjectSearch.h"
+#include "search/SearchPanel.h"
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
@@ -38,6 +40,7 @@
 #include <QMenu>
 #include <QPointer>
 #include <QRegularExpression>
+#include <QSaveFile>
 #include <QSet>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -59,6 +62,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_explorer = new ProjectExplorer(this);
     m_explorer->setGitRepository(m_git);
     m_gitPanel = new GitPanel(m_git, this);
+    m_searchPanel = new SearchPanel(this);
     m_editors = new EditorManager(this);
 
     // Left side: Explorer / Source Control switcher
@@ -66,11 +70,16 @@ MainWindow::MainWindow(QWidget *parent)
     m_sideTabs = new QTabBar(m_side);
     m_sideTabs->addTab(tr("Explorer"));
     m_sideTabs->addTab(tr("Source Control"));
+    m_sideTabs->addTab(tr("Search"));
+    m_sideTabs->setObjectName(QStringLiteral("sideTabs"));
     m_sideTabs->setExpanding(true);
     m_sideTabs->setDrawBase(false);
+    m_sideTabs->setUsesScrollButtons(false);
+    m_sideTabs->setElideMode(Qt::ElideNone);
     m_sideStack = new QStackedWidget(m_side);
     m_sideStack->addWidget(m_explorer);
     m_sideStack->addWidget(m_gitPanel);
+    m_sideStack->addWidget(m_searchPanel);
     auto *sideLayout = new QVBoxLayout(m_side);
     sideLayout->setContentsMargins(0, 0, 0, 0);
     sideLayout->setSpacing(0);
@@ -115,6 +124,21 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_editors, &EditorManager::openProjectRequested, m_openProjectAct, &QAction::trigger);
     connect(m_editors, &EditorManager::newFileRequested, m_newFileAct, &QAction::trigger);
     connect(m_editors, &EditorManager::openFileRequested, m_openFileAct, &QAction::trigger);
+
+    m_searchPanel->setOverridesProvider([this] {
+        QHash<QString, QString> out;
+        for (Document *d : m_editors->modifiedDocuments())
+            if (!d->isUntitled())
+                out.insert(d->filePath(), d->text());
+        return out;
+    });
+    connect(m_searchPanel, &SearchPanel::openMatch, this, [this](const QString &path, int line, int column, int length) {
+        if (line > 0)
+            m_editors->openFileAt(path, line, column + 1, length);
+        else
+            m_editors->openFile(path);
+    });
+    connect(m_searchPanel, &SearchPanel::replaceRequested, this, &MainWindow::replaceInFiles);
 
     connect(m_terminal, &Terminal::hideRequested, this, &MainWindow::toggleTerminal);
     connect(m_editors, &EditorManager::currentChanged, this, [this] { updateStatus(); updateActions(); updateTitle(); noteRecentFile(); });
@@ -192,6 +216,7 @@ void MainWindow::createActions()
     m_paletteAct = make(tr("Command Palette…"), QKeySequence(C | S | K::Key_P), QStringLiteral(":/new-icons/search.svg"));
     m_quickOpenAct = make(tr("Go to File…"), QKeySequence(C | K::Key_P), QStringLiteral(":/new-icons/file-input.svg"));
     m_gotoLineAct = make(tr("Go to Line…"), QKeySequence(C | K::Key_G));
+    m_searchAct = make(tr("Find in Files"), QKeySequence(C | S | K::Key_F), QStringLiteral(":/new-icons/search.svg"));
 
     connect(m_newProjectAct, &QAction::triggered, this, &MainWindow::newProject);
     connect(m_openProjectAct, &QAction::triggered, this, &MainWindow::openProject);
@@ -230,6 +255,7 @@ void MainWindow::createActions()
     connect(m_paletteAct, &QAction::triggered, this, &MainWindow::showCommandPalette);
     connect(m_quickOpenAct, &QAction::triggered, this, [this] { showQuickOpen(); });
     connect(m_gotoLineAct, &QAction::triggered, this, [this] { showQuickOpen(QStringLiteral(":")); });
+    connect(m_searchAct, &QAction::triggered, this, &MainWindow::showSearch);
     createGitActions();
 
     // Window-wide shortcuts must also work while an editor (which handles Tab itself) has focus.
@@ -270,6 +296,7 @@ void MainWindow::createMenus()
     edit->addAction(m_findAct);
     edit->addAction(m_replaceAct);
     edit->addAction(m_gotoLineAct);
+    edit->addAction(m_searchAct);
 
     QMenu *view = menuBar()->addMenu(tr("&View"));
     view->addAction(m_paletteAct);
@@ -470,6 +497,7 @@ void MainWindow::onProjectOpened(const Project &p)
 {
     m_explorer->setProjectRoot(p.root);
     m_projectFiles->setRoot(p.root);
+    m_searchPanel->setProjectRoot(p.root);
     m_git->setWorkDirectory(p.root);
     // The shell always starts in the project root; nothing is executed automatically.
     m_terminal->setWorkingDirectory(p.root);
@@ -485,6 +513,7 @@ void MainWindow::onProjectClosed()
 {
     m_explorer->setProjectRoot({});
     m_projectFiles->setRoot({});
+    m_searchPanel->setProjectRoot({});
     m_git->setWorkDirectory({});
     m_terminal->setWorkingDirectory(QDir::homePath());
     m_terminal->stop();
@@ -688,6 +717,64 @@ void MainWindow::noteRecentFile()
     m_recentFiles.prepend(path);
     while (m_recentFiles.size() > 40)
         m_recentFiles.removeLast();
+}
+
+void MainWindow::showSearch()
+{
+    if (!m_explorerAct->isChecked())
+        m_explorerAct->setChecked(true);
+    m_sideTabs->setCurrentIndex(2);
+    QString prefill;
+    if (CodeEditor *e = m_editors->currentEditor()) {
+        const QString sel = e->textCursor().selectedText();
+        if (!sel.isEmpty() && !sel.contains(QChar::ParagraphSeparator) && sel.size() < 200)
+            prefill = sel;
+    }
+    m_searchPanel->focusQuery(prefill);
+}
+
+void MainWindow::replaceInFiles(const QStringList &paths, const SearchOptions &options, const QString &replacement)
+{
+    const QRegularExpression rx = options.toRegex();
+    if (!rx.isValid())
+        return;
+    int total = 0, changedFiles = 0;
+    QStringList failed;
+    for (const QString &path : paths) {
+        int n = 0;
+        if (Document *doc = m_editors->documentForPath(path)) {
+            n = ProjectSearch::replaceInDocument(doc->textDocument(), rx, replacement);
+        } else {
+            QString text;
+            bool bom = false;
+            if (!ProjectSearch::readTextFile(path, &text, &bom)) {
+                failed << path;
+                continue;
+            }
+            n = ProjectSearch::replaceInText(&text, rx, replacement);
+            if (n > 0) {
+                QSaveFile f(path);
+                QByteArray data = text.toUtf8();
+                if (bom)
+                    data.prepend("\xEF\xBB\xBF");
+                if (!f.open(QIODevice::WriteOnly) || f.write(data) != data.size() || !f.commit()) {
+                    failed << path;
+                    continue;
+                }
+            }
+        }
+        if (n > 0) {
+            total += n;
+            ++changedFiles;
+        }
+    }
+    statusBar()->showMessage(tr("Replaced %1 in %2").arg(total == 1 ? tr("1 occurrence") : tr("%1 occurrences").arg(total),
+                                                          changedFiles == 1 ? tr("1 file") : tr("%1 files").arg(changedFiles)),
+                             8000);
+    if (!failed.isEmpty())
+        QMessageBox::warning(this, tr("Replace in Files"),
+                             tr("These files could not be changed (binary, not UTF-8, or not writable):\n\n%1").arg(failed.join(QLatin1Char('\n'))));
+    m_searchPanel->rerun();
 }
 
 void MainWindow::showQuickOpen(const QString &initialQuery)

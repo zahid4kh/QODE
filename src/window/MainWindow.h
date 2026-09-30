@@ -23,6 +23,8 @@ class BranchButton;
 class QToolButton;
 class Terminal;
 class ProjectFiles;
+class SearchPanel;
+struct SearchOptions;
 
 class MainWindow : public QMainWindow
 {
@@ -63,6 +65,8 @@ private:
     void showCommandPalette();
     void showQuickOpen(const QString &initialQuery = {});
     void noteRecentFile();
+    void showSearch();
+    void replaceInFiles(const QStringList &paths, const SearchOptions &options, const QString &replacement);
     void forwardToFocus(const char *slot);
 
     // Git
@@ -83,6 +87,7 @@ private:
     QStringList m_recentFiles; // most recently active first
     GitRepository *m_git;
     GitPanel *m_gitPanel;
+    SearchPanel *m_searchPanel;
     QWidget *m_side;
     QTabBar *m_sideTabs;
     QStackedWidget *m_sideStack;
@@ -98,7 +103,7 @@ private:
     QAction *m_undoAct, *m_redoAct, *m_cutAct, *m_copyAct, *m_pasteAct, *m_selectAllAct, *m_findAct, *m_replaceAct;
     QAction *m_projNewFileAct, *m_projNewFolderAct, *m_openProjectFolderAct;
     QAction *m_explorerAct, *m_terminalAct, *m_fullscreenAct, *m_wordWrapAct, *m_darkThemeAct, *m_lightThemeAct;
-    QAction *m_nextTabAct, *m_prevTabAct, *m_aboutAct, *m_paletteAct, *m_quickOpenAct, *m_gotoLineAct;
+    QAction *m_nextTabAct, *m_prevTabAct, *m_aboutAct, *m_paletteAct, *m_quickOpenAct, *m_gotoLineAct, *m_searchAct;
 
     QAction *m_scmAct, *m_gitRefreshAct, *m_gitFetchAct, *m_gitPullAct, *m_gitPushAct, *m_gitInitAct, *m_gitNewBranchAct;
     QAction *m_gitStageFileAct, *m_gitUnstageFileAct, *m_gitDiscardFileAct, *m_gitDiffFileAct, *m_nextChangeAct, *m_prevChangeAct;

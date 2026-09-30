@@ -1,5 +1,6 @@
 #include "ProjectModel.h"
 
+#include "explorer/FileIcons.h"
 #include "git/GitRepository.h"
 
 #include <QDir>
@@ -19,6 +20,14 @@ void ProjectModel::setProjectRoot(const QString &root)
 
 QVariant ProjectModel::data(const QModelIndex &index, int role) const
 {
+    if (role == Qt::DecorationRole && index.column() == 0) {
+        // Our own icons instead of the (system dependent) file icon provider; also safe to build here
+        // because the model is queried on the GUI thread.
+        if (auto *fs = qobject_cast<QFileSystemModel *>(sourceModel())) {
+            const QModelIndex src = mapToSource(index);
+            return fs->isDir(src) ? FileIcons::folder() : FileIcons::forFile(fs->fileName(src));
+        }
+    }
     if (role == PathRole || role == Qt::ToolTipRole) {
         if (auto *fs = qobject_cast<QFileSystemModel *>(sourceModel())) {
             const QString path = fs->filePath(mapToSource(index));

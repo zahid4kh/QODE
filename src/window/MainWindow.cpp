@@ -11,6 +11,7 @@
 #include "editor/CodeEditor.h"
 #include "editor/Document.h"
 #include "editor/EditorManager.h"
+#include "explorer/FileIcons.h"
 #include "explorer/ProjectExplorer.h"
 #include "filesystem/FileManager.h"
 #include "project/ProjectFiles.h"
@@ -873,7 +874,7 @@ void MainWindow::showQuickOpen(const QString &initialQuery)
                 it.detail = dir == root ? QString() : rootDir.relativeFilePath(dir);
             else
                 it.detail = FileManager::displayPath(dir);
-            it.icon = Icons::tinted(QStringLiteral(":/new-icons/file.svg"), Theme::byName(SettingsManager::instance().theme()).textMuted);
+            it.icon = FileIcons::forFile(it.title);
             it.data = path;
             return it;
         };

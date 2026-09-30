@@ -1,5 +1,6 @@
 #include "SearchPanel.h"
 
+#include "explorer/FileIcons.h"
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
@@ -96,7 +97,7 @@ private:
         right = pill.left() - 8;
 
         int left = r.left() + 4;
-        p->drawPixmap(left, r.center().y() - 7, Icons::pixmap(QStringLiteral(":/new-icons/file.svg"), m_theme.textMuted, 14));
+        FileIcons::forFile(fi.fileName()).paint(p, QRect(left, r.center().y() - 7, 14, 14));
         left += 20;
         QFont nf = option.font;
         nf.setWeight(QFont::DemiBold);

@@ -4,6 +4,7 @@
 #include "Breadcrumbs.h"
 #include "Document.h"
 #include "WelcomePage.h"
+#include "explorer/FileIcons.h"
 #include "FindBar.h"
 #include "dialogs/UnsavedChangesDialog.h"
 #include "filesystem/FileManager.h"
@@ -98,6 +99,10 @@ EditorManager::EditorManager(QWidget *parent)
     connect(m_watcher, &QFileSystemWatcher::fileChanged, this, &EditorManager::onWatchedFileChanged);
 
     connect(&SettingsManager::instance(), &SettingsManager::editorSettingsChanged, this, &EditorManager::updateAllCrumbs);
+    connect(&SettingsManager::instance(), &SettingsManager::themeChanged, this, [this] {
+        for (Document *d : documents())
+            updateTabTitle(d);
+    });
     connect(m_tabs, &QTabWidget::tabCloseRequested, this, &EditorManager::onTabCloseRequested);
     connect(m_tabs, &QTabWidget::currentChanged, this, &EditorManager::onCurrentTabChanged);
     updateStack();
@@ -350,6 +355,7 @@ void EditorManager::updateTabTitle(Document *doc)
     if (i < 0)
         return;
     m_tabs->setTabText(i, doc->fileName() + (doc->isModified() ? QStringLiteral(" *") : QString()));
+    m_tabs->setTabIcon(i, FileIcons::forFile(doc->fileName()));
     m_tabs->setTabToolTip(i, doc->isUntitled() ? tr("Untitled") : doc->filePath());
 }
 

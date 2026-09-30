@@ -29,6 +29,7 @@ SOURCES += \
     src/project/ProjectManager.cpp \
     src/project/ProjectModel.cpp \
     src/explorer/ProjectExplorer.cpp \
+    src/explorer/FileIcons.cpp \
     src/explorer/GitItemDelegate.cpp \
     src/git/GitDiff.cpp \
     src/git/GitRepository.cpp \
@@ -70,6 +71,7 @@ HEADERS += \
     src/project/ProjectManager.h \
     src/project/ProjectModel.h \
     src/explorer/ProjectExplorer.h \
+    src/explorer/FileIcons.h \
     src/explorer/GitItemDelegate.h \
     src/git/GitTypes.h \
     src/git/GitDiff.h \

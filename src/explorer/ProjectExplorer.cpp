@@ -68,6 +68,7 @@ ProjectExplorer::ProjectExplorer(QWidget *parent)
     connect(m_fsModel, &QAbstractItemModel::dataChanged, this, &ProjectExplorer::contentsChanged);
     connect(m_fsModel, &QFileSystemModel::fileRenamed, this, &ProjectExplorer::contentsChanged);
 
+    connect(&SettingsManager::instance(), &SettingsManager::themeChanged, m_tree->viewport(), qOverload<>(&QWidget::update));
     connect(m_tree, &QTreeView::doubleClicked, this, &ProjectExplorer::onDoubleClicked);
     connect(m_tree, &QTreeView::customContextMenuRequested, this, &ProjectExplorer::showContextMenu);
 }

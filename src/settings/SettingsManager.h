@@ -44,6 +44,10 @@ public:
     bool showMinimap() const;
     void setShowMinimap(bool on);
 
+    bool blameInline() const;
+    void setBlameInline(bool on);
+    bool blameGutter() const;
+    void setBlameGutter(bool on);
     bool stickyScroll() const;
     void setStickyScroll(bool on);
     bool indentGuides() const;

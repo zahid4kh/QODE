@@ -8,6 +8,7 @@
 #include "settings/Theme.h"
 
 #include <QApplication>
+#include <QDateTime>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -56,6 +57,23 @@ private:
 };
 
 constexpr int kMaxBracketBlocks = 6000;
+
+QString relativeTime(qint64 secs)
+{
+    const qint64 d = QDateTime::currentSecsSinceEpoch() - secs;
+    auto n = [](qint64 v, const char *unit) { return QCoreApplication::translate("CodeEditor", unit, nullptr, int(v)); };
+    if (d < 60)
+        return QCoreApplication::translate("CodeEditor", "just now");
+    if (d < 3600)
+        return n(d / 60, "%n min ago");
+    if (d < 86400)
+        return n(d / 3600, "%n hr ago");
+    if (d < 86400 * 30)
+        return n(d / 86400, "%n day(s) ago");
+    if (d < 86400 * 365)
+        return n(d / (86400 * 30), "%n month(s) ago");
+    return n(d / (86400 * 365), "%n yr ago");
+}
 constexpr int kFoldWidth = 16;
 
 // Per-block fold flag (a QTextBlock owns its user data).
@@ -130,6 +148,7 @@ CodeEditor::CodeEditor(QWidget *parent)
     connect(this, &QPlainTextEdit::blockCountChanged, this, &CodeEditor::updateLineNumberAreaWidth);
     connect(this, &QPlainTextEdit::updateRequest, this, &CodeEditor::updateLineNumberArea);
     connect(this, &QPlainTextEdit::cursorPositionChanged, this, &CodeEditor::refreshSelections);
+    connect(this, &QPlainTextEdit::cursorPositionChanged, this, [this] { if (!m_blame.isEmpty()) viewport()->update(); });
     connect(this, &QPlainTextEdit::textChanged, this, [this] {
         updateGuideScope();
         if (m_foldedCount > 0)
@@ -207,6 +226,8 @@ void CodeEditor::attachDocument(QTextDocument *doc)
     setDocument(doc);
     // Text edits and highlighting both surface as contentsChanged.
     connect(doc, &QTextDocument::contentsChanged, m_minimap, &MiniMap::invalidate);
+    disconnect(m_blameConn);
+    m_blameConn = connect(doc, &QTextDocument::contentsChange, this, &CodeEditor::trackBlameEdit);
     applySettings();
     updateLineNumberAreaWidth();
     updateGuideScope();
@@ -223,6 +244,8 @@ void CodeEditor::applySettings()
     setLineWrapMode(s.wordWrap() ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
     m_indentGuides = s.indentGuides();
     m_stickyScroll = s.stickyScroll();
+    m_blameInline = s.blameInline();
+    m_blameGutter = s.blameGutter();
     m_showMinimap = s.showMinimap();
     updateGuideScope();
     viewport()->update();
@@ -241,7 +264,7 @@ int CodeEditor::lineNumberAreaWidth() const
         ++digits;
     }
     digits = qMax(digits, 3);
-    return 14 + kFoldWidth + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
+    return blameWidth() + 14 + kFoldWidth + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
 }
 
 void CodeEditor::updateLineNumberAreaWidth()
@@ -316,8 +339,26 @@ void CodeEditor::lineNumberAreaPaintEvent(QPaintEvent *event)
     while (block.isValid() && top <= event->rect().bottom()) {
         if (block.isVisible() && bottom >= event->rect().top()) {
             painter.setPen(number == current ? m_gutterActive : m_gutterFg);
-            painter.drawText(0, top, m_lineArea->width() - 8 - kFoldWidth, fontMetrics().height(), Qt::AlignRight,
+            painter.drawText(blameWidth(), top, m_lineArea->width() - blameWidth() - 8 - kFoldWidth, fontMetrics().height(), Qt::AlignRight,
                              QString::number(number + 1));
+            if (blameWidth() > 0 && number < m_blame.size()) {
+                const GitBlameLine &bl = m_blame.at(number);
+                const bool first = number == 0 || m_blame.at(number - 1).hash != bl.hash;
+                if (bl.committed()) {
+                    const QColor stripe = QColor::fromHsl(int(qHash(bl.hash) % 360), 110, m_gutterBg.lightness() < 128 ? 120 : 160);
+                    painter.fillRect(blameWidth() - 4, top, 2, bottom - top, stripe);
+                }
+                if (first) {
+                    QFont bf = font();
+                    bf.setPointSizeF(qMax(7.0, bf.pointSizeF() - 1.5));
+                    painter.setFont(bf);
+                    painter.setPen(m_gutterFg);
+                    const QString label = bl.committed() ? bl.author + QStringLiteral("  ") + relativeTime(bl.time) : tr("You  uncommitted");
+                    painter.drawText(QRect(10, top, blameWidth() - 18, bottom - top), Qt::AlignVCenter | Qt::AlignLeft,
+                                     QFontMetrics(bf).elidedText(label, Qt::ElideRight, blameWidth() - 18));
+                    painter.setFont(font());
+                }
+            }
             const bool folded = isFolded(block);
             if (folded || (m_gutterHover && isFoldable(block))) {
                 const QColor c = folded || number == current ? m_gutterActive : m_gutterFg;
@@ -741,6 +782,7 @@ void CodeEditor::paintEvent(QPaintEvent *event)
         paintIndentGuides();
     paintFoldMarkers();
     paintStickyScroll();
+    paintBlameAnnotation();
 }
 
 QList<int> CodeEditor::stickyLines() const
@@ -1323,12 +1365,96 @@ void CodeEditor::gotoChange(bool next)
     centerCursor();
 }
 
+void CodeEditor::setBlame(const QVector<GitBlameLine> &lines)
+{
+    m_blame = lines;
+    m_blameBlocks = blockCount();
+    updateLineNumberAreaWidth();
+    m_lineArea->update();
+    viewport()->update();
+}
+
+void CodeEditor::clearBlame()
+{
+    if (m_blame.isEmpty())
+        return;
+    m_blame.clear();
+    updateLineNumberAreaWidth();
+    m_lineArea->update();
+    viewport()->update();
+}
+
+void CodeEditor::setBlameGutter(bool on)
+{
+    m_blameGutter = on;
+    updateLineNumberAreaWidth();
+    m_lineArea->update();
+}
+
+void CodeEditor::setBlameInline(bool on)
+{
+    m_blameInline = on;
+    viewport()->update();
+}
+
+// Keeps the blame list aligned with the text while it is edited: new lines and touched lines are "uncommitted".
+void CodeEditor::trackBlameEdit(int position, int, int)
+{
+    if (m_blame.isEmpty())
+        return;
+    const int now = document()->blockCount();
+    const int delta = now - m_blameBlocks;
+    m_blameBlocks = now;
+    const int line = qBound(0, document()->findBlock(position).blockNumber(), qMax(0, m_blame.size() - 1));
+    if (delta > 0)
+        m_blame.insert(qMin(line + 1, m_blame.size()), delta, GitBlameLine{});
+    else if (delta < 0)
+        m_blame.remove(qMin(line + 1, m_blame.size()), qMin(-delta, m_blame.size() - qMin(line + 1, m_blame.size())));
+    for (int i = line; i <= line + qMax(0, delta) && i < m_blame.size(); ++i)
+        m_blame[i] = GitBlameLine{};
+    m_lineArea->update();
+    viewport()->update();
+}
+
+void CodeEditor::paintBlameAnnotation()
+{
+    if (!m_blameInline || m_blame.isEmpty())
+        return;
+    const int line = textCursor().blockNumber();
+    if (line >= m_blame.size() || !textCursor().block().isVisible())
+        return;
+    const GitBlameLine &bl = m_blame.at(line);
+    const QString text = bl.committed() ? bl.author + QStringLiteral(", ") + relativeTime(bl.time) + QStringLiteral("  \u2022  ") + bl.summary
+                                        : tr("You, uncommitted changes");
+    QTextCursor end(textCursor().block());
+    end.movePosition(QTextCursor::EndOfBlock);
+    const QRect r = cursorRect(end);
+    const int x = r.right() + fontMetrics().horizontalAdvance(QLatin1Char(' ')) * 4;
+    const int avail = viewport()->width() - x - 12;
+    if (avail < 80)
+        return;
+    QPainter p(viewport());
+    QFont f = font();
+    f.setItalic(true);
+    p.setFont(f);
+    QColor c = m_gutterFg;
+    c.setAlpha(200);
+    p.setPen(c);
+    p.drawText(QRect(x, r.top(), avail, r.height()), Qt::AlignVCenter | Qt::AlignLeft, QFontMetrics(f).elidedText(text, Qt::ElideRight, avail));
+}
+
 void CodeEditor::gutterClicked(const QPoint &pos)
 {
     if (pos.x() >= m_lineArea->width() - kFoldWidth) {
         const QTextBlock b = cursorForPosition(QPoint(0, pos.y())).block();
         if (b.isValid() && (isFolded(b) || isFoldable(b)))
             toggleFoldAt(b.blockNumber());
+        return;
+    }
+    if (blameWidth() > 0 && pos.x() < blameWidth() && (pos.x() > 8 || !m_hasBase)) {
+        const int bl = cursorForPosition(QPoint(0, pos.y())).blockNumber();
+        if (bl < m_blame.size() && m_blame.at(bl).committed())
+            emit blameCommitRequested(m_blame.at(bl).hash);
         return;
     }
     if (!m_hasBase || pos.x() > 8)

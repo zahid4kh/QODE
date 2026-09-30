@@ -67,6 +67,8 @@ signals:
     void countChanged(int count);
     void documentAdded(Document *doc);       // a tab was created for this document
     void documentPathChanged(Document *doc); // saved as / renamed
+    void blameCommitRequested(const QString &hash); // gutter blame column clicked
+    void documentSaved(Document *doc);       // written to disk (manual or auto save)
     // Empty-state (welcome page) buttons
     void newProjectRequested();
     void openProjectRequested();

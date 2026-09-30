@@ -7,6 +7,7 @@
 #include <QPointer>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QRegularExpression>
 #include <QStandardPaths>
 #include <QTimer>
 
@@ -753,6 +754,52 @@ void GitRepository::readBlob(const QString &spec, QObject *ctx, Callback cb)
         return;
     }
     run({QStringLiteral("cat-file"), QStringLiteral("blob"), spec}, ctx, std::move(cb));
+}
+
+void GitRepository::blame(const QString &relPath, const QByteArray &contents, QObject *ctx,
+                          std::function<void(const QVector<GitBlameLine> &)> cb)
+{
+    if (!m_isRepo) {
+        cb({});
+        return;
+    }
+    run({QStringLiteral("blame"), QStringLiteral("--porcelain"), QStringLiteral("--contents"), QStringLiteral("-"), QStringLiteral("--"), relPath},
+        ctx,
+        [cb](const Result &r) {
+            QVector<GitBlameLine> lines;
+            if (!r.ok()) {
+                cb(lines);
+                return;
+            }
+            QHash<QString, GitBlameLine> commits;
+            GitBlameLine cur;
+            static const QRegularExpression header(QStringLiteral("^([0-9a-f]{40,64}) \\d+ \\d+"));
+            for (const QByteArray &raw : r.out.split('\n')) {
+                if (raw.startsWith('\t')) { // the source line closes the entry
+                    lines.append(commits.value(cur.hash, cur));
+                    continue;
+                }
+                const QString line = QString::fromUtf8(raw);
+                if (const auto m = header.match(line); m.hasMatch()) {
+                    cur = commits.value(m.captured(1));
+                    cur.hash = m.captured(1);
+                    continue;
+                }
+                bool changed = true;
+                if (line.startsWith(QLatin1String("author ")))
+                    cur.author = line.mid(7);
+                else if (line.startsWith(QLatin1String("author-time ")))
+                    cur.time = line.mid(12).toLongLong();
+                else if (line.startsWith(QLatin1String("summary ")))
+                    cur.summary = line.mid(8);
+                else
+                    changed = false;
+                if (changed)
+                    commits.insert(cur.hash, cur);
+            }
+            cb(lines);
+        },
+        contents);
 }
 
 void GitRepository::log(int limit, QObject *ctx, std::function<void(const QList<GitCommitInfo> &)> cb)

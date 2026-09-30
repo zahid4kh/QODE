@@ -82,6 +82,9 @@ public:
     // --- Queries ---------------------------------------------------------------
     // `git cat-file blob <spec>` e.g. "HEAD:src/a.cpp" or ":src/a.cpp" (index).
     void readBlob(const QString &spec, QObject *ctx, Callback cb);
+    // `git blame` of the work-tree file `relPath`, with `contents` standing in for the file on disk so
+    // unsaved edits show as uncommitted. Empty on failure (untracked file, binary, …).
+    void blame(const QString &relPath, const QByteArray &contents, QObject *ctx, std::function<void(const QVector<GitBlameLine> &)> cb);
     void log(int limit, QObject *ctx, std::function<void(const QList<GitCommitInfo> &)> cb);
     void commitPatch(const QString &hash, QObject *ctx, std::function<void(const QString &)> cb);
     void lastCommitMessage(QObject *ctx, std::function<void(const QString &)> cb);

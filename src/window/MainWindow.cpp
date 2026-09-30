@@ -9,6 +9,7 @@
 #include "git/GitDiff.h"
 #include "git/GitPanel.h"
 #include "git/GitRepository.h"
+#include "git/PatchDialog.h"
 #include "palette/PalettePopup.h"
 #include "editor/CodeEditor.h"
 #include "editor/Breadcrumbs.h"
@@ -263,6 +264,12 @@ void MainWindow::createActions()
     m_minimapAct = make(tr("Minimap"));
     m_minimapAct->setCheckable(true);
     m_minimapAct->setChecked(SettingsManager::instance().showMinimap());
+    m_blameInlineAct = make(tr("Inline Blame on Current Line"));
+    m_blameInlineAct->setCheckable(true);
+    m_blameInlineAct->setChecked(SettingsManager::instance().blameInline());
+    m_blameGutterAct = make(tr("Blame Column in Gutter"));
+    m_blameGutterAct->setCheckable(true);
+    m_blameGutterAct->setChecked(SettingsManager::instance().blameGutter());
     m_stickyAct = make(tr("Sticky Scroll"));
     m_stickyAct->setCheckable(true);
     m_stickyAct->setChecked(SettingsManager::instance().stickyScroll());
@@ -356,6 +363,8 @@ void MainWindow::createActions()
     connect(m_wordWrapAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setWordWrap(on); });
     connect(m_breadcrumbsAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setShowBreadcrumbs(on); });
     connect(m_minimapAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setShowMinimap(on); });
+    connect(m_blameInlineAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setBlameInline(on); });
+    connect(m_blameGutterAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setBlameGutter(on); });
     connect(m_stickyAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setStickyScroll(on); });
     connect(m_indentGuidesAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setIndentGuides(on); });
     connect(m_darkThemeAct, &QAction::triggered, this, [] { SettingsManager::instance().setTheme(QStringLiteral("dark")); });
@@ -1243,6 +1252,9 @@ void MainWindow::createGitMenu(QMenu *menu)
     menu->addAction(m_gitUnstageFileAct);
     menu->addAction(m_gitDiscardFileAct);
     menu->addSeparator();
+    menu->addAction(m_blameGutterAct);
+    menu->addAction(m_blameInlineAct);
+    menu->addSeparator();
     menu->addAction(m_nextChangeAct);
     menu->addAction(m_prevChangeAct);
     menu->addSeparator();
@@ -1286,6 +1298,13 @@ void MainWindow::setupGit()
 
     // Change markers in the gutter follow the committed text of each open file.
     connect(m_editors, &EditorManager::documentAdded, this, &MainWindow::refreshGutter);
+    connect(m_editors, &EditorManager::documentSaved, this, &MainWindow::refreshGutter);
+    connect(m_editors, &EditorManager::blameCommitRequested, this, [this](const QString &hash) {
+        m_git->commitPatch(hash, this, [this, hash](const QString &text) {
+            auto *dlg = new PatchDialog(tr("Commit %1").arg(hash.left(8)), text, this);
+            dlg->show();
+        });
+    });
     connect(m_editors, &EditorManager::documentPathChanged, this, &MainWindow::refreshGutter);
     connect(m_editors, &EditorManager::documentStateChanged, m_git, &GitRepository::scheduleRefresh);
 
@@ -1353,8 +1372,15 @@ void MainWindow::refreshGutter(Document *doc)
     const QString rel = path.isEmpty() || !m_git->isRepo() ? QString() : m_git->relativePath(path);
     if (rel.isEmpty() || m_git->isIgnored(path)) {
         ed->clearDiffBase();
+        ed->clearBlame();
         return;
     }
+    m_git->blame(rel, ed->toPlainText().toUtf8(), ed, [ed](const QVector<GitBlameLine> &lines) {
+        if (lines.isEmpty())
+            ed->clearBlame();
+        else
+            ed->setBlame(lines);
+    });
     const GitFileChange *c = m_git->changeFor(path);
     const QString headRel = c && !c->origRelPath.isEmpty() ? c->origRelPath : rel;
     m_git->readBlob(QStringLiteral("HEAD:") + headRel, ed, [ed](const GitRepository::Result &r) {

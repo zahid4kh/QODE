@@ -1,6 +1,7 @@
 #pragma once
 
 #include "git/GitDiff.h"
+#include "git/GitTypes.h"
 
 #include <QElapsedTimer>
 #include <QPlainTextEdit>
@@ -47,6 +48,15 @@ public:
     void gutterClicked(const QPoint &pos);
     const QVector<GitDiff::Hunk> &hunks() const { return m_hunks; }
 
+    // --- Git blame ------------------------------------------------------------
+    // Per-line authorship (one entry per line). The gutter column and the caret-line annotation are
+    // separate options; unsaved edits keep the list aligned and show as uncommitted.
+    void setBlame(const QVector<GitBlameLine> &lines);
+    void clearBlame();
+    bool hasBlame() const { return !m_blame.isEmpty(); }
+    void setBlameGutter(bool on);
+    void setBlameInline(bool on);
+
     // --- Minimap support ------------------------------------------------------
     void visibleBlockRange(int *first, int *last) const; // block numbers on screen
     void scrollBlockToCenter(int blockNumber);
@@ -70,6 +80,7 @@ signals:
     void filesDropped(const QStringList &paths);
     void searchResultsChanged();
     void overwriteModeToggled();
+    void blameCommitRequested(const QString &hash);
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
@@ -99,6 +110,9 @@ private:
     void paintFoldMarkers();
     QList<int> stickyLines() const; // header blocks pinned at the top of the viewport
     void paintStickyScroll();
+    void paintBlameAnnotation();
+    int blameWidth() const { return m_blameGutter && !m_blame.isEmpty() ? m_blameColumn : 0; }
+    void trackBlameEdit(int position, int removed, int added);
     void positionMinimap();
     void appendBracketSelections(QList<QTextEdit::ExtraSelection> &extra) const;
     int bracketNearCursor() const;              // document position of the bracket at/before the cursor, or -1
@@ -122,6 +136,12 @@ private:
     bool m_tripleClickArmed = false;
     bool m_indentAfterColon = false;
     QString m_language;
+    QVector<GitBlameLine> m_blame;
+    bool m_blameGutter = false;
+    bool m_blameInline = true;
+    int m_blameColumn = 190;
+    int m_blameBlocks = 0;
+    QMetaObject::Connection m_blameConn;
     bool m_stickyScroll = true;
     QVector<QPair<QRect, int>> m_stickyRows; // last paint -> header block number
 

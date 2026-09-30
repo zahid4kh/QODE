@@ -5,6 +5,7 @@
 #include <QList>
 #include <QString>
 #include <QStringList>
+#include <QVector>
 
 // Ordered by display priority: when a folder contains several kinds of change,
 // the highest one wins (Ignored never propagates to parents).
@@ -61,6 +62,13 @@ struct GitBranchInfo {
     bool current = false;
     bool remote = false;
     QString upstream;
+};
+
+// One line of `git blame`.
+struct GitBlameLine {
+    QString hash, author, summary;
+    qint64 time = 0; // author time, seconds since the epoch
+    bool committed() const { return !hash.isEmpty() && hash.count(QLatin1Char('0')) != hash.size(); }
 };
 
 struct GitCommitInfo {

@@ -144,6 +144,28 @@ void SettingsManager::setShowMinimap(bool on)
     emit editorSettingsChanged();
 }
 
+bool SettingsManager::blameInline() const
+{
+    return m_settings.value(QStringLiteral("git/blameInline"), true).toBool();
+}
+
+void SettingsManager::setBlameInline(bool on)
+{
+    m_settings.setValue(QStringLiteral("git/blameInline"), on);
+    emit editorSettingsChanged();
+}
+
+bool SettingsManager::blameGutter() const
+{
+    return m_settings.value(QStringLiteral("git/blameGutter"), false).toBool();
+}
+
+void SettingsManager::setBlameGutter(bool on)
+{
+    m_settings.setValue(QStringLiteral("git/blameGutter"), on);
+    emit editorSettingsChanged();
+}
+
 bool SettingsManager::stickyScroll() const
 {
     return m_settings.value(QStringLiteral("editor/stickyScroll"), true).toBool();

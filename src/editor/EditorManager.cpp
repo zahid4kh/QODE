@@ -326,6 +326,7 @@ EditorManager::Entry EditorManager::addDocument(Document *doc)
     crumbTimer->setInterval(120);
     connect(crumbTimer, &QTimer::timeout, this, [this, doc] { updateCrumbs(doc); });
     connect(editor, &QPlainTextEdit::cursorPositionChanged, crumbTimer, qOverload<>(&QTimer::start));
+    connect(editor, &CodeEditor::blameCommitRequested, this, &EditorManager::blameCommitRequested);
     connect(pane->crumbs, &Breadcrumbs::lineRequested, this, [editor](int line) {
         QTextCursor c(editor->document()->findBlockByNumber(line));
         editor->setTextCursor(c);
@@ -448,6 +449,7 @@ bool EditorManager::saveDocument(Document *doc)
         if (doc->save(&err)) {
             // Atomic-replace saves drop inotify watches; re-arm.
             watch(doc->filePath());
+            emit documentSaved(doc);
             return true;
         }
         QMessageBox box(QMessageBox::Warning, tr("Unable to save file"),
@@ -599,6 +601,7 @@ bool EditorManager::autoSaveDocument(Document *doc)
         return false;
     }
     watch(doc->filePath());
+    emit documentSaved(doc);
     return true;
 }
 

@@ -3,8 +3,12 @@
 
 #include <QCommandLineParser>
 
+#include <csignal>
+
 int main(int argc, char *argv[])
 {
+    // Writing to a child process (git, the shell) that already exited must fail with an error, not kill the editor.
+    std::signal(SIGPIPE, SIG_IGN);
     Application app(argc, argv);
 
     QCommandLineParser parser;

@@ -72,6 +72,7 @@ signals:
     void openProjectRequested();
     void newFileRequested();
     void openFileRequested();
+    void mediaRequested(const QString &path); // image/video: shown in the media panel, not a tab
     void openRecentProjectRequested(const QString &path);
     void removeRecentProjectRequested(const QString &path);
     void clearRecentProjectsRequested();

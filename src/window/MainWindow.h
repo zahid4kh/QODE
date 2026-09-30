@@ -10,6 +10,7 @@
 class DiffDialog;
 class Document;
 class GitPanel;
+class MediaPanel;
 class GitRepository;
 class EditorManager;
 class ProjectManager;
@@ -62,6 +63,8 @@ private:
     void updateActions();
     void toggleTerminal();
     void showTerminal();
+    void showMedia(const QString &path);
+    void hideMedia();
     void runCurrentFile();
     void configureRun();
     void about();
@@ -100,6 +103,8 @@ private:
     EditorManager *m_editors;
     Terminal *m_terminal;
     QSplitter *m_hsplit;
+    MediaPanel *m_media;
+    int m_mediaWidth = 420;
     QSplitter *m_vsplit;
     int m_terminalHeight = 240;
 

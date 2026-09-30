@@ -8,6 +8,7 @@
 #include "FindBar.h"
 #include "dialogs/UnsavedChangesDialog.h"
 #include "filesystem/FileManager.h"
+#include "media/MediaPanel.h"
 #include "format/Formatter.h"
 #include "settings/SettingsManager.h"
 
@@ -216,6 +217,11 @@ bool EditorManager::openFile(const QString &pathIn)
 {
     const QFileInfo fi(pathIn);
     const QString path = fi.absoluteFilePath();
+
+    if (fi.isFile() && MediaPanel::isMedia(path)) {
+        emit mediaRequested(path);
+        return true;
+    }
 
     // Already open? Activate the existing tab.
     for (Document *d : documents()) {

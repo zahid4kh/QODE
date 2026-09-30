@@ -16,6 +16,7 @@
 #include "explorer/FileIcons.h"
 #include "explorer/ProjectExplorer.h"
 #include "filesystem/FileManager.h"
+#include "media/MediaPanel.h"
 #include "project/ProjectFiles.h"
 #include "project/ProjectManager.h"
 #include "project/PythonEnv.h"
@@ -114,8 +115,12 @@ MainWindow::MainWindow(QWidget *parent)
     m_hsplit->setContentsMargins(8, 2, 8, 0);
     m_hsplit->addWidget(new Island(m_side));
     m_hsplit->addWidget(m_vsplit);
+    m_media = new MediaPanel(this);
+    m_hsplit->addWidget(new Island(m_media));
     m_hsplit->setStretchFactor(0, 0);
     m_hsplit->setStretchFactor(1, 1);
+    m_hsplit->setStretchFactor(2, 0);
+    m_hsplit->widget(2)->hide(); // shown when an image or video is opened
     setCentralWidget(m_hsplit);
 
     createActions();
@@ -133,6 +138,20 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_explorer, &ProjectExplorer::contentsChanged, m_projectFiles, &ProjectFiles::invalidate);
     connect(m_editors, &EditorManager::documentPathChanged, m_projectFiles, &ProjectFiles::invalidate);
 
+    connect(m_editors, &EditorManager::mediaRequested, this, &MainWindow::showMedia);
+    connect(m_media, &MediaPanel::closeRequested, this, &MainWindow::hideMedia);
+    connect(m_explorer, &ProjectExplorer::pathDeleted, this, [this](const QString &path) {
+        const QString cur = m_media->currentPath();
+        if (!cur.isEmpty() && (cur == path || cur.startsWith(path + QLatin1Char('/'))))
+            hideMedia();
+    });
+    connect(m_explorer, &ProjectExplorer::pathRenamed, this, [this](const QString &from, const QString &to) {
+        const QString cur = m_media->currentPath();
+        if (cur == from)
+            m_media->openMedia(to);
+        else if (cur.startsWith(from + QLatin1Char('/')))
+            m_media->openMedia(to + cur.mid(from.size()));
+    });
     connect(m_editors, &EditorManager::newProjectRequested, m_newProjectAct, &QAction::trigger);
     connect(m_editors, &EditorManager::openProjectRequested, m_openProjectAct, &QAction::trigger);
     connect(m_editors, &EditorManager::newFileRequested, m_newFileAct, &QAction::trigger);
@@ -654,6 +673,7 @@ void MainWindow::onProjectOpened(const Project &p)
     m_projectFiles->setRoot(p.root);
     m_editors->setProjectRoot(p.root);
     m_searchPanel->setProjectRoot(p.root);
+    m_media->setProjectRoot(p.root);
     m_git->setWorkDirectory(p.root);
     // The shell always starts in the project root.
     m_terminal->setWorkingDirectory(p.root);
@@ -671,6 +691,8 @@ void MainWindow::onProjectClosed()
     m_projectFiles->setRoot({});
     m_editors->setProjectRoot({});
     m_searchPanel->setProjectRoot({});
+    hideMedia();
+    m_media->setProjectRoot({});
     m_git->setWorkDirectory({});
     m_terminal->setWorkingDirectory(QDir::homePath());
     m_terminal->stop();
@@ -769,6 +791,29 @@ void MainWindow::updateStatus()
     m_eolLabel->setText(d->lineEndingName());
     m_posLabel->setText(tr("Ln %1, Col %2").arg(e->currentLine()).arg(e->currentColumn()));
     m_modeLabel->setText(e->overwriteMode() ? tr("OVR") : tr("INS"));
+}
+
+void MainWindow::showMedia(const QString &path)
+{
+    m_media->openMedia(path);
+    QWidget *island = m_media->parentWidget();
+    if (island->isVisible())
+        return;
+    island->show();
+    QList<int> sizes = m_hsplit->sizes();
+    const int w = qBound(280, m_mediaWidth, qMax(280, m_hsplit->width() / 2));
+    sizes[2] = w;
+    sizes[1] = qMax(200, sizes[1] - w);
+    m_hsplit->setSizes(sizes);
+}
+
+void MainWindow::hideMedia()
+{
+    QWidget *island = m_media->parentWidget();
+    if (island->isVisible())
+        m_mediaWidth = island->width();
+    m_media->clear();
+    island->hide();
 }
 
 void MainWindow::showTerminal()

@@ -3,6 +3,12 @@ lessThan(QT_MAJOR_VERSION, 6): error("QODE requires Qt 6 - build with qmake6.")
 
 QT += core gui widgets
 
+# Video playback needs Qt Multimedia; without it the media panel still shows images.
+qtHaveModule(multimedia) {
+    QT += multimedia multimediawidgets
+    DEFINES += QODE_HAS_MULTIMEDIA
+}
+
 CONFIG += c++17 warn_on
 CONFIG -= app_bundle
 
@@ -30,6 +36,7 @@ SOURCES += \
     src/project/ProjectManager.cpp \
     src/project/ProjectModel.cpp \
     src/project/PythonEnv.cpp \
+    src/media/MediaPanel.cpp \
     src/explorer/ProjectExplorer.cpp \
     src/explorer/FileIcons.cpp \
     src/explorer/GitItemDelegate.cpp \
@@ -76,6 +83,7 @@ HEADERS += \
     src/project/ProjectManager.h \
     src/project/ProjectModel.h \
     src/project/PythonEnv.h \
+    src/media/MediaPanel.h \
     src/explorer/ProjectExplorer.h \
     src/explorer/FileIcons.h \
     src/explorer/GitItemDelegate.h \

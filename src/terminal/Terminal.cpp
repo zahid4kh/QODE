@@ -11,6 +11,7 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -62,6 +63,15 @@ Terminal::Terminal(QWidget *parent)
     connect(m_view, &TerminalView::returnPressedWhileInactive, this, &Terminal::restart);
     connect(m_shell, &ShellProcess::output, m_view->screen(), &TerminalScreen::feed);
     connect(m_shell, &ShellProcess::finished, this, &Terminal::onFinished);
+    // A command typed before the shell has set up its line editor loses characters, so wait for startup
+    // output to go quiet (or a fallback timeout) before typing it.
+    m_pendingTimer = new QTimer(this);
+    m_pendingTimer->setSingleShot(true);
+    connect(m_pendingTimer, &QTimer::timeout, this, &Terminal::flushPendingCommand);
+    connect(m_shell, &ShellProcess::output, this, [this] {
+        if (m_awaitingPrompt)
+            m_pendingTimer->start(250);
+    });
     connect(clearBtn, &QToolButton::clicked, this, &Terminal::clear);
     connect(m_restartBtn, &QToolButton::clicked, this, &Terminal::restart);
     connect(closeBtn, &QToolButton::clicked, this, &Terminal::hideRequested);
@@ -142,10 +152,25 @@ void Terminal::runCommand(const QString &command)
     ensureStarted();
     if (!m_shell->isRunning())
         return;
-    if (wasRunning)
-        m_shell->write(QByteArray("\x03")); // Ctrl+C: stop a previous run / discard a half-typed line
+    m_pendingCommand = command;
     m_view->scrollToBottom();
-    m_shell->write(command.toUtf8() + '\r');
+    if (wasRunning) {
+        m_awaitingPrompt = false;
+        m_shell->write(QByteArray("\x03")); // Ctrl+C: stop a previous run / discard a half-typed line
+        m_pendingTimer->start(150);
+    } else {
+        m_awaitingPrompt = true;
+        m_pendingTimer->start(1500); // fallback if the shell prints nothing
+    }
+}
+
+void Terminal::flushPendingCommand()
+{
+    m_awaitingPrompt = false;
+    if (m_pendingCommand.isEmpty() || !m_shell->isRunning())
+        return;
+    m_shell->write(m_pendingCommand.toUtf8() + '\r');
+    m_pendingCommand.clear();
 }
 
 void Terminal::clear()

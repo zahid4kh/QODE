@@ -3,6 +3,7 @@
 #include <QWidget>
 
 class QLabel;
+class QTimer;
 class QToolButton;
 class ShellProcess;
 class TerminalView;
@@ -33,6 +34,7 @@ signals:
 private:
     void startShell();
     void onFinished(int exitCode);
+    void flushPendingCommand();
     void updateHeader();
 
     ShellProcess *m_shell;
@@ -40,4 +42,7 @@ private:
     QLabel *m_title;
     QToolButton *m_restartBtn;
     QString m_cwd;
+    QString m_pendingCommand;
+    QTimer *m_pendingTimer;
+    bool m_awaitingPrompt = false;
 };

@@ -22,6 +22,12 @@ SOURCES += \
     src/dialogs/NewProjectDialog.cpp \
     src/dialogs/NewFileDialog.cpp \
     src/dialogs/UnsavedChangesDialog.cpp \
+    src/editor/Language.cpp \
+    src/editor/SyntaxHighlighter.cpp \
+    src/editor/Document.cpp \
+    src/editor/CodeEditor.cpp \
+    src/editor/FindBar.cpp \
+    src/editor/EditorManager.cpp \
     src/window/MainWindow.cpp
 
 HEADERS += \
@@ -36,6 +42,12 @@ HEADERS += \
     src/dialogs/NewProjectDialog.h \
     src/dialogs/NewFileDialog.h \
     src/dialogs/UnsavedChangesDialog.h \
+    src/editor/Language.h \
+    src/editor/SyntaxHighlighter.h \
+    src/editor/Document.h \
+    src/editor/CodeEditor.h \
+    src/editor/FindBar.h \
+    src/editor/EditorManager.h \
     src/window/MainWindow.h
 
 RESOURCES += resources/qode.qrc

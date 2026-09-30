@@ -35,7 +35,7 @@ Terminal::Terminal(QWidget *parent)
     auto *clearBtn = makeBtn(tr("Clear"), tr("Clear terminal (scrollback and screen)"));
     m_restartBtn = makeBtn(tr("Restart"), tr("Terminate the shell and start a new one"));
     auto *closeBtn = new QToolButton(this);
-    Icons::bind(closeBtn, QStringLiteral(":/icons/close.svg"));
+    Icons::bind(closeBtn, QStringLiteral(":/new-icons/x.svg"));
     closeBtn->setToolTip(tr("Hide terminal (Ctrl+J)"));
     closeBtn->setAutoRaise(true);
 

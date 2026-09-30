@@ -57,10 +57,10 @@ enum Role {
 const char *iconFor(int action)
 {
     switch (action) {
-    case 0: return ":/icons/plus.svg";     // stage
-    case 1: return ":/icons/minus.svg";    // unstage
-    case 2: return ":/icons/undo.svg";     // discard
-    default: return ":/icons/open-file.svg";
+    case 0: return ":/new-icons/plus.svg";     // stage
+    case 1: return ":/new-icons/minus.svg";    // unstage
+    case 2: return ":/new-icons/undo-2.svg";     // discard
+    default: return ":/new-icons/file-input.svg";
     }
 }
 
@@ -150,7 +150,7 @@ public:
 
         if (isSection) {
             const bool open = m_view->isExpanded(index);
-            p->drawPixmap(opt.rect.left() + 10, cy - 5, Icons::pixmap(open ? QStringLiteral(":/icons/chevron-down.svg") : QStringLiteral(":/icons/chevron-right.svg"), m_theme.textMuted, 10));
+            p->drawPixmap(opt.rect.left() + 10, cy - 5, Icons::pixmap(open ? QStringLiteral(":/new-icons/chevron-down.svg") : QStringLiteral(":/new-icons/chevron-right.svg"), m_theme.textMuted, 10));
             const QString count = QString::number(index.data(RoleCount).toInt());
             p->setPen(Qt::NoPen);
             p->setBrush(m_theme.accent);
@@ -664,11 +664,11 @@ void GitPanel::updateToolbar()
 void GitPanel::applyTheme()
 {
     const Theme t = Theme::byName(SettingsManager::instance().theme());
-    m_pullBtn->setIcon(Icons::tinted(QStringLiteral(":/icons/arrow-down.svg"), t.editorFg));
-    m_pushBtn->setIcon(Icons::tinted(QStringLiteral(":/icons/arrow-up.svg"), t.editorFg));
-    m_refreshBtn->setIcon(Icons::tinted(QStringLiteral(":/icons/refresh.svg"), t.editorFg));
-    m_moreBtn->setIcon(Icons::tinted(QStringLiteral(":/icons/more.svg"), t.editorFg));
-    m_commitBtn->setIcon(Icons::tinted(QStringLiteral(":/icons/check.svg"), t.onAccent(), t.onAccent()));
+    m_pullBtn->setIcon(Icons::tinted(QStringLiteral(":/new-icons/arrow-down.svg"), t.editorFg));
+    m_pushBtn->setIcon(Icons::tinted(QStringLiteral(":/new-icons/arrow-up.svg"), t.editorFg));
+    m_refreshBtn->setIcon(Icons::tinted(QStringLiteral(":/new-icons/refresh-cw.svg"), t.editorFg));
+    m_moreBtn->setIcon(Icons::tinted(QStringLiteral(":/new-icons/ellipsis.svg"), t.editorFg));
+    m_commitBtn->setIcon(Icons::tinted(QStringLiteral(":/new-icons/check.svg"), t.onAccent(), t.onAccent()));
 }
 
 QList<GitFileChange> GitPanel::changesForSection(int section) const

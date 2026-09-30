@@ -65,7 +65,7 @@ void BranchButton::paintEvent(QPaintEvent *)
     const int pad = m_compact ? 8 : 10;
     int x = pad;
     const int cy = height() / 2;
-    p.drawPixmap(x, cy - kIcon / 2, Icons::pixmap(QStringLiteral(":/icons/branch.svg"), m_theme.gitAdded, kIcon));
+    p.drawPixmap(x, cy - kIcon / 2, Icons::pixmap(QStringLiteral(":/new-icons/git-branch.svg"), m_theme.gitAdded, kIcon));
     x += kIcon + kGap;
 
     QFont f = font();
@@ -76,5 +76,5 @@ void BranchButton::paintEvent(QPaintEvent *)
     const QString shown = QFontMetrics(f).elidedText(m_label, Qt::ElideRight, textW);
     p.drawText(QRect(x, 0, textW, height()), Qt::AlignVCenter | Qt::AlignLeft, shown);
 
-    p.drawPixmap(width() - pad - kChevron, cy - kChevron / 2, Icons::pixmap(QStringLiteral(":/icons/chevron-down.svg"), m_theme.textMuted, kChevron));
+    p.drawPixmap(width() - pad - kChevron, cy - kChevron / 2, Icons::pixmap(QStringLiteral(":/new-icons/chevron-down.svg"), m_theme.textMuted, kChevron));
 }

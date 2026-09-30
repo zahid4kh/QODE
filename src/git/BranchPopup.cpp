@@ -74,7 +74,7 @@ public:
             p->setBrush(g);
             p->drawEllipse(QPointF(r.left() + 22, cy), 3.8, 3.8);
         } else {
-            p->drawPixmap(r.left() + 15, cy - 7, Icons::pixmap(QStringLiteral(":/icons/branch.svg"), m_theme.textMuted, 14));
+            p->drawPixmap(r.left() + 15, cy - 7, Icons::pixmap(QStringLiteral(":/new-icons/git-branch.svg"), m_theme.textMuted, 14));
         }
         const int textLeft = r.left() + 38;
         QRect infoRect;
@@ -146,7 +146,7 @@ BranchPopup::BranchPopup(GitRepository *repo, QWidget *anchor)
     lay->addWidget(m_list);
 
     auto *create = new QPushButton(tr("Create New Branch…"), this);
-    create->setIcon(Icons::tinted(QStringLiteral(":/icons/plus.svg"), Theme::byName(SettingsManager::instance().theme()).editorFg));
+    create->setIcon(Icons::tinted(QStringLiteral(":/new-icons/plus.svg"), Theme::byName(SettingsManager::instance().theme()).editorFg));
     create->setObjectName(QStringLiteral("flatBtn"));
     create->setCursor(Qt::PointingHandCursor);
     lay->addWidget(create);

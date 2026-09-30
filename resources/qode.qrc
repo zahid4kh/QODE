@@ -1,28 +1,32 @@
 <RCC>
     <qresource prefix="/">
         <file>icons/qode.svg</file>
-        <file>icons/folder.svg</file>
-        <file>icons/file.svg</file>
-        <file>icons/close.svg</file>
-        <file>icons/close-light.svg</file>
-        <file>icons/terminal.svg</file>
-        <file>icons/new-file.svg</file>
-        <file>icons/new-folder.svg</file>
-        <file>icons/save.svg</file>
-        <file>icons/open.svg</file>
-        <file>icons/find.svg</file>
-        <file>icons/refresh.svg</file>
-        <file>icons/branch.svg</file>
-        <file>icons/arrow-down.svg</file>
-        <file>icons/arrow-up.svg</file>
-        <file>icons/more.svg</file>
-        <file>icons/plus.svg</file>
-        <file>icons/minus.svg</file>
-        <file>icons/undo.svg</file>
-        <file>icons/chevron-down.svg</file>
-        <file>icons/chevron-right.svg</file>
-        <file>icons/check.svg</file>
-        <file>icons/open-file.svg</file>
+        <file>new-icons/undo-2.svg</file>
+        <file>new-icons/terminal.svg</file>
+        <file>new-icons/save.svg</file>
+        <file>new-icons/git-branch.svg</file>
+        <file>new-icons/folder.svg</file>
+        <file>new-icons/folder-plus.svg</file>
+        <file>new-icons/folder-open.svg</file>
+        <file>new-icons/file-plus.svg</file>
+        <file>new-icons/file-input.svg</file>
+        <file>new-icons/ellipsis.svg</file>
+        <file>new-icons/chevron-right.svg</file>
+        <file>new-icons/chevron-down.svg</file>
+        <file>new-icons/check.svg</file>
+        <file>new-icons/x.svg</file>
+        <file>new-icons/x-light.svg</file>
+        <file>new-icons/x-dark.svg</file>
+        <file>new-icons/trash-2.svg</file>
+        <file>new-icons/search.svg</file>
+        <file>new-icons/refresh-cw.svg</file>
+        <file>new-icons/plus.svg</file>
+        <file>new-icons/pencil.svg</file>
+        <file>new-icons/minus.svg</file>
+        <file>new-icons/file.svg</file>
+        <file>new-icons/copy.svg</file>
+        <file>new-icons/arrow-up.svg</file>
+        <file>new-icons/arrow-down.svg</file>
         <file>fonts/JetBrainsMono-Bold.ttf</file>
         <file>fonts/JetBrainsMono-BoldItalic.ttf</file>
         <file>fonts/JetBrainsMono-ExtraBold.ttf</file>

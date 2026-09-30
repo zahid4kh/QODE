@@ -135,13 +135,13 @@ void MainWindow::createActions()
     const auto A = Qt::ALT;
 
     m_newProjectAct = make(tr("New Project…"), QKeySequence(C | S | K::Key_N));
-    m_openProjectAct = make(tr("Open Project…"), QKeySequence(C | S | K::Key_O), QStringLiteral(":/icons/folder.svg"));
-    m_closeProjectAct = make(tr("Close Project"), QKeySequence(C | S | K::Key_W), QStringLiteral(":/icons/close.svg"));
+    m_openProjectAct = make(tr("Open Project…"), QKeySequence(C | S | K::Key_O), QStringLiteral(":/new-icons/folder.svg"));
+    m_closeProjectAct = make(tr("Close Project"), QKeySequence(C | S | K::Key_W), QStringLiteral(":/new-icons/x.svg"));
     m_exitAct = make(tr("Exit"), QKeySequence(C | K::Key_Q));
 
-    m_newFileAct = make(tr("New File…"), QKeySequence(C | K::Key_N), QStringLiteral(":/icons/new-file.svg"));
-    m_openFileAct = make(tr("Open File…"), QKeySequence(C | K::Key_O), QStringLiteral(":/icons/open.svg"));
-    m_saveAct = make(tr("Save"), QKeySequence(C | K::Key_S), QStringLiteral(":/icons/save.svg"));
+    m_newFileAct = make(tr("New File…"), QKeySequence(C | K::Key_N), QStringLiteral(":/new-icons/file-plus.svg"));
+    m_openFileAct = make(tr("Open File…"), QKeySequence(C | K::Key_O), QStringLiteral(":/new-icons/folder-open.svg"));
+    m_saveAct = make(tr("Save"), QKeySequence(C | K::Key_S), QStringLiteral(":/new-icons/save.svg"));
     m_saveAsAct = make(tr("Save As…"), QKeySequence(C | S | K::Key_S));
     m_saveAllAct = make(tr("Save All"), QKeySequence(C | S | A | K::Key_S));
     m_closeFileAct = make(tr("Close File"), QKeySequence(C | K::Key_W));
@@ -152,17 +152,17 @@ void MainWindow::createActions()
     m_copyAct = make(tr("Copy"), QKeySequence(C | K::Key_C));
     m_pasteAct = make(tr("Paste"), QKeySequence(C | K::Key_V));
     m_selectAllAct = make(tr("Select All"), QKeySequence(C | K::Key_A));
-    m_findAct = make(tr("Find"), QKeySequence(C | K::Key_F), QStringLiteral(":/icons/find.svg"));
+    m_findAct = make(tr("Find"), QKeySequence(C | K::Key_F), QStringLiteral(":/new-icons/search.svg"));
     m_replaceAct = make(tr("Replace"), QKeySequence(C | K::Key_H));
 
-    m_projNewFileAct = make(tr("New File…"), {}, QStringLiteral(":/icons/new-file.svg"));
-    m_projNewFolderAct = make(tr("New Folder…"), {}, QStringLiteral(":/icons/new-folder.svg"));
+    m_projNewFileAct = make(tr("New File…"), {}, QStringLiteral(":/new-icons/file-plus.svg"));
+    m_projNewFolderAct = make(tr("New Folder…"), {}, QStringLiteral(":/new-icons/folder-plus.svg"));
     m_openProjectFolderAct = make(tr("Open Project Folder…"));
 
     m_explorerAct = make(tr("Project Explorer"), QKeySequence(C | K::Key_B));
     m_explorerAct->setCheckable(true);
     m_explorerAct->setChecked(true);
-    m_terminalAct = make(tr("Terminal"), QKeySequence(C | K::Key_J), QStringLiteral(":/icons/terminal.svg"));
+    m_terminalAct = make(tr("Terminal"), QKeySequence(C | K::Key_J), QStringLiteral(":/new-icons/terminal.svg"));
     m_terminalAct->setCheckable(true);
     m_fullscreenAct = make(tr("Toggle Fullscreen"), QKeySequence(K::Key_F11));
     m_wordWrapAct = make(tr("Word Wrap"), QKeySequence(A | K::Key_Z));
@@ -647,7 +647,7 @@ void MainWindow::createGitActions()
             a->setIcon(QIcon(icon));
         return a;
     };
-    m_scmAct = make(tr("Source Control"), QKeySequence(C | S | K::Key_G), QStringLiteral(":/icons/branch.svg"));
+    m_scmAct = make(tr("Source Control"), QKeySequence(C | S | K::Key_G), QStringLiteral(":/new-icons/git-branch.svg"));
     m_gitRefreshAct = make(tr("Refresh Status"));
     m_gitFetchAct = make(tr("Fetch"));
     m_gitPullAct = make(tr("Pull"));
@@ -759,8 +759,8 @@ void MainWindow::onGitStatusChanged()
         const QString name = m_git->branch().isEmpty() ? tr("(no branch)") : m_git->branch();
         m_branchButton->setLabel(m_git->isDetached() ? tr("%1 (detached)").arg(name) : name);
         const Theme t = Theme::byName(SettingsManager::instance().theme());
-        m_aheadBtn->setIcon(Icons::tinted(QStringLiteral(":/icons/arrow-up.svg"), t.textMuted));
-        m_behindBtn->setIcon(Icons::tinted(QStringLiteral(":/icons/arrow-down.svg"), t.textMuted));
+        m_aheadBtn->setIcon(Icons::tinted(QStringLiteral(":/new-icons/arrow-up.svg"), t.textMuted));
+        m_behindBtn->setIcon(Icons::tinted(QStringLiteral(":/new-icons/arrow-down.svg"), t.textMuted));
         m_aheadBtn->setText(QString::number(m_git->ahead()));
         m_behindBtn->setText(QString::number(m_git->behind()));
         m_aheadBtn->setVisible(m_git->ahead() > 0);

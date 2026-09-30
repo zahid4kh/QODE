@@ -5,6 +5,9 @@
 #include "filesystem/FileManager.h"
 #include "git/GitRepository.h"
 #include "project/ProjectModel.h"
+#include "settings/Icons.h"
+#include "settings/SettingsManager.h"
+#include "settings/Theme.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -240,10 +243,10 @@ void ProjectExplorer::showContextMenu(const QPoint &pos)
         }
         menu.addSeparator();
         addGitActions(&menu, path);
-        menu.addAction(tr("Rename"), this, [this, path] { renamePath(path); });
-        menu.addAction(tr("Delete"), this, [this, path] { deletePath(path); });
+        menu.addAction(Icons::tinted(QStringLiteral(":/new-icons/pencil.svg"), Theme::byName(SettingsManager::instance().theme()).editorFg), tr("Rename"), this, [this, path] { renamePath(path); });
+        menu.addAction(Icons::tinted(QStringLiteral(":/new-icons/trash-2.svg"), Theme::byName(SettingsManager::instance().theme()).editorFg), tr("Delete"), this, [this, path] { deletePath(path); });
         menu.addSeparator();
-        menu.addAction(tr("Copy Path"), this, [path] { QApplication::clipboard()->setText(path); });
+        menu.addAction(Icons::tinted(QStringLiteral(":/new-icons/copy.svg"), Theme::byName(SettingsManager::instance().theme()).editorFg), tr("Copy Path"), this, [path] { QApplication::clipboard()->setText(path); });
         menu.addAction(tr("Reveal in File Manager"), this, [path] { FileManager::revealInFileManager(path); });
     }
     menu.exec(m_tree->viewport()->mapToGlobal(pos));

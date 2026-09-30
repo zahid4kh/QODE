@@ -41,7 +41,7 @@ FindBar::FindBar(QWidget *parent)
     nextBtn->setToolTip(tr("Next match (Enter)"));
     auto *close = new QToolButton(this);
     close->setObjectName(QStringLiteral("findBtn"));
-    Icons::bind(close, QStringLiteral(":/icons/close.svg"));
+    Icons::bind(close, QStringLiteral(":/new-icons/x.svg"));
     close->setToolTip(tr("Close (Esc)"));
 
     auto *findRow = new QHBoxLayout;

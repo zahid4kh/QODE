@@ -183,5 +183,5 @@ QMessageBox, QInputDialog { background: %1; }
              onAccent().name(),  // 11
              accent.lighter(dark ? 115 : 108).name(), // 12
              QColor(accent.red(), accent.green(), accent.blue(), dark ? 48 : 36).name(QColor::HexArgb), // 13
-             dark ? QStringLiteral(":/icons/close.svg") : QStringLiteral(":/icons/close-light.svg")); // 14
+             dark ? QStringLiteral(":/new-icons/x-dark.svg") : QStringLiteral(":/new-icons/x-light.svg")); // 14
 }

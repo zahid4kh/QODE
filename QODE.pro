@@ -1,3 +1,6 @@
+# QODE needs Qt 6 (Core, Gui, Widgets only)
+lessThan(QT_MAJOR_VERSION, 6): error("QODE requires Qt 6 - build with qmake6.")
+
 QT += core gui widgets
 
 CONFIG += c++17 warn_on
@@ -6,7 +9,8 @@ CONFIG -= app_bundle
 TEMPLATE = app
 TARGET = qode
 VERSION = 0.1.0
-DEFINES += QT_DEPRECATED_WARNINGS QT_NO_CAST_TO_ASCII QODE_VERSION=\\\"$$VERSION\\\"
+DEFINES += QT_DEPRECATED_WARNINGS QT_NO_CAST_TO_ASCII QT_NO_CAST_FROM_BYTEARRAY
+DEFINES += QODE_VERSION=\\\"$$VERSION\\\"
 
 INCLUDEPATH += $$PWD/src
 

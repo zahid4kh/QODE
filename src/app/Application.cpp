@@ -1,5 +1,9 @@
 #include "Application.h"
 
+#ifndef QODE_VERSION
+#define QODE_VERSION "0.1.0"
+#endif
+
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
 
@@ -12,7 +16,7 @@ Application::Application(int &argc, char **argv)
 {
     setApplicationName(QStringLiteral("QODE"));
     setOrganizationName(QStringLiteral("QODE"));
-    setApplicationVersion(QStringLiteral("0.1.0"));
+    setApplicationVersion(QStringLiteral(QODE_VERSION));
     setDesktopFileName(QStringLiteral("qode"));
     setWindowIcon(QIcon(QStringLiteral(":/icons/qode.svg")));
     setStyle(QStyleFactory::create(QStringLiteral("Fusion")));

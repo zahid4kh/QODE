@@ -13,6 +13,7 @@
 #include "editor/EditorManager.h"
 #include "explorer/ProjectExplorer.h"
 #include "filesystem/FileManager.h"
+#include "project/ProjectFiles.h"
 #include "project/ProjectManager.h"
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
@@ -36,6 +37,7 @@
 #include <QMimeData>
 #include <QMenu>
 #include <QPointer>
+#include <QRegularExpression>
 #include <QSet>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -52,6 +54,7 @@ MainWindow::MainWindow(QWidget *parent)
 {
     setAcceptDrops(true);
     m_projects = new ProjectManager(this);
+    m_projectFiles = new ProjectFiles(this);
     m_git = new GitRepository(this);
     m_explorer = new ProjectExplorer(this);
     m_explorer->setGitRepository(m_git);
@@ -105,6 +108,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_explorer, &ProjectExplorer::fileCreated, m_editors, &EditorManager::openFile);
     connect(m_explorer, &ProjectExplorer::pathRenamed, m_editors, &EditorManager::pathRenamed);
     connect(m_explorer, &ProjectExplorer::pathDeleted, m_editors, &EditorManager::closeDocumentsUnder);
+    connect(m_explorer, &ProjectExplorer::contentsChanged, m_projectFiles, &ProjectFiles::invalidate);
+    connect(m_editors, &EditorManager::documentPathChanged, m_projectFiles, &ProjectFiles::invalidate);
 
     connect(m_editors, &EditorManager::newProjectRequested, m_newProjectAct, &QAction::trigger);
     connect(m_editors, &EditorManager::openProjectRequested, m_openProjectAct, &QAction::trigger);
@@ -112,7 +117,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_editors, &EditorManager::openFileRequested, m_openFileAct, &QAction::trigger);
 
     connect(m_terminal, &Terminal::hideRequested, this, &MainWindow::toggleTerminal);
-    connect(m_editors, &EditorManager::currentChanged, this, [this] { updateStatus(); updateActions(); updateTitle(); });
+    connect(m_editors, &EditorManager::currentChanged, this, [this] { updateStatus(); updateActions(); updateTitle(); noteRecentFile(); });
     connect(m_editors, &EditorManager::documentStateChanged, this, [this] { updateStatus(); updateActions(); updateTitle(); });
     connect(m_editors, &EditorManager::cursorInfoChanged, this, &MainWindow::updateStatus);
 
@@ -185,6 +190,8 @@ void MainWindow::createActions()
     m_prevTabAct = make(tr("Previous Tab"), QKeySequence(C | S | K::Key_Backtab));
     m_aboutAct = make(tr("About QODE"));
     m_paletteAct = make(tr("Command Palette…"), QKeySequence(C | S | K::Key_P), QStringLiteral(":/new-icons/search.svg"));
+    m_quickOpenAct = make(tr("Go to File…"), QKeySequence(C | K::Key_P), QStringLiteral(":/new-icons/file-input.svg"));
+    m_gotoLineAct = make(tr("Go to Line…"), QKeySequence(C | K::Key_G));
 
     connect(m_newProjectAct, &QAction::triggered, this, &MainWindow::newProject);
     connect(m_openProjectAct, &QAction::triggered, this, &MainWindow::openProject);
@@ -221,6 +228,8 @@ void MainWindow::createActions()
     connect(m_prevTabAct, &QAction::triggered, m_editors, &EditorManager::previousTab);
     connect(m_aboutAct, &QAction::triggered, this, &MainWindow::about);
     connect(m_paletteAct, &QAction::triggered, this, &MainWindow::showCommandPalette);
+    connect(m_quickOpenAct, &QAction::triggered, this, [this] { showQuickOpen(); });
+    connect(m_gotoLineAct, &QAction::triggered, this, [this] { showQuickOpen(QStringLiteral(":")); });
     createGitActions();
 
     // Window-wide shortcuts must also work while an editor (which handles Tab itself) has focus.
@@ -239,6 +248,7 @@ void MainWindow::createMenus()
     file->addSeparator();
     file->addAction(m_newFileAct);
     file->addAction(m_openFileAct);
+    file->addAction(m_quickOpenAct);
     file->addSeparator();
     file->addAction(m_saveAct);
     file->addAction(m_saveAsAct);
@@ -259,6 +269,7 @@ void MainWindow::createMenus()
     edit->addSeparator();
     edit->addAction(m_findAct);
     edit->addAction(m_replaceAct);
+    edit->addAction(m_gotoLineAct);
 
     QMenu *view = menuBar()->addMenu(tr("&View"));
     view->addAction(m_paletteAct);
@@ -458,6 +469,7 @@ bool MainWindow::closeProject()
 void MainWindow::onProjectOpened(const Project &p)
 {
     m_explorer->setProjectRoot(p.root);
+    m_projectFiles->setRoot(p.root);
     m_git->setWorkDirectory(p.root);
     // The shell always starts in the project root; nothing is executed automatically.
     m_terminal->setWorkingDirectory(p.root);
@@ -472,6 +484,7 @@ void MainWindow::onProjectOpened(const Project &p)
 void MainWindow::onProjectClosed()
 {
     m_explorer->setProjectRoot({});
+    m_projectFiles->setRoot({});
     m_git->setWorkDirectory({});
     m_terminal->setWorkingDirectory(QDir::homePath());
     m_terminal->stop();
@@ -664,6 +677,83 @@ void MainWindow::showCommandPalette()
         });
     });
     pop->popup();
+}
+
+void MainWindow::noteRecentFile()
+{
+    const QString path = currentFilePath();
+    if (path.isEmpty())
+        return;
+    m_recentFiles.removeAll(path);
+    m_recentFiles.prepend(path);
+    while (m_recentFiles.size() > 40)
+        m_recentFiles.removeLast();
+}
+
+void MainWindow::showQuickOpen(const QString &initialQuery)
+{
+    m_projectFiles->ensureFresh();
+    const QString root = m_projectFiles->root();
+    const QDir rootDir(root);
+
+    // Builds the entry list from the index, listing recently active files first.
+    auto build = [this, root, rootDir]() {
+        auto makeItem = [&](const QString &path) {
+            PalettePopup::Item it;
+            const QFileInfo fi(path);
+            it.title = fi.fileName();
+            const QString dir = fi.absolutePath();
+            if (!root.isEmpty() && (dir == root || dir.startsWith(root + QLatin1Char('/'))))
+                it.detail = dir == root ? QString() : rootDir.relativeFilePath(dir);
+            else
+                it.detail = FileManager::displayPath(dir);
+            it.icon = Icons::tinted(QStringLiteral(":/new-icons/file.svg"), Theme::byName(SettingsManager::instance().theme()).textMuted);
+            it.data = path;
+            return it;
+        };
+        QList<PalettePopup::Item> items;
+        QSet<QString> used;
+        for (const QString &p : std::as_const(m_recentFiles))
+            if (QFileInfo::exists(p) && !used.contains(p)) {
+                used.insert(p);
+                items.append(makeItem(p));
+            }
+        for (const QString &p : m_projectFiles->files())
+            if (!used.contains(p))
+                items.append(makeItem(p));
+        return items;
+    };
+
+    auto *pop = new PalettePopup(this);
+    pop->setMode(PalettePopup::Mode::Paths);
+    pop->setLineSuffixEnabled(true);
+    pop->setPlaceholder(tr("Search files by name — append :line to jump to a line"));
+    pop->setEmptyText(m_projects->hasProject() ? tr("No matching files") : tr("Open a project to search its files"));
+    pop->setItems(build());
+    auto updateStatusLine = [this, pop] { pop->setStatus(m_projectFiles->isScanning() ? tr("Indexing project files…") : QString()); };
+    updateStatusLine();
+    connect(m_projectFiles, &ProjectFiles::updated, pop, [pop, build, updateStatusLine] {
+        pop->setItems(build());
+        updateStatusLine();
+    });
+    connect(pop, &PalettePopup::accepted, this, [this](const QVariant &data, const QString &query) {
+        static const QRegularExpression suffix(QStringLiteral(":(\\d+)(?::(\\d+))?$"));
+        const auto m = suffix.match(query.trimmed());
+        const int line = m.hasMatch() ? m.captured(1).toInt() : 0;
+        const int column = m.hasMatch() ? m.captured(2).toInt() : 0;
+        const QString path = data.toString();
+        QTimer::singleShot(0, this, [this, path, line, column] {
+            if (path.isEmpty())
+                m_editors->gotoLine(line, column); // ":42" on its own goes to a line of the current file
+            else if (line > 0)
+                m_editors->openFileAt(path, line, column);
+            else
+                m_editors->openFile(path);
+        });
+    });
+    pop->popup();
+    if (!initialQuery.isEmpty())
+        pop->setQuery(initialQuery);
 }
 
 void MainWindow::about()

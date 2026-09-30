@@ -19,6 +19,8 @@
 #include <QStackedWidget>
 #include <QTabBar>
 #include <QTabWidget>
+#include <QTextBlock>
+#include <QTextCursor>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -211,6 +213,27 @@ bool EditorManager::openFile(const QString &pathIn)
     watch(path);
     focusEditor();
     return true;
+}
+
+bool EditorManager::openFileAt(const QString &path, int line, int column)
+{
+    if (!openFile(path))
+        return false;
+    gotoLine(line, column);
+    return true;
+}
+
+void EditorManager::gotoLine(int line, int column)
+{
+    CodeEditor *e = currentEditor();
+    if (!e || line < 1)
+        return;
+    QTextCursor c(e->document()->findBlockByNumber(qMin(line, e->blockCount()) - 1));
+    if (column > 1)
+        c.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor, qMin(column - 1, c.block().length() - 1));
+    e->setTextCursor(c);
+    e->centerCursor();
+    e->setFocus();
 }
 
 void EditorManager::newUntitled()

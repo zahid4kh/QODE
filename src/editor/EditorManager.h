@@ -19,6 +19,9 @@ public:
     explicit EditorManager(QWidget *parent = nullptr);
 
     bool openFile(const QString &path);
+    // Opens `path` and puts the cursor on 1-based `line` (and `column` when > 0).
+    bool openFileAt(const QString &path, int line, int column = 0);
+    void gotoLine(int line, int column = 0);
     void newUntitled();
 
     Document *currentDocument() const;

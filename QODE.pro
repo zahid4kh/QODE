@@ -23,6 +23,7 @@ SOURCES += \
     src/palette/FuzzyMatcher.cpp \
     src/palette/PalettePopup.cpp \
     src/filesystem/FileManager.cpp \
+    src/project/ProjectFiles.cpp \
     src/project/ProjectManager.cpp \
     src/project/ProjectModel.cpp \
     src/explorer/ProjectExplorer.cpp \
@@ -58,6 +59,7 @@ HEADERS += \
     src/palette/PalettePopup.h \
     src/filesystem/FileManager.h \
     src/project/Project.h \
+    src/project/ProjectFiles.h \
     src/project/ProjectManager.h \
     src/project/ProjectModel.h \
     src/explorer/ProjectExplorer.h \

@@ -27,6 +27,8 @@ public:
     explicit PalettePopup(QWidget *window);
 
     void setMode(Mode mode) { m_mode = mode; }
+    // Quick Open style: a trailing ":42" (or ":42:7") is not part of the filter.
+    void setLineSuffixEnabled(bool on) { m_lineSuffix = on; }
     void setPlaceholder(const QString &text);
     void setEmptyText(const QString &text) { m_emptyText = text; }
     void setItems(const QList<Item> &items); // keeps the current query
@@ -50,6 +52,7 @@ private:
     void updateHeight();
 
     Mode m_mode = Mode::Commands;
+    bool m_lineSuffix = false;
     QLineEdit *m_edit;
     QListWidget *m_list;
     QLabel *m_status;

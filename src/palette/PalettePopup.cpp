@@ -10,6 +10,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPainter>
+#include <QRegularExpression>
 #include <QScrollBar>
 #include <QStyledItemDelegate>
 #include <QVBoxLayout>
@@ -228,9 +229,28 @@ void PalettePopup::updateHeight()
 
 void PalettePopup::refilter()
 {
-    const QString q = m_edit->text().trimmed();
+    const QString raw = m_edit->text().trimmed();
+    QString q = raw;
+    QString lineHint;
+    if (m_lineSuffix) {
+        static const QRegularExpression suffix(QStringLiteral(":(\\d+)(?::(\\d+))?$"));
+        const auto m = suffix.match(raw);
+        if (m.hasMatch()) {
+            q = raw.left(m.capturedStart()).trimmed();
+            lineHint = m.captured(1);
+        }
+    }
     m_list->setUpdatesEnabled(false);
     m_list->clear();
+    if (!lineHint.isEmpty() && q.isEmpty()) {
+        // ":42" alone: nothing to filter, Enter jumps to that line of the current file.
+        auto *li = new QListWidgetItem(tr("Press Enter to go to line %1").arg(lineHint), m_list);
+        li->setData(RoleEmpty, true);
+        li->setFlags(Qt::NoItemFlags);
+        m_list->setUpdatesEnabled(true);
+        updateHeight();
+        return;
+    }
 
     struct Scored {
         int score;

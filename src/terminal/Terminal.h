@@ -2,6 +2,8 @@
 
 #include <QWidget>
 
+#include <functional>
+
 class QLabel;
 class QTimer;
 class QToolButton;
@@ -17,6 +19,9 @@ public:
 
     void setWorkingDirectory(const QString &dir);
     QString workingDirectory() const { return m_cwd; }
+
+    // Asked each time a fresh shell starts (argument: shell name); a non-empty result is typed in first.
+    void setStartupCommandProvider(std::function<QString(const QString &)> provider) { m_startupProvider = std::move(provider); }
 
     // Starts the shell if it is not running yet (never runs any project command itself).
     void ensureStarted();
@@ -42,6 +47,7 @@ private:
     QLabel *m_title;
     QToolButton *m_restartBtn;
     QString m_cwd;
+    std::function<QString(const QString &)> m_startupProvider;
     QString m_pendingCommand;
     QTimer *m_pendingTimer;
     bool m_awaitingPrompt = false;

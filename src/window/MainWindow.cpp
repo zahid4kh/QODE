@@ -18,6 +18,7 @@
 #include "filesystem/FileManager.h"
 #include "project/ProjectFiles.h"
 #include "project/ProjectManager.h"
+#include "project/PythonEnv.h"
 #include "search/ProjectSearch.h"
 #include "search/SearchPanel.h"
 #include "settings/Icons.h"
@@ -91,6 +92,12 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_sideTabs, &QTabBar::currentChanged, m_sideStack, &QStackedWidget::setCurrentIndex);
 
     m_terminal = new Terminal(this);
+    // Python projects: activate the project's virtualenv (whatever its folder is called) in fresh shells.
+    m_terminal->setStartupCommandProvider([this](const QString &shell) {
+        if (!m_projects->hasProject())
+            return QString();
+        return PythonEnv::activationCommand(m_projects->project().root, shell);
+    });
 
     m_vsplit = new QSplitter(Qt::Vertical, this);
     m_vsplit->setChildrenCollapsible(false);
@@ -643,7 +650,7 @@ void MainWindow::onProjectOpened(const Project &p)
     m_editors->setProjectRoot(p.root);
     m_searchPanel->setProjectRoot(p.root);
     m_git->setWorkDirectory(p.root);
-    // The shell always starts in the project root; nothing is executed automatically.
+    // The shell always starts in the project root.
     m_terminal->setWorkingDirectory(p.root);
     if (m_terminal->isRunning())
         m_terminal->restart();

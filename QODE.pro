@@ -29,6 +29,7 @@ SOURCES += \
     src/project/ProjectFiles.cpp \
     src/project/ProjectManager.cpp \
     src/project/ProjectModel.cpp \
+    src/project/PythonEnv.cpp \
     src/explorer/ProjectExplorer.cpp \
     src/explorer/FileIcons.cpp \
     src/explorer/GitItemDelegate.cpp \
@@ -74,6 +75,7 @@ HEADERS += \
     src/project/ProjectFiles.h \
     src/project/ProjectManager.h \
     src/project/ProjectModel.h \
+    src/project/PythonEnv.h \
     src/explorer/ProjectExplorer.h \
     src/explorer/FileIcons.h \
     src/explorer/GitItemDelegate.h \

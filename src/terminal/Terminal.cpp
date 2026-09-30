@@ -40,7 +40,8 @@ Terminal::Terminal(QWidget *parent)
     closeBtn->setToolTip(tr("Hide terminal (Ctrl+J)"));
     closeBtn->setAutoRaise(true);
 
-    auto *header = new QWidget(this);
+    m_header = new QWidget(this);
+    QWidget *header = m_header;
     header->setObjectName(QStringLiteral("terminalHeader"));
     auto *hl = new QHBoxLayout(header);
     hl->setContentsMargins(0, 0, 4, 0);
@@ -76,6 +77,16 @@ Terminal::Terminal(QWidget *parent)
     connect(m_restartBtn, &QToolButton::clicked, this, &Terminal::restart);
     connect(closeBtn, &QToolButton::clicked, this, &Terminal::hideRequested);
     updateHeader();
+}
+
+void Terminal::setHeaderVisible(bool on)
+{
+    m_header->setVisible(on);
+}
+
+QString Terminal::shellName() const
+{
+    return m_shell->isRunning() ? QFileInfo(m_shell->shell()).fileName() : QString();
 }
 
 void Terminal::updateHeader()

@@ -29,7 +29,7 @@
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
-#include "terminal/Terminal.h"
+#include "terminal/TerminalPanel.h"
 
 #include <QAction>
 #include <QActionGroup>
@@ -101,7 +101,7 @@ MainWindow::MainWindow(QWidget *parent)
     sideLayout->addWidget(m_sideStack, 1);
     connect(m_sideTabs, &QTabBar::currentChanged, m_sideStack, &QStackedWidget::setCurrentIndex);
 
-    m_terminal = new Terminal(this);
+    m_terminal = new TerminalPanel(this);
     // Python projects: activate the project's virtualenv (whatever its folder is called) in fresh shells.
     m_terminal->setStartupCommandProvider([this](const QString &shell) {
         if (!m_projects->hasProject() || !SettingsManager::instance().autoActivateVenv())
@@ -239,7 +239,7 @@ MainWindow::MainWindow(QWidget *parent)
         m_tasks->scheduleTodoScan();
     });
 
-    connect(m_terminal, &Terminal::hideRequested, this, &MainWindow::toggleTerminal);
+    connect(m_terminal, &TerminalPanel::hideRequested, this, &MainWindow::toggleTerminal);
     connect(m_editors, &EditorManager::currentChanged, this, [this] { updateStatus(); updateActions(); updateTitle(); noteRecentFile(); });
     connect(m_editors, &EditorManager::documentStateChanged, this, [this] { updateStatus(); updateActions(); updateTitle(); });
     connect(m_editors, &EditorManager::cursorInfoChanged, this, &MainWindow::updateStatus);
@@ -354,6 +354,7 @@ void MainWindow::createActions()
     m_bookmarkToggleAct = make(tr("Toggle Bookmark"), QKeySequence(C | K::Key_F2));
     m_bookmarkNextAct = make(tr("Next Bookmark"), QKeySequence(K::Key_F2));
     m_bookmarkPrevAct = make(tr("Previous Bookmark"), QKeySequence(S | K::Key_F2));
+    m_newTerminalAct = make(tr("New Terminal"), QKeySequence(C | S | K::Key_T), QStringLiteral(":/new-icons/plus.svg"));
     m_previewAct = make(tr("Toggle Preview (Markdown / SVG)"), QKeySequence(C | S | K::Key_V));
     m_showBookmarksAct = make(tr("Show Bookmarks"));
     m_showTodosAct = make(tr("Show TODO Comments"));
@@ -447,6 +448,10 @@ void MainWindow::createActions()
     });
     connect(m_bookmarkNextAct, &QAction::triggered, this, [this] { gotoBookmark(true); });
     connect(m_bookmarkPrevAct, &QAction::triggered, this, [this] { gotoBookmark(false); });
+    connect(m_newTerminalAct, &QAction::triggered, this, [this] {
+        showTerminal();
+        m_terminal->newSession();
+    });
     connect(m_previewAct, &QAction::triggered, this, &MainWindow::togglePreview);
     connect(m_showBookmarksAct, &QAction::triggered, this, [this] { showTasks(true); });
     connect(m_showTodosAct, &QAction::triggered, this, [this] { showTasks(false); });
@@ -547,6 +552,7 @@ void MainWindow::createMenus()
     view->addSeparator();
     view->addAction(m_explorerAct);
     view->addAction(m_terminalAct);
+    view->addAction(m_newTerminalAct);
     view->addAction(m_venvAct);
     view->addSeparator();
     view->addAction(m_runAct);
@@ -780,7 +786,7 @@ void MainWindow::onProjectOpened(const Project &p)
     // The shell always starts in the project root.
     m_terminal->setWorkingDirectory(p.root);
     if (m_terminal->isRunning())
-        m_terminal->restart();
+        m_terminal->restartAll();
     else if (m_terminal->isVisible())
         m_terminal->ensureStarted();
     updateTitle();

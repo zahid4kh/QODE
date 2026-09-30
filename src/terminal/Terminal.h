@@ -17,6 +17,9 @@ class Terminal : public QWidget
 public:
     explicit Terminal(QWidget *parent = nullptr);
 
+    // The panel with several sessions supplies its own header.
+    void setHeaderVisible(bool on);
+    QString shellName() const;
     void setWorkingDirectory(const QString &dir);
     QString workingDirectory() const { return m_cwd; }
 
@@ -45,6 +48,7 @@ private:
     ShellProcess *m_shell;
     TerminalView *m_view;
     QLabel *m_title;
+    QWidget *m_header = nullptr;
     QToolButton *m_restartBtn;
     QString m_cwd;
     std::function<QString(const QString &)> m_startupProvider;

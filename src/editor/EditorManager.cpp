@@ -46,13 +46,32 @@ EditorManager::EditorManager(QWidget *parent)
     editorLayout->setSpacing(0);
     editorLayout->addWidget(m_tabs);
 
-    auto *welcome = new QLabel(tr("<div style='text-align:center'><h2>QODE</h2>"
-                                  "<p>Open a file from the Project Explorer, or press<br>"
-                                  "<b>Ctrl+O</b> to open a file &nbsp;·&nbsp; <b>Ctrl+Shift+O</b> to open a project<br>"
-                                  "<b>Ctrl+J</b> toggles the terminal</p></div>"),
-                               this);
-    welcome->setAlignment(Qt::AlignCenter);
-    welcome->setStyleSheet(QStringLiteral("color: palette(mid);"));
+    auto *welcome = new QWidget(this);
+    auto *wl = new QVBoxLayout(welcome);
+    wl->setAlignment(Qt::AlignCenter);
+    wl->setSpacing(10);
+    auto *title = new QLabel(QStringLiteral("QODE"), welcome);
+    title->setObjectName(QStringLiteral("emptyTitle"));
+    title->setAlignment(Qt::AlignCenter);
+    wl->addWidget(title);
+    auto *heading = new QLabel(tr("No project or file is open.\nCreate or select one to get started."), welcome);
+    heading->setAlignment(Qt::AlignCenter);
+    heading->setObjectName(QStringLiteral("emptyText"));
+    wl->addWidget(heading);
+    auto addButton = [&](const QString &text, void (EditorManager::*sig)()) {
+        auto *b = new QPushButton(text, welcome);
+        b->setMinimumWidth(200);
+        connect(b, &QPushButton::clicked, this, sig);
+        wl->addWidget(b, 0, Qt::AlignCenter);
+    };
+    addButton(tr("New Project…"), &EditorManager::newProjectRequested);
+    addButton(tr("Open Project…"), &EditorManager::openProjectRequested);
+    addButton(tr("New File"), &EditorManager::newFileRequested);
+    addButton(tr("Open File…"), &EditorManager::openFileRequested);
+    auto *hint = new QLabel(tr("<span>Ctrl+Shift+O open project &nbsp;·&nbsp; Ctrl+O open file &nbsp;·&nbsp; Ctrl+J terminal</span>"), welcome);
+    hint->setAlignment(Qt::AlignCenter);
+    hint->setObjectName(QStringLiteral("emptyText"));
+    wl->addWidget(hint);
 
     m_stack = new QStackedWidget(this);
     m_stack->addWidget(welcome);

@@ -52,6 +52,11 @@ signals:
     void documentStateChanged(); // modified flag / title changed
     void cursorInfoChanged();    // cursor position or overwrite mode
     void countChanged(int count);
+    // Empty-state (welcome page) buttons
+    void newProjectRequested();
+    void openProjectRequested();
+    void newFileRequested();
+    void openFileRequested();
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;

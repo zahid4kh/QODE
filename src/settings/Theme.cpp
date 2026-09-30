@@ -93,6 +93,8 @@ QTreeView::item { padding: 2px 0; }
 QTreeView::item:hover { background: %4; }
 QTreeView::item:selected { background: %6; color: %2; }
 QLabel#panelTitle { background: %5; color: %7; padding: 5px 10px; font-size: 8pt; letter-spacing: 1px; border-bottom: 1px solid %3; }
+QLabel#emptyTitle { color: %9; font-size: 22pt; font-weight: bold; }
+QLabel#emptyText { color: %7; }
 QTabWidget::pane { border: none; }
 QTabBar { background: %1; qproperty-drawBase: 0; }
 QTabBar::tab { background: %1; color: %7; padding: 5px 10px; border: none; border-right: 1px solid %3; min-width: 60px; }

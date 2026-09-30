@@ -48,7 +48,8 @@ ProjectExplorer::ProjectExplorer(QWidget *parent)
 
     m_placeholder = new QLabel(tr("No project open.\n\nUse File → New Project or\nFile → Open Project."), this);
     m_placeholder->setAlignment(Qt::AlignCenter);
-    m_placeholder->setStyleSheet(QStringLiteral("color: palette(mid);"));
+    m_placeholder->setObjectName(QStringLiteral("emptyText"));
+    m_placeholder->setWordWrap(true);
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);

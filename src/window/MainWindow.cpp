@@ -67,6 +67,11 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_explorer, &ProjectExplorer::pathRenamed, m_editors, &EditorManager::pathRenamed);
     connect(m_explorer, &ProjectExplorer::pathDeleted, m_editors, &EditorManager::closeDocumentsUnder);
 
+    connect(m_editors, &EditorManager::newProjectRequested, m_newProjectAct, &QAction::trigger);
+    connect(m_editors, &EditorManager::openProjectRequested, m_openProjectAct, &QAction::trigger);
+    connect(m_editors, &EditorManager::newFileRequested, m_newFileAct, &QAction::trigger);
+    connect(m_editors, &EditorManager::openFileRequested, m_openFileAct, &QAction::trigger);
+
     connect(m_terminal, &Terminal::hideRequested, this, &MainWindow::toggleTerminal);
     connect(m_editors, &EditorManager::currentChanged, this, [this] { updateStatus(); updateActions(); updateTitle(); });
     connect(m_editors, &EditorManager::documentStateChanged, this, [this] { updateStatus(); updateActions(); updateTitle(); });
@@ -95,7 +100,7 @@ void MainWindow::createActions()
 
     m_newProjectAct = make(tr("New Project…"), QKeySequence(C | S | K::Key_N));
     m_openProjectAct = make(tr("Open Project…"), QKeySequence(C | S | K::Key_O), QStringLiteral(":/icons/folder.svg"));
-    m_closeProjectAct = make(tr("Close Project"));
+    m_closeProjectAct = make(tr("Close Project"), QKeySequence(C | S | K::Key_W), QStringLiteral(":/icons/close.svg"));
     m_exitAct = make(tr("Exit"), QKeySequence(C | K::Key_Q));
 
     m_newFileAct = make(tr("New File…"), QKeySequence(C | K::Key_N), QStringLiteral(":/icons/new-file.svg"));
@@ -187,6 +192,7 @@ void MainWindow::createMenus()
     QMenu *file = menuBar()->addMenu(tr("&File"));
     file->addAction(m_newProjectAct);
     file->addAction(m_openProjectAct);
+    file->addAction(m_closeProjectAct);
     file->addSeparator();
     file->addAction(m_newFileAct);
     file->addAction(m_openFileAct);
@@ -240,6 +246,7 @@ void MainWindow::createToolBar()
     tb->setMovable(false);
     tb->setIconSize(QSize(16, 16));
     tb->addAction(m_openProjectAct);
+    tb->addAction(m_closeProjectAct);
     tb->addAction(m_newFileAct);
     tb->addAction(m_projNewFolderAct);
     tb->addSeparator();

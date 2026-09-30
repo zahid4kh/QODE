@@ -256,7 +256,7 @@ void EditorManager::newUntitled()
 EditorManager::Entry EditorManager::addDocument(Document *doc)
 {
     auto *editor = new CodeEditor(m_tabs);
-    editor->setDocument(doc->textDocument());
+    editor->attachDocument(doc->textDocument());
     editor->setIndentAfterColon(doc->languageName() == QLatin1String("Python"));
     m_docForEditor.insert(editor, doc);
 

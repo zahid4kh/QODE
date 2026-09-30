@@ -63,6 +63,17 @@ void SettingsManager::setWordWrap(bool on)
     emit editorSettingsChanged();
 }
 
+bool SettingsManager::indentGuides() const
+{
+    return m_settings.value(QStringLiteral("editor/indentGuides"), true).toBool();
+}
+
+void SettingsManager::setIndentGuides(bool on)
+{
+    m_settings.setValue(QStringLiteral("editor/indentGuides"), on);
+    emit editorSettingsChanged();
+}
+
 QString SettingsManager::theme() const
 {
     return m_settings.value(QStringLiteral("ui/theme"), QStringLiteral("dark")).toString();

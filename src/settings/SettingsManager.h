@@ -24,6 +24,9 @@ public:
     bool wordWrap() const;
     void setWordWrap(bool on);
 
+    bool indentGuides() const;
+    void setIndentGuides(bool on);
+
     QString theme() const; // "dark" | "light"
     void setTheme(const QString &theme);
 

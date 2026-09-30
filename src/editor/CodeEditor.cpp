@@ -109,6 +109,7 @@ CodeEditor::CodeEditor(QWidget *parent)
     connect(this, &QPlainTextEdit::updateRequest, this, &CodeEditor::updateLineNumberArea);
     connect(this, &QPlainTextEdit::cursorPositionChanged, this, &CodeEditor::refreshSelections);
     connect(this, &QPlainTextEdit::textChanged, this, [this] {
+        updateGuideScope();
         if (!m_term.isEmpty())
             m_matchTimer->start();
         if (m_hasBase)
@@ -140,6 +141,10 @@ void CodeEditor::applyTheme()
     m_markDeleted = t.gitDeleted;
     m_diffAddBg = t.diffAddBg;
     m_diffDelBg = t.diffDelBg;
+    m_guide = t.gutterFg;
+    m_guide.setAlpha(t.dark ? 150 : 130);
+    m_guideActive = t.textMuted;
+    m_guideActive.setAlpha(230);
     m_bracketOk = QColor(t.accent.red(), t.accent.green(), t.accent.blue(), t.dark ? 80 : 60);
     m_bracketBad = QColor(t.gitConflict.red(), t.gitConflict.green(), t.gitConflict.blue(), t.dark ? 110 : 80);
     m_matchBg = t.dark ? QColor(QStringLiteral("#614d1f")) : QColor(QStringLiteral("#f5e08a"));
@@ -153,13 +158,25 @@ void CodeEditor::applyTheme()
     refreshSelections();
 }
 
+void CodeEditor::attachDocument(QTextDocument *doc)
+{
+    setDocument(doc);
+    applySettings();
+    updateLineNumberAreaWidth();
+    updateGuideScope();
+}
+
 void CodeEditor::applySettings()
 {
     auto &s = SettingsManager::instance();
     const QFont f = s.editorFont();
     setFont(f);
+    document()->setDefaultFont(f); // setFont() does not reach the document when the widget font is unchanged
     setTabStopDistance(QFontMetricsF(f).horizontalAdvance(QLatin1Char(' ')) * s.tabSize());
     setLineWrapMode(s.wordWrap() ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
+    m_indentGuides = s.indentGuides();
+    updateGuideScope();
+    viewport()->update();
     updateLineNumberAreaWidth();
     m_lineArea->update();
 }
@@ -247,6 +264,7 @@ void CodeEditor::lineNumberAreaPaintEvent(QPaintEvent *event)
 
 void CodeEditor::refreshSelections()
 {
+    updateGuideScope();
     QList<QTextEdit::ExtraSelection> extra;
 
     QTextEdit::ExtraSelection line;
@@ -274,6 +292,116 @@ void CodeEditor::refreshSelections()
     appendBracketSelections(extra);
     setExtraSelections(extra);
     m_lineArea->update();
+}
+
+// --- Indent guides -------------------------------------------------------------
+
+int CodeEditor::indentDepth(const QTextBlock &block, bool *blank) const
+{
+    const QString text = block.text();
+    const int tab = qMax(1, SettingsManager::instance().tabSize());
+    int cols = 0, i = 0;
+    for (; i < text.size(); ++i) {
+        if (text.at(i) == QLatin1Char(' '))
+            ++cols;
+        else if (text.at(i) == QLatin1Char('\t'))
+            cols += tab - cols % tab;
+        else
+            break;
+    }
+    if (blank)
+        *blank = i == text.size();
+    return (cols + tab - 1) / tab;
+}
+
+int CodeEditor::effectiveDepth(const QTextBlock &block) const
+{
+    bool blank = false;
+    const int own = indentDepth(block, &blank);
+    if (!blank)
+        return own;
+    // An empty line inside a block keeps the guides of the code around it.
+    int up = 0, down = 0;
+    QTextBlock b = block.previous();
+    for (int n = 0; b.isValid() && n < 60; b = b.previous(), ++n) {
+        bool bl = false;
+        const int d = indentDepth(b, &bl);
+        if (!bl) {
+            up = d;
+            break;
+        }
+    }
+    b = block.next();
+    for (int n = 0; b.isValid() && n < 60; b = b.next(), ++n) {
+        bool bl = false;
+        const int d = indentDepth(b, &bl);
+        if (!bl) {
+            down = d;
+            break;
+        }
+    }
+    return qMin(up, down);
+}
+
+// The guide belonging to the caret's line is drawn brighter along the whole scope it delimits.
+void CodeEditor::updateGuideScope()
+{
+    m_guideScope = {};
+    if (!m_indentGuides)
+        return;
+    const QTextBlock cur = textCursor().block();
+    const int depth = effectiveDepth(cur);
+    if (depth < 1)
+        return;
+    auto inScope = [&](const QTextBlock &b) {
+        bool blank = false;
+        const int d = indentDepth(b, &blank);
+        return blank || d >= depth;
+    };
+    int first = cur.blockNumber(), last = first;
+    int n = 0;
+    for (QTextBlock b = cur.previous(); b.isValid() && n < 4000 && inScope(b); b = b.previous(), ++n)
+        first = b.blockNumber();
+    n = 0;
+    for (QTextBlock b = cur.next(); b.isValid() && n < 4000 && inScope(b); b = b.next(), ++n)
+        last = b.blockNumber();
+    m_guideScope.level = depth - 1;
+    m_guideScope.first = first;
+    m_guideScope.last = last;
+    viewport()->update();
+}
+
+void CodeEditor::paintEvent(QPaintEvent *event)
+{
+    QPlainTextEdit::paintEvent(event);
+    if (m_indentGuides)
+        paintIndentGuides();
+}
+
+void CodeEditor::paintIndentGuides()
+{
+    QPainter p(viewport());
+    const int tab = qMax(1, SettingsManager::instance().tabSize());
+    const qreal cw = QFontMetricsF(font()).horizontalAdvance(QLatin1Char(' '));
+    const qreal x0 = contentOffset().x() + document()->documentMargin();
+    const int bottomLimit = viewport()->height();
+
+    QTextBlock block = firstVisibleBlock();
+    int top = qRound(blockBoundingGeometry(block).translated(contentOffset()).top());
+    while (block.isValid() && top <= bottomLimit) {
+        const int h = qRound(blockBoundingRect(block).height());
+        if (block.isVisible() && h > 0) {
+            const int depth = effectiveDepth(block);
+            const bool inScope = block.blockNumber() >= m_guideScope.first && block.blockNumber() <= m_guideScope.last;
+            for (int k = 0; k < depth; ++k) {
+                const int x = qRound(x0 + k * tab * cw);
+                p.setPen(inScope && k == m_guideScope.level ? m_guideActive : m_guide);
+                p.drawLine(x, top, x, top + h - 1);
+            }
+            top += h;
+        }
+        block = block.next();
+    }
 }
 
 // --- Bracket matching ---------------------------------------------------------

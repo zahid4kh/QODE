@@ -5,6 +5,7 @@
 #include <QElapsedTimer>
 #include <QPlainTextEdit>
 
+class QTextBlock;
 class QTimer;
 
 class CodeEditor : public QPlainTextEdit
@@ -28,6 +29,9 @@ public:
     int replaceAll(const QString &replacement);
 
     void setIndentAfterColon(bool on) { m_indentAfterColon = on; } // Python-style blocks
+    // Shows `doc` and (re)applies the editor font and tab stops to it: a QTextDocument keeps its own
+    // default font, so a plain setDocument() would render in the application (UI) font.
+    void attachDocument(QTextDocument *doc);
     void applySettings(); // font, tab size, wrapping from SettingsManager
     void applyTheme();
 
@@ -50,6 +54,7 @@ signals:
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseDoubleClickEvent(QMouseEvent *event) override;
@@ -60,6 +65,10 @@ private:
     void updateLineNumberAreaWidth();
     void updateLineNumberArea(const QRect &rect, int dy);
     void refreshSelections();
+    void paintIndentGuides();
+    int indentDepth(const QTextBlock &block, bool *blank = nullptr) const; // guides to the left of the text
+    int effectiveDepth(const QTextBlock &block) const;                      // blank lines borrow from neighbours
+    void updateGuideScope();
     void appendBracketSelections(QList<QTextEdit::ExtraSelection> &extra) const;
     int bracketNearCursor() const;              // document position of the bracket at/before the cursor, or -1
     int findMatchingBracket(int pos) const;     // position of its partner, or -1
@@ -83,7 +92,9 @@ private:
     bool m_indentAfterColon = false;
 
     QColor m_gutterBg, m_gutterFg, m_gutterActive, m_currentLine, m_matchBg, m_border;
-    QColor m_bracketOk, m_bracketBad;
+    QColor m_bracketOk, m_bracketBad, m_guide, m_guideActive;
+    bool m_indentGuides = true;
+    struct { int level = -1, first = 0, last = -1; } m_guideScope; // the guide of the caret's block, and the blocks it spans
     QColor m_markAdded, m_markModified, m_markDeleted, m_diffAddBg, m_diffDelBg;
 
     bool m_hasBase = false;

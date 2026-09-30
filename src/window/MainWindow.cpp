@@ -201,6 +201,9 @@ void MainWindow::createActions()
     m_wordWrapAct = make(tr("Word Wrap"), QKeySequence(A | K::Key_Z));
     m_wordWrapAct->setCheckable(true);
     m_wordWrapAct->setChecked(SettingsManager::instance().wordWrap());
+    m_indentGuidesAct = make(tr("Indent Guides"));
+    m_indentGuidesAct->setCheckable(true);
+    m_indentGuidesAct->setChecked(SettingsManager::instance().indentGuides());
     m_darkThemeAct = make(tr("Dark"));
     m_lightThemeAct = make(tr("Light"));
     m_darkThemeAct->setCheckable(true);
@@ -248,6 +251,7 @@ void MainWindow::createActions()
     connect(m_terminalAct, &QAction::triggered, this, &MainWindow::toggleTerminal);
     connect(m_fullscreenAct, &QAction::triggered, this, [this] { setWindowState(windowState() ^ Qt::WindowFullScreen); });
     connect(m_wordWrapAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setWordWrap(on); });
+    connect(m_indentGuidesAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setIndentGuides(on); });
     connect(m_darkThemeAct, &QAction::triggered, this, [] { SettingsManager::instance().setTheme(QStringLiteral("dark")); });
     connect(m_lightThemeAct, &QAction::triggered, this, [] { SettingsManager::instance().setTheme(QStringLiteral("light")); });
     connect(m_nextTabAct, &QAction::triggered, m_editors, &EditorManager::nextTab);
@@ -308,6 +312,7 @@ void MainWindow::createMenus()
     view->addAction(m_terminalAct);
     view->addSeparator();
     view->addAction(m_wordWrapAct);
+    view->addAction(m_indentGuidesAct);
     QMenu *theme = view->addMenu(tr("Theme"));
     theme->addAction(m_darkThemeAct);
     theme->addAction(m_lightThemeAct);

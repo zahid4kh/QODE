@@ -75,6 +75,13 @@ QString symbolFromHeader(const QString &raw, const QString &language)
     if (const auto m = typeDef.match(line); m.hasMatch() && !line.endsWith(QLatin1Char(';')))
         return m.captured(1);
 
+    // Kotlin
+    static const QRegularExpression ktFun(QStringLiteral("\\bfun\\s+(?:<[^>]*>\\s*)?(?:[\\w.<>?]+\\.)?(\\w+)"));
+    if (language == QLatin1String("Kotlin")) {
+        if (const auto m = ktFun.match(line); m.hasMatch())
+            return m.captured(1) + QStringLiteral("()");
+    }
+
     // JavaScript / TypeScript
     static const QRegularExpression jsFunc(QStringLiteral("^(?:export\\s+)?(?:default\\s+)?(?:async\\s+)?function\\*?\\s*(\\w+)"));
     static const QRegularExpression jsArrow(

@@ -115,6 +115,68 @@ LanguageDefinition javascript(bool ts)
     return d;
 }
 
+LanguageDefinition java()
+{
+    LanguageDefinition d;
+    d.name = QStringLiteral("Java");
+    d.lineComment = QStringLiteral("//");
+    d.rules.append({re(QStringLiteral("\\b[A-Z][A-Za-z0-9_]*\\b")), TokenRole::Type});
+    d.rules.append({re(words({"boolean", "byte", "char", "short", "int", "long", "float", "double", "void", "var",
+                              "String", "Object", "Integer", "Long", "Double", "Boolean", "List", "Map", "Set"})),
+                    TokenRole::Type});
+    d.rules.append({re(QStringLiteral("\\b[A-Za-z_$][\\w$]*(?=\\s*\\()")), TokenRole::Function});
+    d.rules.append({re(words({"abstract", "assert", "break", "case", "catch", "class", "const", "continue",
+                              "default", "do", "else", "enum", "extends", "final", "finally", "for", "goto", "if",
+                              "implements", "import", "instanceof", "interface", "native", "new", "package",
+                              "private", "protected", "public", "return", "static", "strictfp", "super", "switch",
+                              "synchronized", "this", "throw", "throws", "transient", "try", "volatile", "while",
+                              "true", "false", "null", "record", "sealed", "permits", "yield", "non-sealed"})),
+                    TokenRole::Keyword});
+    d.rules.append({re(QStringLiteral("@[A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)*")), TokenRole::Attribute});
+    d.rules.append({re(QStringLiteral("\\b(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|\\d[\\d_]*(?:\\.\\d[\\d_]*)?(?:[eE][+-]?\\d+)?)[lLfFdD]?\\b")),
+                    TokenRole::Number});
+    d.delimited.append({re(QStringLiteral("//[^\\n]*")), {}, TokenRole::Comment});
+    d.delimited.append({re(QStringLiteral("/\\*")), re(QStringLiteral("\\*/")), TokenRole::Comment});
+    d.delimited.append({re(QStringLiteral("\"\"\"")), re(QStringLiteral("\"\"\"")), TokenRole::String}); // text block
+    d.delimited.append({re(dqString), {}, TokenRole::String});
+    d.delimited.append({re(sqString), {}, TokenRole::String});
+    return d;
+}
+
+LanguageDefinition kotlin()
+{
+    LanguageDefinition d;
+    d.name = QStringLiteral("Kotlin");
+    d.lineComment = QStringLiteral("//");
+    d.rules.append({re(QStringLiteral("\\b[A-Z][A-Za-z0-9_]*\\b")), TokenRole::Type});
+    d.rules.append({re(words({"Int", "Long", "Short", "Byte", "Float", "Double", "Boolean", "Char", "String", "Unit",
+                              "Any", "Nothing", "Array", "List", "MutableList", "Map", "MutableMap", "Set",
+                              "MutableSet", "Pair", "Triple"})),
+                    TokenRole::Type});
+    d.rules.append({re(QStringLiteral("\\b[A-Za-z_]\\w*(?=\\s*\\()")), TokenRole::Function});
+    d.rules.append({re(QStringLiteral("\\bfun\\s+(?:<[^>]*>\\s*)?(?:[\\w.<>?]+\\.)?(\\w+)"), RE::NoPatternOption),
+                    TokenRole::Function, 1});
+    d.rules.append({re(words({"as", "break", "class", "continue", "do", "else", "false", "for", "fun", "if", "in",
+                              "interface", "is", "null", "object", "package", "return", "super", "this", "throw",
+                              "true", "try", "typealias", "typeof", "val", "var", "when", "while", "by", "catch",
+                              "constructor", "delegate", "dynamic", "field", "file", "finally", "get", "import",
+                              "init", "param", "property", "receiver", "set", "setparam", "value", "where",
+                              "abstract", "actual", "annotation", "companion", "const", "crossinline", "data",
+                              "enum", "expect", "external", "final", "infix", "inline", "inner", "internal",
+                              "lateinit", "noinline", "open", "operator", "out", "override", "private",
+                              "protected", "public", "reified", "sealed", "suspend", "tailrec", "vararg"})),
+                    TokenRole::Keyword});
+    d.rules.append({re(QStringLiteral("@[A-Za-z_]\\w*(?::[A-Za-z_]\\w*)?")), TokenRole::Attribute});
+    d.rules.append({re(QStringLiteral("\\b(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|\\d[\\d_]*(?:\\.\\d[\\d_]*)?(?:[eE][+-]?\\d+)?)[uUlLfF]*\\b")),
+                    TokenRole::Number});
+    d.delimited.append({re(QStringLiteral("//[^\\n]*")), {}, TokenRole::Comment});
+    d.delimited.append({re(QStringLiteral("/\\*")), re(QStringLiteral("\\*/")), TokenRole::Comment});
+    d.delimited.append({re(QStringLiteral("\"\"\"")), re(QStringLiteral("\"\"\"")), TokenRole::String}); // raw string
+    d.delimited.append({re(dqString), {}, TokenRole::String});
+    d.delimited.append({re(sqString), {}, TokenRole::String});
+    return d;
+}
+
 LanguageDefinition json()
 {
     LanguageDefinition d;
@@ -216,6 +278,8 @@ struct Registry {
         add(python(), {"py", "pyw", "pyi"});
         add(javascript(false), {"js", "mjs", "cjs", "jsx"});
         add(javascript(true), {"ts", "tsx", "mts", "cts"});
+        add(java(), {"java"});
+        add(kotlin(), {"kt", "kts"});
         add(json(), {"json", "jsonc", "webmanifest"}, {".eslintrc", ".prettierrc"});
         add(markup(QStringLiteral("HTML"), true), {"html", "htm", "xhtml"});
         add(markup(QStringLiteral("XML"), false), {"xml", "xsl", "xslt", "svg", "ui", "qrc", "ts_xml", "plist", "rss", "atom", "xsd", "pom"});

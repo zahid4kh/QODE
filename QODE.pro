@@ -37,6 +37,7 @@ SOURCES += \
     src/project/ProjectManager.cpp \
     src/project/ProjectModel.cpp \
     src/project/PythonEnv.cpp \
+    src/media/MarkdownPreview.cpp \
     src/media/MediaPanel.cpp \
     src/explorer/ProjectExplorer.cpp \
     src/explorer/FileIcons.cpp \
@@ -85,6 +86,7 @@ HEADERS += \
     src/project/ProjectManager.h \
     src/project/ProjectModel.h \
     src/project/PythonEnv.h \
+    src/media/MarkdownPreview.h \
     src/media/MediaPanel.h \
     src/explorer/ProjectExplorer.h \
     src/explorer/FileIcons.h \

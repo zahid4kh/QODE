@@ -29,6 +29,7 @@ public:
     void newUntitled();
 
     Document *currentDocument() const;
+    static bool isPreviewable(const Document *doc); // Markdown and SVG
     CodeEditor *currentEditor() const;
     CodeEditor *editorFor(Document *doc) const;
     QList<Document *> documents() const;
@@ -67,6 +68,7 @@ signals:
     void countChanged(int count);
     void documentAdded(Document *doc);       // a tab was created for this document
     void documentPathChanged(Document *doc); // saved as / renamed
+    void previewRequested();                       // the Preview button of the active Markdown / SVG file
     void blameCommitRequested(const QString &hash); // gutter blame column clicked
     void documentSaved(Document *doc);       // written to disk (manual or auto save)
     // Empty-state (welcome page) buttons

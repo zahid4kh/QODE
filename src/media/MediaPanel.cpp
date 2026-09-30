@@ -5,6 +5,7 @@
 #include "settings/Theme.h"
 
 #include <QApplication>
+#include <QBuffer>
 #include <QClipboard>
 #include <QDateTime>
 #include <QDesktopServices>
@@ -404,6 +405,7 @@ void MediaPanel::clear()
     }
     m_image->setPixmap(QPixmap());
     m_path.clear();
+    m_svgPreview = false;
     m_extra.clear();
     m_controls->hide();
     m_title->setText(tr("MEDIA"));
@@ -419,6 +421,47 @@ void MediaPanel::openMedia(const QString &pathIn)
         showVideo();
     else
         showImage();
+    refreshInfo();
+}
+
+void MediaPanel::previewSvg(const QString &pathIn, const QString &text)
+{
+    const QString path = QFileInfo(pathIn).absoluteFilePath();
+    const bool same = m_svgPreview && path == m_path;
+    if (!same) {
+        clear();
+        m_path = path;
+        m_svgPreview = true;
+        m_title->setText(tr("PREVIEW — %1").arg(QFileInfo(path).fileName()));
+    }
+    QByteArray data = text.toUtf8();
+    QBuffer buf(&data);
+    buf.open(QIODevice::ReadOnly);
+    QImageReader reader(&buf, "svg");
+    const QSize dim = reader.size();
+    m_extra.clear();
+    if (!dim.isValid() || dim.isEmpty()) {
+        showMessage(tr("This SVG cannot be rendered (yet).\n%1").arg(reader.errorString()));
+        refreshInfo();
+        return;
+    }
+    // Rasterise large so that zooming in stays sharp.
+    const int longest = qMax(dim.width(), dim.height());
+    const qreal k = qBound<qreal>(0.25, 1600.0 / longest, 64.0);
+    reader.setScaledSize(QSize(qMax(1, qRound(dim.width() * k)), qMax(1, qRound(dim.height() * k))));
+    const QImage img = reader.read();
+    if (img.isNull()) {
+        showMessage(tr("This SVG cannot be rendered (yet).\n%1").arg(reader.errorString()));
+        refreshInfo();
+        return;
+    }
+    m_extra << tr("Resolution") << tr("%1 × %2 px").arg(dim.width()).arg(dim.height());
+    const QString ratio = aspectRatio(dim.width(), dim.height());
+    if (!ratio.isEmpty())
+        m_extra << tr("Aspect ratio") << ratio;
+    m_extra << tr("Format") << tr("SVG (vector)");
+    m_image->setPixmap(QPixmap::fromImage(img), !same);
+    m_stack->setCurrentWidget(m_image);
     refreshInfo();
 }
 

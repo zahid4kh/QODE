@@ -30,6 +30,8 @@ public:
 
     void setProjectRoot(const QString &root);
     void openMedia(const QString &path);
+    // Live preview of SVG source text (which may differ from the file on disk). Keeps the zoom between updates.
+    void previewSvg(const QString &path, const QString &text);
     void clear();
     QString currentPath() const { return m_path; }
 
@@ -46,6 +48,7 @@ private:
     void showEvent(QShowEvent *event) override;
 
     QString m_path;
+    bool m_svgPreview = false;
     QString m_root;
     QStringList m_extra; // key/value pairs specific to the loaded media (resolution, codec, ...)
 

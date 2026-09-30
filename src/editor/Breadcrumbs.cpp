@@ -272,6 +272,14 @@ Breadcrumbs::Breadcrumbs(QWidget *parent)
     connect(&SettingsManager::instance(), &SettingsManager::themeChanged, this, qOverload<>(&QWidget::update));
 }
 
+void Breadcrumbs::setPreviewAvailable(bool on)
+{
+    if (m_preview == on)
+        return;
+    m_preview = on;
+    update();
+}
+
 void Breadcrumbs::setCrumbs(const QList<Crumb> &path, const QList<Crumb> &symbols)
 {
     m_path = path;
@@ -301,7 +309,9 @@ void Breadcrumbs::paintEvent(QPaintEvent *)
     p.setFont(f);
     const QFontMetrics fm(f);
     const int sepW = 18;
-    const int avail = width() - 20;
+    const QString previewText = tr("Preview");
+    const int previewW = m_preview ? fm.horizontalAdvance(previewText) + 14 + 20 : 0;
+    const int avail = width() - 20 - (m_preview ? previewW + 8 : 0);
 
     QList<Crumb> all = m_path;
     all += m_symbols;
@@ -347,10 +357,33 @@ void Breadcrumbs::paintEvent(QPaintEvent *)
         if (i + 1 < all.size())
             sep();
     }
+
+    m_previewRect = {};
+    if (m_preview) {
+        m_previewRect = QRect(width() - previewW - 8, 3, previewW, height() - 7);
+        if (m_previewHover) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(t.currentLine);
+            p.setRenderHint(QPainter::Antialiasing);
+            p.drawRoundedRect(m_previewRect, 4, 4);
+        }
+        p.drawPixmap(m_previewRect.left() + 7, cy - 6, Icons::pixmap(QStringLiteral(":/new-icons/eye.svg"), t.editorFg, 12));
+        p.setFont(f);
+        p.setPen(t.editorFg);
+        p.drawText(m_previewRect.adjusted(24, 0, 0, 0), Qt::AlignVCenter | Qt::AlignLeft, previewText);
+    }
 }
 
 void Breadcrumbs::mouseMoveEvent(QMouseEvent *event)
 {
+    const bool overPreview = m_preview && m_previewRect.contains(event->position().toPoint());
+    if (overPreview != m_previewHover) {
+        m_previewHover = overPreview;
+        setCursor(overPreview ? Qt::PointingHandCursor : Qt::ArrowCursor);
+        update();
+    }
+    if (overPreview)
+        return;
     const int i = crumbAt(event->position().toPoint());
     const int hover = i >= 0 && m_shown.at(i).line >= 0 ? i : -1;
     if (hover != m_hover) {
@@ -362,6 +395,10 @@ void Breadcrumbs::mouseMoveEvent(QMouseEvent *event)
 
 void Breadcrumbs::leaveEvent(QEvent *)
 {
+    if (m_previewHover) {
+        m_previewHover = false;
+        update();
+    }
     if (m_hover != -1) {
         m_hover = -1;
         update();
@@ -370,6 +407,10 @@ void Breadcrumbs::leaveEvent(QEvent *)
 
 void Breadcrumbs::mousePressEvent(QMouseEvent *event)
 {
+    if (event->button() == Qt::LeftButton && m_preview && m_previewRect.contains(event->position().toPoint())) {
+        emit previewRequested();
+        return;
+    }
     const int i = crumbAt(event->position().toPoint());
     if (event->button() == Qt::LeftButton && i >= 0 && m_shown.at(i).line >= 0)
         emit lineRequested(m_shown.at(i).line);

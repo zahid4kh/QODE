@@ -326,6 +326,7 @@ EditorManager::Entry EditorManager::addDocument(Document *doc)
     crumbTimer->setInterval(120);
     connect(crumbTimer, &QTimer::timeout, this, [this, doc] { updateCrumbs(doc); });
     connect(editor, &QPlainTextEdit::cursorPositionChanged, crumbTimer, qOverload<>(&QTimer::start));
+    connect(pane->crumbs, &Breadcrumbs::previewRequested, this, &EditorManager::previewRequested);
     connect(editor, &CodeEditor::blameCommitRequested, this, &EditorManager::blameCommitRequested);
     connect(pane->crumbs, &Breadcrumbs::lineRequested, this, [editor](int line) {
         QTextCursor c(editor->document()->findBlockByNumber(line));
@@ -362,6 +363,11 @@ EditorManager::Entry EditorManager::addDocument(Document *doc)
     return {doc, editor};
 }
 
+bool EditorManager::isPreviewable(const Document *doc)
+{
+    return doc && (doc->languageName() == QLatin1String("Markdown") || doc->filePath().endsWith(QLatin1String(".svg"), Qt::CaseInsensitive));
+}
+
 void EditorManager::updateCrumbs(Document *doc)
 {
     const int i = indexOf(doc);
@@ -370,6 +376,7 @@ void EditorManager::updateCrumbs(Document *doc)
     auto *pane = static_cast<EditorPane *>(m_tabs->widget(i));
     const bool show = SettingsManager::instance().showBreadcrumbs();
     pane->crumbs->setVisible(show);
+    pane->crumbs->setPreviewAvailable(isPreviewable(doc));
     if (!show)
         return;
     QList<Breadcrumbs::Crumb> path = doc->isUntitled() ? QList<Breadcrumbs::Crumb>{{tr("Untitled"), -1}}

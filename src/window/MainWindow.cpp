@@ -3,6 +3,7 @@
 #include "Island.h"
 #include "dialogs/NewProjectDialog.h"
 #include "dialogs/RunConfigDialog.h"
+#include "media/MarkdownPreview.h"
 #include "tasks/TasksPanel.h"
 #include "git/BranchButton.h"
 #include "git/BranchPopup.h"
@@ -124,7 +125,15 @@ MainWindow::MainWindow(QWidget *parent)
     m_hsplit->addWidget(new Island(m_side));
     m_hsplit->addWidget(m_vsplit);
     m_media = new MediaPanel(this);
-    m_hsplit->addWidget(new Island(m_media));
+    m_md = new MarkdownPreview(this);
+    m_rightStack = new QStackedWidget(this);
+    m_rightStack->addWidget(m_media);
+    m_rightStack->addWidget(m_md);
+    m_hsplit->addWidget(new Island(m_rightStack));
+    m_previewTimer = new QTimer(this);
+    m_previewTimer->setSingleShot(true);
+    m_previewTimer->setInterval(250);
+    connect(m_previewTimer, &QTimer::timeout, this, &MainWindow::updatePreview);
     m_hsplit->setStretchFactor(0, 0);
     m_hsplit->setStretchFactor(1, 1);
     m_hsplit->setStretchFactor(2, 0);
@@ -148,6 +157,9 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(m_editors, &EditorManager::mediaRequested, this, &MainWindow::showMedia);
     connect(m_media, &MediaPanel::closeRequested, this, &MainWindow::hideMedia);
+    connect(m_md, &MarkdownPreview::closeRequested, this, &MainWindow::hideMedia);
+    connect(m_editors, &EditorManager::previewRequested, this, &MainWindow::togglePreview);
+    connect(m_editors, &EditorManager::currentChanged, this, &MainWindow::followPreview);
     connect(m_explorer, &ProjectExplorer::pathDeleted, this, [this](const QString &path) {
         const QString cur = m_media->currentPath();
         if (!cur.isEmpty() && (cur == path || cur.startsWith(path + QLatin1Char('/'))))
@@ -342,6 +354,7 @@ void MainWindow::createActions()
     m_bookmarkToggleAct = make(tr("Toggle Bookmark"), QKeySequence(C | K::Key_F2));
     m_bookmarkNextAct = make(tr("Next Bookmark"), QKeySequence(K::Key_F2));
     m_bookmarkPrevAct = make(tr("Previous Bookmark"), QKeySequence(S | K::Key_F2));
+    m_previewAct = make(tr("Toggle Preview (Markdown / SVG)"), QKeySequence(C | S | K::Key_V));
     m_showBookmarksAct = make(tr("Show Bookmarks"));
     m_showTodosAct = make(tr("Show TODO Comments"));
     m_gotoSymbolAct = make(tr("Go to Symbol…"), QKeySequence(C | K::Key_R));
@@ -434,6 +447,7 @@ void MainWindow::createActions()
     });
     connect(m_bookmarkNextAct, &QAction::triggered, this, [this] { gotoBookmark(true); });
     connect(m_bookmarkPrevAct, &QAction::triggered, this, [this] { gotoBookmark(false); });
+    connect(m_previewAct, &QAction::triggered, this, &MainWindow::togglePreview);
     connect(m_showBookmarksAct, &QAction::triggered, this, [this] { showTasks(true); });
     connect(m_showTodosAct, &QAction::triggered, this, [this] { showTasks(false); });
     connect(m_gotoSymbolAct, &QAction::triggered, this, &MainWindow::showGoToSymbol);
@@ -539,6 +553,7 @@ void MainWindow::createMenus()
     view->addAction(m_runConfigAct);
     view->addSeparator();
     view->addAction(m_wordWrapAct);
+    view->addAction(m_previewAct);
     view->addAction(m_showBookmarksAct);
     view->addAction(m_showTodosAct);
     view->addSeparator();
@@ -881,10 +896,9 @@ void MainWindow::updateStatus()
     m_modeLabel->setText(e->overwriteMode() ? tr("OVR") : tr("INS"));
 }
 
-void MainWindow::showMedia(const QString &path)
+void MainWindow::openRightPanel()
 {
-    m_media->openMedia(path);
-    QWidget *island = m_media->parentWidget();
+    QWidget *island = m_rightStack->parentWidget();
     if (island->isVisible())
         return;
     island->show();
@@ -895,13 +909,79 @@ void MainWindow::showMedia(const QString &path)
     m_hsplit->setSizes(sizes);
 }
 
+void MainWindow::showMedia(const QString &path)
+{
+    disconnect(m_previewConn);
+    m_previewDoc = nullptr;
+    m_md->clear();
+    m_media->openMedia(path);
+    m_rightStack->setCurrentWidget(m_media);
+    openRightPanel();
+}
+
 void MainWindow::hideMedia()
 {
-    QWidget *island = m_media->parentWidget();
+    QWidget *island = m_rightStack->parentWidget();
     if (island->isVisible())
         m_mediaWidth = island->width();
+    disconnect(m_previewConn);
+    m_previewDoc = nullptr;
+    m_previewTimer->stop();
     m_media->clear();
+    m_md->clear();
     island->hide();
+}
+
+// The Preview button / shortcut: shows (or closes) the live preview of the current Markdown or SVG file.
+void MainWindow::togglePreview()
+{
+    Document *doc = m_editors->currentDocument();
+    if (!EditorManager::isPreviewable(doc)) {
+        statusBar()->showMessage(tr("Preview is available for Markdown and SVG files"), 3000);
+        return;
+    }
+    if (m_rightStack->parentWidget()->isVisible() && m_previewDoc == doc) {
+        hideMedia();
+        return;
+    }
+    m_media->clear();
+    m_md->clear();
+    m_previewDoc = doc;
+    disconnect(m_previewConn);
+    m_previewConn = connect(doc->textDocument(), &QTextDocument::contentsChanged, m_previewTimer, qOverload<>(&QTimer::start));
+    openRightPanel();
+    updatePreview();
+}
+
+void MainWindow::updatePreview()
+{
+    if (!m_previewDoc) {
+        return;
+    }
+    const QString path = m_previewDoc->filePath();
+    if (m_previewDoc->languageName() == QLatin1String("Markdown")) {
+        m_rightStack->setCurrentWidget(m_md);
+        m_md->setMarkdown(path, m_previewDoc->text());
+    } else {
+        m_rightStack->setCurrentWidget(m_media);
+        m_media->previewSvg(path, m_previewDoc->text());
+    }
+}
+
+// An open preview follows the active tab when that is another Markdown / SVG file.
+void MainWindow::followPreview()
+{
+    if (!m_previewDoc || !m_rightStack->parentWidget()->isVisible())
+        return;
+    Document *doc = m_editors->currentDocument();
+    if (doc == m_previewDoc || !EditorManager::isPreviewable(doc))
+        return;
+    m_previewDoc = doc;
+    disconnect(m_previewConn);
+    m_previewConn = connect(doc->textDocument(), &QTextDocument::contentsChanged, m_previewTimer, qOverload<>(&QTimer::start));
+    m_media->clear();
+    m_md->clear();
+    updatePreview();
 }
 
 void MainWindow::showTerminal()

@@ -17,6 +17,8 @@ public:
 
     explicit Breadcrumbs(QWidget *parent = nullptr);
 
+    // A "Preview" button at the right end of the bar (Markdown / SVG files).
+    void setPreviewAvailable(bool on);
     void setCrumbs(const QList<Crumb> &path, const QList<Crumb> &symbols);
 
     struct Symbol {
@@ -33,6 +35,7 @@ public:
 
 signals:
     void lineRequested(int line);
+    void previewRequested();
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -52,4 +55,7 @@ private:
     QList<Crumb> m_path, m_symbols;
     QList<Shown> m_shown; // laid out by the last paint
     int m_hover = -1;
+    bool m_preview = false;
+    bool m_previewHover = false;
+    QRect m_previewRect;
 };

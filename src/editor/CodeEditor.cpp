@@ -9,6 +9,7 @@
 
 #include <QApplication>
 #include <QDateTime>
+#include <QPainterPath>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -226,8 +227,9 @@ void CodeEditor::attachDocument(QTextDocument *doc)
     setDocument(doc);
     // Text edits and highlighting both surface as contentsChanged.
     connect(doc, &QTextDocument::contentsChanged, m_minimap, &MiniMap::invalidate);
+    m_blameBlocks = doc->blockCount();
     disconnect(m_blameConn);
-    m_blameConn = connect(doc, &QTextDocument::contentsChange, this, &CodeEditor::trackBlameEdit);
+    m_blameConn = connect(doc, &QTextDocument::contentsChange, this, &CodeEditor::trackLineEdit);
     applySettings();
     updateLineNumberAreaWidth();
     updateGuideScope();
@@ -335,12 +337,28 @@ void CodeEditor::lineNumberAreaPaintEvent(QPaintEvent *event)
     int top = qRound(blockBoundingGeometry(block).translated(contentOffset()).top());
     int bottom = top + qRound(blockBoundingRect(block).height());
     const int current = textCursor().blockNumber();
+    const QColor bookmarkColor = Theme::byName(SettingsManager::instance().theme()).accent;
 
     while (block.isValid() && top <= event->rect().bottom()) {
         if (block.isVisible() && bottom >= event->rect().top()) {
             painter.setPen(number == current ? m_gutterActive : m_gutterFg);
             painter.drawText(blameWidth(), top, m_lineArea->width() - blameWidth() - 8 - kFoldWidth, fontMetrics().height(), Qt::AlignRight,
                              QString::number(number + 1));
+            if (!m_bookmarks.isEmpty() && m_bookmarks.contains(number)) {
+                QPainterPath flag;
+                const qreal bx = blameWidth() + 6, by = top + (fontMetrics().height() - 11) / 2.0;
+                flag.moveTo(bx, by);
+                flag.lineTo(bx + 8, by);
+                flag.lineTo(bx + 8, by + 11);
+                flag.lineTo(bx + 4, by + 8);
+                flag.lineTo(bx, by + 11);
+                flag.closeSubpath();
+                painter.setRenderHint(QPainter::Antialiasing);
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(bookmarkColor);
+                painter.drawPath(flag);
+                painter.setRenderHint(QPainter::Antialiasing, false);
+            }
             if (blameWidth() > 0 && number < m_blame.size()) {
                 const GitBlameLine &bl = m_blame.at(number);
                 const bool first = number == 0 || m_blame.at(number - 1).hash != bl.hash;
@@ -1397,15 +1415,35 @@ void CodeEditor::setBlameInline(bool on)
     viewport()->update();
 }
 
-// Keeps the blame list aligned with the text while it is edited: new lines and touched lines are "uncommitted".
-void CodeEditor::trackBlameEdit(int position, int, int)
+// Keeps bookmarks and the blame list aligned with the text while it is edited: new lines and touched
+// lines count as uncommitted.
+void CodeEditor::trackLineEdit(int position, int, int)
 {
-    if (m_blame.isEmpty())
-        return;
     const int now = document()->blockCount();
     const int delta = now - m_blameBlocks;
     m_blameBlocks = now;
-    const int line = qBound(0, document()->findBlock(position).blockNumber(), qMax(0, m_blame.size() - 1));
+    if (delta == 0 && m_blame.isEmpty())
+        return;
+    const int edited = document()->findBlock(position).blockNumber();
+    if (delta != 0 && !m_bookmarks.isEmpty()) {
+        QList<int> moved;
+        for (int l : std::as_const(m_bookmarks)) {
+            if (l <= edited)
+                moved.append(l);
+            else if (delta > 0)
+                moved.append(l + delta);
+            else if (l > edited - delta)
+                moved.append(l + delta); // lines inside the removed range disappear with their bookmark
+        }
+        if (moved != m_bookmarks) {
+            m_bookmarks = moved;
+            m_lineArea->update();
+            emit bookmarksChanged();
+        }
+    }
+    if (m_blame.isEmpty())
+        return;
+    const int line = qBound(0, edited, qMax(0, m_blame.size() - 1));
     if (delta > 0)
         m_blame.insert(qMin(line + 1, m_blame.size()), delta, GitBlameLine{});
     else if (delta < 0)
@@ -1414,6 +1452,28 @@ void CodeEditor::trackBlameEdit(int position, int, int)
         m_blame[i] = GitBlameLine{};
     m_lineArea->update();
     viewport()->update();
+}
+
+void CodeEditor::setBookmarks(const QList<int> &lines)
+{
+    m_bookmarks = lines;
+    std::sort(m_bookmarks.begin(), m_bookmarks.end());
+    m_bookmarks.erase(std::unique(m_bookmarks.begin(), m_bookmarks.end()), m_bookmarks.end());
+    m_lineArea->update();
+}
+
+void CodeEditor::toggleBookmark(int line)
+{
+    if (line < 0)
+        line = textCursor().blockNumber();
+    if (m_bookmarks.contains(line))
+        m_bookmarks.removeOne(line);
+    else {
+        m_bookmarks.append(line);
+        std::sort(m_bookmarks.begin(), m_bookmarks.end());
+    }
+    m_lineArea->update();
+    emit bookmarksChanged();
 }
 
 void CodeEditor::paintBlameAnnotation()

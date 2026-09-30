@@ -1,6 +1,9 @@
 #include "SettingsManager.h"
 
 #include <QFontDatabase>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 SettingsManager::SettingsManager()
     : m_settings(QStringLiteral("QODE"), QStringLiteral("QODE"))
@@ -142,6 +145,36 @@ void SettingsManager::setShowMinimap(bool on)
 {
     m_settings.setValue(QStringLiteral("editor/minimap"), on);
     emit editorSettingsChanged();
+}
+
+QHash<QString, QList<int>> SettingsManager::bookmarks() const
+{
+    QHash<QString, QList<int>> out;
+    // QSettings hands comma-containing INI values back as a list.
+    const QVariant raw = m_settings.value(QStringLiteral("session/bookmarks"));
+    const QString json = raw.typeId() == QMetaType::QStringList ? raw.toStringList().join(QLatin1Char(',')) : raw.toString();
+    const QJsonObject o = QJsonDocument::fromJson(json.toUtf8()).object();
+    for (auto it = o.begin(); it != o.end(); ++it) {
+        QList<int> lines;
+        for (const QJsonValue &v : it.value().toArray())
+            lines.append(v.toInt());
+        if (!lines.isEmpty())
+            out.insert(it.key(), lines);
+    }
+    return out;
+}
+
+void SettingsManager::setBookmarks(const QHash<QString, QList<int>> &bookmarks)
+{
+    QJsonObject o;
+    for (auto it = bookmarks.begin(); it != bookmarks.end(); ++it) {
+        QJsonArray a;
+        for (int l : it.value())
+            a.append(l);
+        if (!a.isEmpty())
+            o.insert(it.key(), a);
+    }
+    m_settings.setValue(QStringLiteral("session/bookmarks"), QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact)));
 }
 
 bool SettingsManager::blameInline() const

@@ -29,6 +29,7 @@ SOURCES += \
     src/format/Formatter.cpp \
     src/search/ProjectSearch.cpp \
     src/search/SearchPanel.cpp \
+    src/tasks/TasksPanel.cpp \
     src/palette/FuzzyMatcher.cpp \
     src/palette/PalettePopup.cpp \
     src/filesystem/FileManager.cpp \
@@ -75,6 +76,7 @@ HEADERS += \
     src/format/Formatter.h \
     src/search/ProjectSearch.h \
     src/search/SearchPanel.h \
+    src/tasks/TasksPanel.h \
     src/palette/FuzzyMatcher.h \
     src/palette/PalettePopup.h \
     src/filesystem/FileManager.h \

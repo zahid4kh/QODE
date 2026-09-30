@@ -3,6 +3,7 @@
 #include "Island.h"
 #include "dialogs/NewProjectDialog.h"
 #include "dialogs/RunConfigDialog.h"
+#include "tasks/TasksPanel.h"
 #include "git/BranchButton.h"
 #include "git/BranchPopup.h"
 #include "git/DiffDialog.h"
@@ -53,6 +54,8 @@
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QTabBar>
+#include <QTextBlock>
+#include <QTextDocument>
 #include <QTimer>
 #include <algorithm>
 #include <QToolBar>
@@ -70,6 +73,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_explorer->setGitRepository(m_git);
     m_gitPanel = new GitPanel(m_git, this);
     m_searchPanel = new SearchPanel(this);
+    m_tasks = new TasksPanel(this);
     m_editors = new EditorManager(this);
 
     // Left side: Explorer / Source Control switcher
@@ -78,6 +82,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_sideTabs->addTab(tr("Explorer"));
     m_sideTabs->addTab(tr("Source Control"));
     m_sideTabs->addTab(tr("Search"));
+    m_sideTabs->addTab(tr("Tasks"));
     m_sideTabs->setObjectName(QStringLiteral("sideTabs"));
     m_sideTabs->setExpanding(true);
     m_sideTabs->setDrawBase(false);
@@ -87,6 +92,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_sideStack->addWidget(m_explorer);
     m_sideStack->addWidget(m_gitPanel);
     m_sideStack->addWidget(m_searchPanel);
+    m_sideStack->addWidget(m_tasks);
     auto *sideLayout = new QVBoxLayout(m_side);
     sideLayout->setContentsMargins(0, 0, 0, 0);
     sideLayout->setSpacing(0);
@@ -178,6 +184,48 @@ MainWindow::MainWindow(QWidget *parent)
             m_editors->openFile(path);
     });
     connect(m_searchPanel, &SearchPanel::replaceRequested, this, &MainWindow::replaceInFiles);
+
+    m_bookmarks = SettingsManager::instance().bookmarks();
+    m_tasks->setOverridesProvider([this] {
+        QHash<QString, QString> out;
+        for (Document *d : m_editors->modifiedDocuments())
+            if (!d->isUntitled())
+                out.insert(d->filePath(), d->text());
+        return out;
+    });
+    m_tasks->setLineTextProvider([this](const QString &path, int line) { return lineTextOf(path, line); });
+    m_tasks->setBookmarks(m_bookmarks);
+    connect(m_tasks, &TasksPanel::openLocation, this, [this](const QString &path, int line, int column, int length) {
+        if (line > 0)
+            m_editors->openFileAt(path, line, column + 1, length);
+        else
+            m_editors->openFile(path);
+    });
+    connect(m_tasks, &TasksPanel::removeBookmark, this, [this](const QString &path, int line) {
+        QList<int> lines = m_bookmarks.value(path);
+        lines.removeAll(line);
+        applyBookmarks(path, lines);
+    });
+    connect(m_tasks, &TasksPanel::clearBookmarksRequested, this, [this] {
+        const QStringList paths = m_bookmarks.keys();
+        for (const QString &p : paths)
+            applyBookmarks(p, {});
+    });
+    connect(m_editors, &EditorManager::documentAdded, this, [this](Document *doc) {
+        CodeEditor *ed = m_editors->editorFor(doc);
+        if (!ed)
+            return;
+        if (!doc->filePath().isEmpty())
+            ed->setBookmarks(m_bookmarks.value(doc->filePath()));
+        connect(ed, &CodeEditor::bookmarksChanged, this, [this, doc, ed] {
+            if (!doc->isUntitled())
+                applyBookmarks(doc->filePath(), ed->bookmarks());
+        });
+    });
+    connect(m_editors, &EditorManager::documentSaved, this, [this] {
+        m_tasks->setBookmarks(m_bookmarks); // refreshes the quoted line text
+        m_tasks->scheduleTodoScan();
+    });
 
     connect(m_terminal, &Terminal::hideRequested, this, &MainWindow::toggleTerminal);
     connect(m_editors, &EditorManager::currentChanged, this, [this] { updateStatus(); updateActions(); updateTitle(); noteRecentFile(); });
@@ -291,6 +339,11 @@ void MainWindow::createActions()
     m_paletteAct = make(tr("Command Palette…"), QKeySequence(C | S | K::Key_P), QStringLiteral(":/new-icons/search.svg"));
     m_quickOpenAct = make(tr("Go to File…"), QKeySequence(C | K::Key_P), QStringLiteral(":/new-icons/file-input.svg"));
     m_gotoLineAct = make(tr("Go to Line…"), QKeySequence(C | K::Key_G));
+    m_bookmarkToggleAct = make(tr("Toggle Bookmark"), QKeySequence(C | K::Key_F2));
+    m_bookmarkNextAct = make(tr("Next Bookmark"), QKeySequence(K::Key_F2));
+    m_bookmarkPrevAct = make(tr("Previous Bookmark"), QKeySequence(S | K::Key_F2));
+    m_showBookmarksAct = make(tr("Show Bookmarks"));
+    m_showTodosAct = make(tr("Show TODO Comments"));
     m_gotoSymbolAct = make(tr("Go to Symbol…"), QKeySequence(C | K::Key_R));
     m_matchBracketAct = make(tr("Go to Matching Bracket"), QKeySequence(C | S | K::Key_Backslash));
     auto &cfg = SettingsManager::instance();
@@ -375,6 +428,14 @@ void MainWindow::createActions()
     connect(m_paletteAct, &QAction::triggered, this, &MainWindow::showCommandPalette);
     connect(m_quickOpenAct, &QAction::triggered, this, [this] { showQuickOpen(); });
     connect(m_gotoLineAct, &QAction::triggered, this, [this] { showQuickOpen(QStringLiteral(":")); });
+    connect(m_bookmarkToggleAct, &QAction::triggered, this, [this] {
+        if (CodeEditor *e = m_editors->currentEditor())
+            e->toggleBookmark();
+    });
+    connect(m_bookmarkNextAct, &QAction::triggered, this, [this] { gotoBookmark(true); });
+    connect(m_bookmarkPrevAct, &QAction::triggered, this, [this] { gotoBookmark(false); });
+    connect(m_showBookmarksAct, &QAction::triggered, this, [this] { showTasks(true); });
+    connect(m_showTodosAct, &QAction::triggered, this, [this] { showTasks(false); });
     connect(m_gotoSymbolAct, &QAction::triggered, this, &MainWindow::showGoToSymbol);
     connect(m_searchAct, &QAction::triggered, this, &MainWindow::showSearch);
     auto onEditor = [this](void (CodeEditor::*fn)()) {
@@ -454,6 +515,10 @@ void MainWindow::createMenus()
     edit->addAction(m_replaceAct);
     edit->addAction(m_gotoLineAct);
     edit->addAction(m_gotoSymbolAct);
+    edit->addSeparator();
+    edit->addAction(m_bookmarkToggleAct);
+    edit->addAction(m_bookmarkNextAct);
+    edit->addAction(m_bookmarkPrevAct);
     edit->addAction(m_matchBracketAct);
     edit->addAction(m_searchAct);
     edit->addSeparator();
@@ -474,6 +539,9 @@ void MainWindow::createMenus()
     view->addAction(m_runConfigAct);
     view->addSeparator();
     view->addAction(m_wordWrapAct);
+    view->addAction(m_showBookmarksAct);
+    view->addAction(m_showTodosAct);
+    view->addSeparator();
     view->addAction(m_indentGuidesAct);
     view->addAction(m_stickyAct);
     view->addAction(m_minimapAct);
@@ -691,6 +759,7 @@ void MainWindow::onProjectOpened(const Project &p)
     m_projectFiles->setRoot(p.root);
     m_editors->setProjectRoot(p.root);
     m_searchPanel->setProjectRoot(p.root);
+    m_tasks->setProjectRoot(p.root);
     m_media->setProjectRoot(p.root);
     m_git->setWorkDirectory(p.root);
     // The shell always starts in the project root.
@@ -709,6 +778,7 @@ void MainWindow::onProjectClosed()
     m_projectFiles->setRoot({});
     m_editors->setProjectRoot({});
     m_searchPanel->setProjectRoot({});
+    m_tasks->setProjectRoot({});
     hideMedia();
     m_media->setProjectRoot({});
     m_git->setWorkDirectory({});
@@ -988,6 +1058,85 @@ void MainWindow::noteRecentFile()
     m_recentFiles.prepend(path);
     while (m_recentFiles.size() > 40)
         m_recentFiles.removeLast();
+}
+
+void MainWindow::showTasks(bool bookmarks)
+{
+    if (!m_explorerAct->isChecked())
+        m_explorerAct->setChecked(true);
+    m_sideTabs->setCurrentIndex(3);
+    if (bookmarks)
+        m_tasks->showBookmarks();
+    else
+        m_tasks->showTodos();
+}
+
+QString MainWindow::lineTextOf(const QString &path, int line) const
+{
+    for (Document *d : m_editors->documents())
+        if (d->filePath() == path)
+            return d->textDocument()->findBlockByNumber(line).text();
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return {};
+    for (int i = 0; !f.atEnd(); ++i) {
+        const QByteArray l = f.readLine();
+        if (i == line)
+            return QString::fromUtf8(l).trimmed();
+    }
+    return {};
+}
+
+// Single point of change for bookmarks: updates the store, the open editor, the panel and the settings.
+void MainWindow::applyBookmarks(const QString &path, const QList<int> &lines)
+{
+    if (lines.isEmpty())
+        m_bookmarks.remove(path);
+    else
+        m_bookmarks.insert(path, lines);
+    for (Document *d : m_editors->documents())
+        if (d->filePath() == path)
+            if (CodeEditor *e = m_editors->editorFor(d); e && e->bookmarks() != lines)
+                e->setBookmarks(lines);
+    SettingsManager::instance().setBookmarks(m_bookmarks);
+    m_tasks->setBookmarks(m_bookmarks);
+}
+
+// Next / previous bookmark across all files, wrapping around.
+void MainWindow::gotoBookmark(bool next)
+{
+    QList<QPair<QString, int>> all;
+    QStringList paths = m_bookmarks.keys();
+    std::sort(paths.begin(), paths.end());
+    for (const QString &p : paths)
+        for (int l : m_bookmarks.value(p))
+            all.append({p, l});
+    if (all.isEmpty()) {
+        statusBar()->showMessage(tr("No bookmarks — press Ctrl+F2 to add one"), 3000);
+        return;
+    }
+    QString curPath;
+    int curLine = -1;
+    if (Document *d = m_editors->currentDocument(); d && m_editors->currentEditor()) {
+        curPath = d->filePath();
+        curLine = m_editors->currentEditor()->textCursor().blockNumber();
+    }
+    const QPair<QString, int> cur{curPath, curLine};
+    QPair<QString, int> target = next ? all.first() : all.last(); // wrap-around default
+    if (next) {
+        for (const auto &b : std::as_const(all))
+            if (b > cur) {
+                target = b;
+                break;
+            }
+    } else {
+        for (auto it = all.crbegin(); it != all.crend(); ++it)
+            if (*it < cur) {
+                target = *it;
+                break;
+            }
+    }
+    m_editors->openFileAt(target.first, target.second + 1, 1);
 }
 
 void MainWindow::showSearch()

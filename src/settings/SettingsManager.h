@@ -44,6 +44,9 @@ public:
     bool showMinimap() const;
     void setShowMinimap(bool on);
 
+    // Bookmarked lines (0-based) per absolute file path.
+    QHash<QString, QList<int>> bookmarks() const;
+    void setBookmarks(const QHash<QString, QList<int>> &bookmarks);
     bool blameInline() const;
     void setBlameInline(bool on);
     bool blameGutter() const;

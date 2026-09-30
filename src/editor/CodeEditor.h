@@ -57,6 +57,12 @@ public:
     void setBlameGutter(bool on);
     void setBlameInline(bool on);
 
+    // --- Bookmarks ----------------------------------------------------------
+    // 0-based, sorted lines. They follow the text while it is edited; setBookmarks() does not emit.
+    const QList<int> &bookmarks() const { return m_bookmarks; }
+    void setBookmarks(const QList<int> &lines);
+    void toggleBookmark(int line = -1); // -1: the caret line
+
     // --- Minimap support ------------------------------------------------------
     void visibleBlockRange(int *first, int *last) const; // block numbers on screen
     void scrollBlockToCenter(int blockNumber);
@@ -81,6 +87,7 @@ signals:
     void searchResultsChanged();
     void overwriteModeToggled();
     void blameCommitRequested(const QString &hash);
+    void bookmarksChanged();
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
@@ -112,7 +119,7 @@ private:
     void paintStickyScroll();
     void paintBlameAnnotation();
     int blameWidth() const { return m_blameGutter && !m_blame.isEmpty() ? m_blameColumn : 0; }
-    void trackBlameEdit(int position, int removed, int added);
+    void trackLineEdit(int position, int removed, int added); // keeps blame and bookmarks aligned
     void positionMinimap();
     void appendBracketSelections(QList<QTextEdit::ExtraSelection> &extra) const;
     int bracketNearCursor() const;              // document position of the bracket at/before the cursor, or -1
@@ -137,6 +144,7 @@ private:
     bool m_indentAfterColon = false;
     QString m_language;
     QVector<GitBlameLine> m_blame;
+    QList<int> m_bookmarks;
     bool m_blameGutter = false;
     bool m_blameInline = true;
     int m_blameColumn = 190;

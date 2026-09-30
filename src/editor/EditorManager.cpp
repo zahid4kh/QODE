@@ -310,6 +310,7 @@ EditorManager::Entry EditorManager::addDocument(Document *doc)
     auto *pane = new EditorPane(editor, m_tabs);
     editor->attachDocument(doc->textDocument());
     editor->setIndentAfterColon(doc->languageName() == QLatin1String("Python"));
+    editor->setLanguage(doc->languageName());
     m_docForEditor.insert(editor, doc);
 
     connect(doc, &Document::stateChanged, this, [this, doc] {
@@ -335,6 +336,7 @@ EditorManager::Entry EditorManager::addDocument(Document *doc)
         updateCrumbs(doc);
         updateTabTitle(doc);
         editor->setIndentAfterColon(doc->languageName() == QLatin1String("Python"));
+    editor->setLanguage(doc->languageName());
         emit documentStateChanged();
         emit documentPathChanged(doc);
     });

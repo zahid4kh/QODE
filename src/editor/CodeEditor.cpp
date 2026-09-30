@@ -1,5 +1,6 @@
 #include "CodeEditor.h"
 
+#include "Breadcrumbs.h"
 #include "MiniMap.h"
 #include "SyntaxHighlighter.h"
 #include "settings/Icons.h"
@@ -221,6 +222,7 @@ void CodeEditor::applySettings()
     setTabStopDistance(QFontMetricsF(f).horizontalAdvance(QLatin1Char(' ')) * s.tabSize());
     setLineWrapMode(s.wordWrap() ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
     m_indentGuides = s.indentGuides();
+    m_stickyScroll = s.stickyScroll();
     m_showMinimap = s.showMinimap();
     updateGuideScope();
     viewport()->update();
@@ -738,6 +740,59 @@ void CodeEditor::paintEvent(QPaintEvent *event)
     if (m_indentGuides)
         paintIndentGuides();
     paintFoldMarkers();
+    paintStickyScroll();
+}
+
+QList<int> CodeEditor::stickyLines() const
+{
+    QList<int> rows;
+    if (!m_stickyScroll || m_language.isEmpty())
+        return rows;
+    const QTextBlock first = firstVisibleBlock();
+    if (!first.isValid() || first.blockNumber() == 0)
+        return rows;
+    // The pinned rows cover the first lines, so the scopes that matter are those of the line under them.
+    for (int pass = 0; pass < 3; ++pass) {
+        const int probe = first.blockNumber() + rows.size();
+        QList<int> next;
+        for (const Breadcrumbs::Crumb &c : Breadcrumbs::symbolChain(document(), probe, m_language))
+            if (c.line >= 0 && c.line < probe)
+                next.append(c.line);
+        if (next.size() > 3)
+            next = next.mid(next.size() - 3);
+        if (next.size() == rows.size()) {
+            rows = next;
+            break;
+        }
+        rows = next;
+    }
+    return rows;
+}
+
+void CodeEditor::paintStickyScroll()
+{
+    m_stickyRows.clear();
+    const QList<int> rows = stickyLines();
+    if (rows.isEmpty())
+        return;
+    const Theme t = Theme::byName(SettingsManager::instance().theme());
+    QPainter p(viewport());
+    p.setFont(font());
+    const int lh = qRound(blockBoundingRect(firstVisibleBlock()).height());
+    const int h = lh * rows.size();
+    QColor bg = t.editorBg;
+    p.fillRect(QRect(0, 0, viewport()->width(), h), bg);
+    p.setPen(t.border);
+    p.drawLine(0, h - 1, viewport()->width(), h - 1);
+    const int x0 = qRound(document()->documentMargin());
+    for (int i = 0; i < rows.size(); ++i) {
+        const QTextBlock b = document()->findBlockByNumber(rows.at(i));
+        const QRect r(0, i * lh, viewport()->width(), lh);
+        p.setPen(t.editorFg);
+        const QString text = b.text().trimmed().replace(QLatin1Char('\t'), QLatin1Char(' '));
+        p.drawText(r.adjusted(x0, 0, -x0, 0), Qt::AlignVCenter | Qt::AlignLeft, QFontMetrics(font()).elidedText(text, Qt::ElideRight, r.width() - 2 * x0));
+        m_stickyRows.append({r, rows.at(i)});
+    }
 }
 
 void CodeEditor::paintIndentGuides()
@@ -1146,6 +1201,14 @@ void CodeEditor::mouseDoubleClickEvent(QMouseEvent *event)
 
 void CodeEditor::mousePressEvent(QMouseEvent *event)
 {
+    if (event->button() == Qt::LeftButton)
+        for (const auto &row : std::as_const(m_stickyRows))
+            if (row.first.contains(event->pos())) {
+                QTextCursor c(document()->findBlockByNumber(row.second));
+                setTextCursor(c);
+                centerCursor();
+                return;
+            }
     if (event->button() == Qt::LeftButton)
         for (const auto &pill : std::as_const(m_foldPills))
             if (pill.first.contains(event->pos())) {

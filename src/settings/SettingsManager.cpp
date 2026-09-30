@@ -144,6 +144,17 @@ void SettingsManager::setShowMinimap(bool on)
     emit editorSettingsChanged();
 }
 
+bool SettingsManager::stickyScroll() const
+{
+    return m_settings.value(QStringLiteral("editor/stickyScroll"), true).toBool();
+}
+
+void SettingsManager::setStickyScroll(bool on)
+{
+    m_settings.setValue(QStringLiteral("editor/stickyScroll"), on);
+    emit editorSettingsChanged();
+}
+
 bool SettingsManager::indentGuides() const
 {
     return m_settings.value(QStringLiteral("editor/indentGuides"), true).toBool();

@@ -44,6 +44,8 @@ public:
     bool showMinimap() const;
     void setShowMinimap(bool on);
 
+    bool stickyScroll() const;
+    void setStickyScroll(bool on);
     bool indentGuides() const;
     void setIndentGuides(bool on);
 

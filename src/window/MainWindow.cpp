@@ -263,6 +263,9 @@ void MainWindow::createActions()
     m_minimapAct = make(tr("Minimap"));
     m_minimapAct->setCheckable(true);
     m_minimapAct->setChecked(SettingsManager::instance().showMinimap());
+    m_stickyAct = make(tr("Sticky Scroll"));
+    m_stickyAct->setCheckable(true);
+    m_stickyAct->setChecked(SettingsManager::instance().stickyScroll());
     m_indentGuidesAct = make(tr("Indent Guides"));
     m_indentGuidesAct->setCheckable(true);
     m_indentGuidesAct->setChecked(SettingsManager::instance().indentGuides());
@@ -353,6 +356,7 @@ void MainWindow::createActions()
     connect(m_wordWrapAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setWordWrap(on); });
     connect(m_breadcrumbsAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setShowBreadcrumbs(on); });
     connect(m_minimapAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setShowMinimap(on); });
+    connect(m_stickyAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setStickyScroll(on); });
     connect(m_indentGuidesAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setIndentGuides(on); });
     connect(m_darkThemeAct, &QAction::triggered, this, [] { SettingsManager::instance().setTheme(QStringLiteral("dark")); });
     connect(m_lightThemeAct, &QAction::triggered, this, [] { SettingsManager::instance().setTheme(QStringLiteral("light")); });
@@ -462,6 +466,7 @@ void MainWindow::createMenus()
     view->addSeparator();
     view->addAction(m_wordWrapAct);
     view->addAction(m_indentGuidesAct);
+    view->addAction(m_stickyAct);
     view->addAction(m_minimapAct);
     view->addAction(m_breadcrumbsAct);
     QMenu *theme = view->addMenu(tr("Theme"));

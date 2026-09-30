@@ -29,6 +29,7 @@ public:
     bool replaceCurrent(const QString &replacement);
     int replaceAll(const QString &replacement);
 
+    void setLanguage(const QString &name) { m_language = name; viewport()->update(); }
     void setIndentAfterColon(bool on) { m_indentAfterColon = on; } // Python-style blocks
     // Shows `doc` and (re)applies the editor font and tab stops to it: a QTextDocument keeps its own
     // default font, so a plain setDocument() would render in the application (UI) font.
@@ -96,6 +97,8 @@ private:
     QTextBlock foldHeaderFor(const QTextBlock &block, bool foldedOnly) const;
     void applyFolds();
     void paintFoldMarkers();
+    QList<int> stickyLines() const; // header blocks pinned at the top of the viewport
+    void paintStickyScroll();
     void positionMinimap();
     void appendBracketSelections(QList<QTextEdit::ExtraSelection> &extra) const;
     int bracketNearCursor() const;              // document position of the bracket at/before the cursor, or -1
@@ -118,6 +121,9 @@ private:
     QElapsedTimer m_tripleClickTimer;
     bool m_tripleClickArmed = false;
     bool m_indentAfterColon = false;
+    QString m_language;
+    bool m_stickyScroll = true;
+    QVector<QPair<QRect, int>> m_stickyRows; // last paint -> header block number
 
     QColor m_gutterBg, m_gutterFg, m_gutterActive, m_currentLine, m_matchBg, m_border;
     MiniMap *m_minimap;

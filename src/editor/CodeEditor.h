@@ -47,6 +47,17 @@ public:
     // --- Brackets -----------------------------------------------------------
     void gotoMatchingBracket();
 
+    // --- Code folding -------------------------------------------------------
+    // Regions come from unmatched brackets at the end of a line, multi-line /* comments */ and
+    // deeper-indented lines. The fold state lives in each header block's user data.
+    void foldCurrent();    // fold the innermost region around the caret
+    void unfoldCurrent();
+    void foldAll();
+    void unfoldAll();
+    void toggleFoldAt(int blockNumber);
+    bool hasFolds() const { return m_foldedCount > 0; }
+    void setGutterHover(bool on);
+
 signals:
     void filesDropped(const QStringList &paths);
     void searchResultsChanged();
@@ -69,6 +80,15 @@ private:
     int indentDepth(const QTextBlock &block, bool *blank = nullptr) const; // guides to the left of the text
     int effectiveDepth(const QTextBlock &block) const;                      // blank lines borrow from neighbours
     void updateGuideScope();
+
+    bool isFolded(const QTextBlock &block) const;
+    void setFolded(const QTextBlock &block, bool folded);
+    bool isFoldable(const QTextBlock &block) const;
+    int foldEnd(const QTextBlock &header) const; // last block number hidden by a fold at `header`, or -1
+    int unmatchedOpener(const QTextBlock &block) const;
+    QTextBlock foldHeaderFor(const QTextBlock &block, bool foldedOnly) const;
+    void applyFolds();
+    void paintFoldMarkers();
     void appendBracketSelections(QList<QTextEdit::ExtraSelection> &extra) const;
     int bracketNearCursor() const;              // document position of the bracket at/before the cursor, or -1
     int findMatchingBracket(int pos) const;     // position of its partner, or -1
@@ -92,6 +112,10 @@ private:
     bool m_indentAfterColon = false;
 
     QColor m_gutterBg, m_gutterFg, m_gutterActive, m_currentLine, m_matchBg, m_border;
+    bool m_gutterHover = false;
+    int m_foldedCount = 0;
+    QTimer *m_foldTimer;
+    QVector<QPair<QRect, int>> m_foldPills; // inline "…" markers of the last paint -> header block number
     QColor m_bracketOk, m_bracketBad, m_guide, m_guideActive;
     bool m_indentGuides = true;
     struct { int level = -1, first = 0, last = -1; } m_guideScope; // the guide of the caret's block, and the blocks it spans

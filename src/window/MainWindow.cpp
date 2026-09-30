@@ -220,6 +220,10 @@ void MainWindow::createActions()
     m_quickOpenAct = make(tr("Go to File…"), QKeySequence(C | K::Key_P), QStringLiteral(":/new-icons/file-input.svg"));
     m_gotoLineAct = make(tr("Go to Line…"), QKeySequence(C | K::Key_G));
     m_matchBracketAct = make(tr("Go to Matching Bracket"), QKeySequence(C | S | K::Key_Backslash));
+    m_foldAct = make(tr("Fold"), QKeySequence(C | S | K::Key_BracketLeft));
+    m_unfoldAct = make(tr("Unfold"), QKeySequence(C | S | K::Key_BracketRight));
+    m_foldAllAct = make(tr("Fold All"), QKeySequence(QStringLiteral("Ctrl+K, Ctrl+0")));
+    m_unfoldAllAct = make(tr("Unfold All"), QKeySequence(QStringLiteral("Ctrl+K, Ctrl+J")));
     m_searchAct = make(tr("Find in Files"), QKeySequence(C | S | K::Key_F), QStringLiteral(":/new-icons/search.svg"));
 
     connect(m_newProjectAct, &QAction::triggered, this, &MainWindow::newProject);
@@ -261,6 +265,13 @@ void MainWindow::createActions()
     connect(m_quickOpenAct, &QAction::triggered, this, [this] { showQuickOpen(); });
     connect(m_gotoLineAct, &QAction::triggered, this, [this] { showQuickOpen(QStringLiteral(":")); });
     connect(m_searchAct, &QAction::triggered, this, &MainWindow::showSearch);
+    auto onEditor = [this](void (CodeEditor::*fn)()) {
+        return [this, fn] { if (auto *e = m_editors->currentEditor()) (e->*fn)(); };
+    };
+    connect(m_foldAct, &QAction::triggered, this, onEditor(&CodeEditor::foldCurrent));
+    connect(m_unfoldAct, &QAction::triggered, this, onEditor(&CodeEditor::unfoldCurrent));
+    connect(m_foldAllAct, &QAction::triggered, this, onEditor(&CodeEditor::foldAll));
+    connect(m_unfoldAllAct, &QAction::triggered, this, onEditor(&CodeEditor::unfoldAll));
     connect(m_matchBracketAct, &QAction::triggered, this, [this] { if (auto *e = m_editors->currentEditor()) e->gotoMatchingBracket(); });
     createGitActions();
 
@@ -304,6 +315,12 @@ void MainWindow::createMenus()
     edit->addAction(m_gotoLineAct);
     edit->addAction(m_matchBracketAct);
     edit->addAction(m_searchAct);
+    edit->addSeparator();
+    QMenu *folding = edit->addMenu(tr("Folding"));
+    folding->addAction(m_foldAct);
+    folding->addAction(m_unfoldAct);
+    folding->addAction(m_foldAllAct);
+    folding->addAction(m_unfoldAllAct);
 
     QMenu *view = menuBar()->addMenu(tr("&View"));
     view->addAction(m_paletteAct);
@@ -568,6 +585,8 @@ void MainWindow::updateActions()
     m_closeFileAct->setEnabled(hasDoc);
     m_findAct->setEnabled(hasDoc);
     m_matchBracketAct->setEnabled(hasDoc);
+    for (QAction *a : {m_foldAct, m_unfoldAct, m_foldAllAct, m_unfoldAllAct})
+        a->setEnabled(hasDoc);
     m_replaceAct->setEnabled(hasDoc);
 
     const bool repo = m_git->isRepo();

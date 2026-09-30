@@ -1,6 +1,7 @@
 #include "CodeEditor.h"
 
 #include "SyntaxHighlighter.h"
+#include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
 
@@ -8,6 +9,7 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QPlainTextDocumentLayout>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QVBoxLayout>
@@ -26,7 +28,7 @@ namespace {
 class LineNumberArea : public QWidget
 {
 public:
-    explicit LineNumberArea(CodeEditor *e) : QWidget(e), m_editor(e) {}
+    explicit LineNumberArea(CodeEditor *e) : QWidget(e), m_editor(e) { setMouseTracking(true); }
     QSize sizeHint() const override { return QSize(m_editor->lineNumberAreaWidth(), 0); }
 
 protected:
@@ -36,12 +38,28 @@ protected:
         if (event->button() == Qt::LeftButton)
             m_editor->gutterClicked(event->pos());
     }
+    void enterEvent(QEnterEvent *event) override
+    {
+        m_editor->setGutterHover(true);
+        QWidget::enterEvent(event);
+    }
+    void leaveEvent(QEvent *event) override
+    {
+        m_editor->setGutterHover(false);
+        QWidget::leaveEvent(event);
+    }
 
 private:
     CodeEditor *m_editor;
 };
 
 constexpr int kMaxBracketBlocks = 6000;
+constexpr int kFoldWidth = 16;
+
+// Per-block fold flag (a QTextBlock owns its user data).
+struct FoldData : QTextBlockUserData {
+    bool folded = false;
+};
 
 bool isOpeningBracket(QChar c)
 {
@@ -110,10 +128,30 @@ CodeEditor::CodeEditor(QWidget *parent)
     connect(this, &QPlainTextEdit::cursorPositionChanged, this, &CodeEditor::refreshSelections);
     connect(this, &QPlainTextEdit::textChanged, this, [this] {
         updateGuideScope();
+        if (m_foldedCount > 0)
+            m_foldTimer->start();
         if (!m_term.isEmpty())
             m_matchTimer->start();
         if (m_hasBase)
             m_diffTimer->start();
+    });
+    m_foldTimer = new QTimer(this);
+    m_foldTimer->setSingleShot(true);
+    m_foldTimer->setInterval(0);
+    connect(m_foldTimer, &QTimer::timeout, this, &CodeEditor::applyFolds);
+    connect(this, &QPlainTextEdit::cursorPositionChanged, this, [this] {
+        // A caret inside hidden text (search, go to line, undo) reveals it.
+        if (m_foldedCount == 0 || textCursor().block().isVisible())
+            return;
+        // Nested folds can hide the same line several times over: open them all, innermost first.
+        for (int guard = 0; guard < 64 && !textCursor().block().isVisible(); ++guard) {
+            const QTextBlock h = foldHeaderFor(textCursor().block(), true);
+            if (!h.isValid())
+                break;
+            setFolded(h, false);
+            applyFolds();
+        }
+        ensureCursorVisible();
     });
     m_diffTimer = new QTimer(this);
     m_diffTimer->setSingleShot(true);
@@ -192,7 +230,7 @@ int CodeEditor::lineNumberAreaWidth() const
         ++digits;
     }
     digits = qMax(digits, 3);
-    return 14 + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
+    return 14 + kFoldWidth + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
 }
 
 void CodeEditor::updateLineNumberAreaWidth()
@@ -233,8 +271,16 @@ void CodeEditor::lineNumberAreaPaintEvent(QPaintEvent *event)
     while (block.isValid() && top <= event->rect().bottom()) {
         if (block.isVisible() && bottom >= event->rect().top()) {
             painter.setPen(number == current ? m_gutterActive : m_gutterFg);
-            painter.drawText(0, top, m_lineArea->width() - 8, fontMetrics().height(), Qt::AlignRight,
+            painter.drawText(0, top, m_lineArea->width() - 8 - kFoldWidth, fontMetrics().height(), Qt::AlignRight,
                              QString::number(number + 1));
+            const bool folded = isFolded(block);
+            if (folded || (m_gutterHover && isFoldable(block))) {
+                const QColor c = folded || number == current ? m_gutterActive : m_gutterFg;
+                painter.drawPixmap(m_lineArea->width() - kFoldWidth + 1, top + (fontMetrics().height() - 12) / 2,
+                                   Icons::pixmap(folded ? QStringLiteral(":/new-icons/chevron-right.svg")
+                                                        : QStringLiteral(":/new-icons/chevron-down.svg"),
+                                                 c, 12));
+            }
             if (m_hasBase) {
                 const int h = bottom - top;
                 const auto it = m_hunkAtLine.constFind(number);
@@ -292,6 +338,277 @@ void CodeEditor::refreshSelections()
     appendBracketSelections(extra);
     setExtraSelections(extra);
     m_lineArea->update();
+}
+
+// --- Code folding -------------------------------------------------------------
+
+void CodeEditor::setGutterHover(bool on)
+{
+    m_gutterHover = on;
+    m_lineArea->update();
+}
+
+bool CodeEditor::isFolded(const QTextBlock &block) const
+{
+    auto *d = static_cast<FoldData *>(block.userData());
+    return d && d->folded;
+}
+
+void CodeEditor::setFolded(const QTextBlock &block, bool folded)
+{
+    auto *d = static_cast<FoldData *>(block.userData());
+    if (!d) {
+        if (!folded)
+            return;
+        d = new FoldData;
+        QTextBlock(block).setUserData(d); // the handle is a cheap copy; the block takes ownership
+    }
+    d->folded = folded;
+}
+
+// The last opening bracket of the line that is not closed on the same line (position in the document), or -1.
+int CodeEditor::unmatchedOpener(const QTextBlock &block) const
+{
+    const QString text = block.text();
+    const QVector<bool> mask = protectedMask(block);
+    QList<int> stack;
+    for (int i = 0; i < text.size(); ++i) {
+        if (!mask.isEmpty() && mask.at(i))
+            continue;
+        const QChar c = text.at(i);
+        if (isOpeningBracket(c)) {
+            stack.append(i);
+        } else if (isBracket(c) && !stack.isEmpty() && text.at(stack.last()) == partnerOf(c)) {
+            stack.removeLast();
+        }
+    }
+    return stack.isEmpty() ? -1 : block.position() + stack.last();
+}
+
+bool CodeEditor::isFoldable(const QTextBlock &block) const
+{
+    if (!block.isValid() || !block.next().isValid())
+        return false;
+    const QString text = block.text();
+    if (text.trimmed().isEmpty())
+        return false;
+
+    const int opener = unmatchedOpener(block);
+    if (opener >= 0) {
+        // `foo(` directly followed by its closer has nothing to fold.
+        const QString next = block.next().text().trimmed();
+        return !(next.startsWith(QLatin1Char(')')) || next.startsWith(QLatin1Char(']')) || next.startsWith(QLatin1Char('}')));
+    }
+    const QString t = text.trimmed();
+    if (t.startsWith(QStringLiteral("/*")) && !t.contains(QStringLiteral("*/")) && block.userState() > 0)
+        return true;
+
+    bool blank = false;
+    const int own = indentDepth(block);
+    QTextBlock b = block.next();
+    for (int n = 0; b.isValid() && n < 200; b = b.next(), ++n) {
+        const int d = indentDepth(b, &blank);
+        if (!blank)
+            return d > own;
+    }
+    return false;
+}
+
+int CodeEditor::foldEnd(const QTextBlock &header) const
+{
+    const int first = header.blockNumber();
+    const int opener = unmatchedOpener(header);
+    if (opener >= 0) {
+        const int match = findMatchingBracket(opener);
+        if (match >= 0) {
+            const int end = document()->findBlock(match).blockNumber() - 1;
+            return end > first ? end : -1;
+        }
+    }
+    const QString t = header.text().trimmed();
+    if (t.startsWith(QStringLiteral("/*")) && !t.contains(QStringLiteral("*/")) && header.userState() > 0) {
+        QTextBlock b = header.next();
+        for (; b.isValid(); b = b.next())
+            if (b.userState() <= 0)
+                return b.blockNumber(); // the line with the closing */ is hidden too
+        return -1;
+    }
+
+    bool blank = false;
+    const int own = indentDepth(header);
+    int last = -1;
+    QTextBlock b = header.next();
+    for (; b.isValid(); b = b.next()) {
+        const int d = indentDepth(b, &blank);
+        if (blank)
+            continue;
+        if (d <= own)
+            break;
+        last = b.blockNumber();
+    }
+    return last;
+}
+
+// The folded block hiding `block` (foldedOnly), or the nearest line above whose region contains it.
+QTextBlock CodeEditor::foldHeaderFor(const QTextBlock &block, bool foldedOnly) const
+{
+    const int n = block.blockNumber();
+    int scanned = 0;
+    for (QTextBlock b = block.previous(); b.isValid() && scanned < 20000; b = b.previous(), ++scanned) {
+        if (foldedOnly && !isFolded(b))
+            continue;
+        if (!foldedOnly && !isFoldable(b))
+            continue;
+        if (foldEnd(b) >= n)
+            return b;
+    }
+    return QTextBlock();
+}
+
+// Recomputes which blocks are hidden from the fold flags; also drops flags that no longer cover anything.
+void CodeEditor::applyFolds()
+{
+    m_foldTimer->stop();
+    QTextDocument *doc = document();
+    int hideUntil = -1;
+    int folded = 0;
+    int firstChanged = -1, lastChanged = -1;
+    for (QTextBlock b = doc->begin(); b.isValid(); b = b.next()) {
+        const int n = b.blockNumber();
+        bool visible = n > hideUntil;
+        if (visible && isFolded(b)) {
+            const int end = isFoldable(b) ? foldEnd(b) : -1; // the header may have been edited away
+            if (end > n) {
+                hideUntil = end;
+                ++folded;
+            } else {
+                setFolded(b, false);
+            }
+        }
+        if (b.isVisible() != visible) {
+            b.setVisible(visible);
+            b.setLineCount(visible ? qMax(1, b.layout() ? b.layout()->lineCount() : 1) : 0);
+            if (firstChanged < 0)
+                firstChanged = b.position();
+            lastChanged = b.position() + b.length();
+        }
+    }
+    m_foldedCount = folded;
+    if (firstChanged >= 0) {
+        doc->markContentsDirty(firstChanged, lastChanged - firstChanged);
+        if (auto *layout = qobject_cast<QPlainTextDocumentLayout *>(doc->documentLayout()))
+            layout->requestUpdate();
+    }
+    updateLineNumberAreaWidth();
+    viewport()->update();
+    m_lineArea->update();
+}
+
+void CodeEditor::toggleFoldAt(int blockNumber)
+{
+    const QTextBlock b = document()->findBlockByNumber(blockNumber);
+    if (!b.isValid())
+        return;
+    const bool fold = !isFolded(b);
+    if (fold && !isFoldable(b))
+        return;
+    setFolded(b, fold);
+    if (fold) {
+        // Keep the caret out of the region that is about to disappear.
+        const int end = foldEnd(b);
+        const int cur = textCursor().blockNumber();
+        if (end > blockNumber && cur > blockNumber && cur <= end) {
+            QTextCursor c(b);
+            c.movePosition(QTextCursor::EndOfBlock);
+            setTextCursor(c);
+        }
+    }
+    applyFolds();
+}
+
+void CodeEditor::foldCurrent()
+{
+    QTextBlock b = textCursor().block();
+    // Prefer the caret's own line when it can fold and is not already folded, else the enclosing region.
+    if (!isFoldable(b) || isFolded(b)) {
+        QTextBlock h = foldHeaderFor(b, false);
+        // Skip enclosing regions that are already folded (only possible for the visible outermost one).
+        while (h.isValid() && isFolded(h))
+            h = foldHeaderFor(h, false);
+        if (!h.isValid())
+            return;
+        b = h;
+    }
+    toggleFoldAt(b.blockNumber());
+}
+
+void CodeEditor::unfoldCurrent()
+{
+    QTextBlock b = textCursor().block();
+    if (!isFolded(b))
+        b = foldHeaderFor(b, true);
+    if (b.isValid() && isFolded(b))
+        toggleFoldAt(b.blockNumber());
+}
+
+void CodeEditor::foldAll()
+{
+    for (QTextBlock b = document()->begin(); b.isValid(); b = b.next())
+        if (isFoldable(b))
+            setFolded(b, true);
+    const QTextBlock cur = textCursor().block();
+    applyFolds();
+    if (!cur.isVisible()) {
+        if (QTextBlock h = foldHeaderFor(cur, true); h.isValid()) {
+            QTextCursor c(h);
+            c.movePosition(QTextCursor::EndOfBlock);
+            setTextCursor(c);
+        }
+    }
+}
+
+void CodeEditor::unfoldAll()
+{
+    for (QTextBlock b = document()->begin(); b.isValid(); b = b.next())
+        if (isFolded(b))
+            setFolded(b, false);
+    applyFolds();
+}
+
+// The inline "…" that stands in for the hidden lines after a folded header.
+void CodeEditor::paintFoldMarkers()
+{
+    m_foldPills.clear();
+    if (m_foldedCount == 0)
+        return;
+    QPainter p(viewport());
+    p.setRenderHint(QPainter::Antialiasing);
+    const qreal x0 = contentOffset().x() + document()->documentMargin();
+    const int lineH = fontMetrics().height();
+    QTextBlock block = firstVisibleBlock();
+    int top = qRound(blockBoundingGeometry(block).translated(contentOffset()).top());
+    while (block.isValid() && top <= viewport()->height()) {
+        const int h = qRound(blockBoundingRect(block).height());
+        if (block.isVisible() && h > 0) {
+            if (isFolded(block) && block.layout() && block.layout()->lineCount() > 0) {
+                const QTextLine line = block.layout()->lineAt(block.layout()->lineCount() - 1);
+                const int x = qRound(x0 + line.naturalTextRect().right()) + 8;
+                const int y = top + qRound(line.y()) + (lineH - 14) / 2;
+                const QRect pill(x, y, 26, 14);
+                QColor bg = m_gutterFg;
+                bg.setAlpha(90);
+                p.setPen(Qt::NoPen);
+                p.setBrush(bg);
+                p.drawRoundedRect(pill, 4, 4);
+                p.setBrush(m_gutterActive);
+                for (int i = 0; i < 3; ++i)
+                    p.drawEllipse(QPointF(pill.left() + 7 + i * 6, pill.center().y() + 0.5), 1.4, 1.4);
+                m_foldPills.append({pill, block.blockNumber()});
+            }
+            top += h;
+        }
+        block = block.next();
+    }
 }
 
 // --- Indent guides -------------------------------------------------------------
@@ -376,6 +693,7 @@ void CodeEditor::paintEvent(QPaintEvent *event)
     QPlainTextEdit::paintEvent(event);
     if (m_indentGuides)
         paintIndentGuides();
+    paintFoldMarkers();
 }
 
 void CodeEditor::paintIndentGuides()
@@ -784,6 +1102,12 @@ void CodeEditor::mouseDoubleClickEvent(QMouseEvent *event)
 
 void CodeEditor::mousePressEvent(QMouseEvent *event)
 {
+    if (event->button() == Qt::LeftButton)
+        for (const auto &pill : std::as_const(m_foldPills))
+            if (pill.first.contains(event->pos())) {
+                toggleFoldAt(pill.second);
+                return;
+            }
     if (m_tripleClickArmed && event->button() == Qt::LeftButton &&
         m_tripleClickTimer.elapsed() < QApplication::doubleClickInterval()) {
         m_tripleClickArmed = false;
@@ -894,6 +1218,12 @@ void CodeEditor::gotoChange(bool next)
 
 void CodeEditor::gutterClicked(const QPoint &pos)
 {
+    if (pos.x() >= m_lineArea->width() - kFoldWidth) {
+        const QTextBlock b = cursorForPosition(QPoint(0, pos.y())).block();
+        if (b.isValid() && (isFolded(b) || isFoldable(b)))
+            toggleFoldAt(b.blockNumber());
+        return;
+    }
     if (!m_hasBase || pos.x() > 8)
         return;
     const int line = cursorForPosition(QPoint(0, pos.y())).blockNumber();

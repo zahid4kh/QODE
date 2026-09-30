@@ -1,0 +1,15 @@
+<RCC>
+    <qresource prefix="/">
+        <file>icons/qode.svg</file>
+        <file>icons/folder.svg</file>
+        <file>icons/file.svg</file>
+        <file>icons/close.svg</file>
+        <file>icons/terminal.svg</file>
+        <file>icons/new-file.svg</file>
+        <file>icons/new-folder.svg</file>
+        <file>icons/save.svg</file>
+        <file>icons/open.svg</file>
+        <file>icons/find.svg</file>
+        <file>icons/refresh.svg</file>
+    </qresource>
+</RCC>

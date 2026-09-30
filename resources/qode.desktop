@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=QODE
+GenericName=Code Editor
+Comment=Native Qt code editor with project explorer and integrated terminal
+Exec=qode %F
+Icon=qode
+Terminal=false
+Categories=Development;TextEditor;
+MimeType=text/plain;text/x-c;text/x-c++src;text/x-chdr;text/x-python;application/json;

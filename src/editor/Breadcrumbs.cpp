@@ -185,6 +185,63 @@ QList<Breadcrumbs::Crumb> Breadcrumbs::symbolChain(const QTextDocument *doc, int
     return rev.mid(qMax(0, rev.size() - 4));
 }
 
+QList<Breadcrumbs::Symbol> Breadcrumbs::documentSymbols(const QTextDocument *doc, const QString &language)
+{
+    QList<Symbol> out;
+    const int tab = qMax(1, SettingsManager::instance().tabSize());
+    const bool braceLess = language == QLatin1String("Python") || language == QLatin1String("Kotlin") || language == QLatin1String("Markdown") ||
+                           language == QLatin1String("JSON") || language == QLatin1String("CSS");
+    struct Open {
+        int indent;
+        QString name;
+    };
+    QList<Open> stack;
+    int scanned = 0;
+    for (QTextBlock b = doc->begin(); b.isValid() && scanned < 100000; b = b.next(), ++scanned) {
+        const QString text = b.text();
+        const QString trimmed = text.trimmed();
+        if (trimmed.isEmpty())
+            continue;
+        if (language == QLatin1String("Markdown")) {
+            int n = 0;
+            while (n < trimmed.size() && trimmed.at(n) == QLatin1Char('#'))
+                ++n;
+            if (n == 0 || n > 6 || n >= trimmed.size() || trimmed.at(n) != QLatin1Char(' '))
+                continue;
+            while (!stack.isEmpty() && stack.last().indent >= n)
+                stack.removeLast();
+            const QString name = trimmed.mid(n + 1).trimmed();
+            out.append({name, stack.isEmpty() ? QString() : stack.last().name, b.blockNumber()});
+            stack.append({n, name});
+            continue;
+        }
+        const int ind = indentOf(text, tab);
+        const QString name = symbolFromHeader(text, language);
+        if (name.isEmpty())
+            continue;
+        if (!braceLess) {
+            // A definition opens a scope; bare statements and calls do not.
+            bool opens = trimmed.endsWith(QLatin1Char('{'));
+            if (!opens) {
+                const QTextBlock nx = [&] {
+                    QTextBlock n = b.next();
+                    while (n.isValid() && n.text().trimmed().isEmpty())
+                        n = n.next();
+                    return n;
+                }();
+                opens = nx.isValid() && nx.text().trimmed().startsWith(QLatin1Char('{'));
+            }
+            if (!opens)
+                continue;
+        }
+        while (!stack.isEmpty() && stack.last().indent >= ind)
+            stack.removeLast();
+        out.append({name, stack.isEmpty() ? QString() : stack.last().name, b.blockNumber()});
+        stack.append({ind, name});
+    }
+    return out;
+}
+
 QList<Breadcrumbs::Crumb> Breadcrumbs::pathCrumbs(const QString &filePath, const QString &projectRoot)
 {
     QList<Crumb> out;

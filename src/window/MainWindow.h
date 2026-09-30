@@ -69,6 +69,7 @@ private:
     void configureRun();
     void about();
     void showCommandPalette();
+    void showGoToSymbol();
     void showQuickOpen(const QString &initialQuery = {});
     void noteRecentFile();
     void showSearch();
@@ -113,7 +114,7 @@ private:
     QAction *m_undoAct, *m_redoAct, *m_cutAct, *m_copyAct, *m_pasteAct, *m_selectAllAct, *m_findAct, *m_replaceAct;
     QAction *m_projNewFileAct, *m_projNewFolderAct, *m_openProjectFolderAct;
     QAction *m_explorerAct, *m_terminalAct, *m_runAct, *m_runConfigAct, *m_venvAct, *m_fullscreenAct, *m_wordWrapAct, *m_darkThemeAct, *m_lightThemeAct;
-    QAction *m_nextTabAct, *m_prevTabAct, *m_aboutAct, *m_paletteAct, *m_quickOpenAct, *m_gotoLineAct, *m_searchAct, *m_matchBracketAct, *m_indentGuidesAct, *m_minimapAct, *m_breadcrumbsAct;
+    QAction *m_nextTabAct, *m_prevTabAct, *m_aboutAct, *m_paletteAct, *m_quickOpenAct, *m_gotoLineAct, *m_gotoSymbolAct, *m_searchAct, *m_matchBracketAct, *m_indentGuidesAct, *m_minimapAct, *m_breadcrumbsAct;
     QMenu *m_recentMenu;
     QAction *m_autoSaveOffAct, *m_autoSaveDelayAct, *m_autoSaveFocusAct, *m_trimAct, *m_finalNewlineAct, *m_formatOnSaveAct, *m_formatAct;
     QAction *m_foldAct, *m_unfoldAct, *m_foldAllAct, *m_unfoldAllAct;

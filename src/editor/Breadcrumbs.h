@@ -19,6 +19,13 @@ public:
 
     void setCrumbs(const QList<Crumb> &path, const QList<Crumb> &symbols);
 
+    struct Symbol {
+        QString name;
+        QString parent; // enclosing definition, empty at top level
+        int line = 0;   // 0-based
+    };
+    // Every definition in the document, in order.
+    static QList<Symbol> documentSymbols(const QTextDocument *doc, const QString &language);
     // The chain of definitions (outermost first) that contain `blockNumber`.
     static QList<Crumb> symbolChain(const QTextDocument *doc, int blockNumber, const QString &language);
     // Path segments of `filePath`, relative to `projectRoot` when inside it.

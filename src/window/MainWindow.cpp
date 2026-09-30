@@ -11,6 +11,7 @@
 #include "git/GitRepository.h"
 #include "palette/PalettePopup.h"
 #include "editor/CodeEditor.h"
+#include "editor/Breadcrumbs.h"
 #include "editor/Document.h"
 #include "editor/EditorManager.h"
 #include "explorer/FileIcons.h"
@@ -280,6 +281,7 @@ void MainWindow::createActions()
     m_paletteAct = make(tr("Command Palette…"), QKeySequence(C | S | K::Key_P), QStringLiteral(":/new-icons/search.svg"));
     m_quickOpenAct = make(tr("Go to File…"), QKeySequence(C | K::Key_P), QStringLiteral(":/new-icons/file-input.svg"));
     m_gotoLineAct = make(tr("Go to Line…"), QKeySequence(C | K::Key_G));
+    m_gotoSymbolAct = make(tr("Go to Symbol…"), QKeySequence(C | K::Key_R));
     m_matchBracketAct = make(tr("Go to Matching Bracket"), QKeySequence(C | S | K::Key_Backslash));
     auto &cfg = SettingsManager::instance();
     m_autoSaveOffAct = make(tr("Off"));
@@ -360,6 +362,7 @@ void MainWindow::createActions()
     connect(m_paletteAct, &QAction::triggered, this, &MainWindow::showCommandPalette);
     connect(m_quickOpenAct, &QAction::triggered, this, [this] { showQuickOpen(); });
     connect(m_gotoLineAct, &QAction::triggered, this, [this] { showQuickOpen(QStringLiteral(":")); });
+    connect(m_gotoSymbolAct, &QAction::triggered, this, &MainWindow::showGoToSymbol);
     connect(m_searchAct, &QAction::triggered, this, &MainWindow::showSearch);
     auto onEditor = [this](void (CodeEditor::*fn)()) {
         return [this, fn] { if (auto *e = m_editors->currentEditor()) (e->*fn)(); };
@@ -437,6 +440,7 @@ void MainWindow::createMenus()
     edit->addAction(m_findAct);
     edit->addAction(m_replaceAct);
     edit->addAction(m_gotoLineAct);
+    edit->addAction(m_gotoSymbolAct);
     edit->addAction(m_matchBracketAct);
     edit->addAction(m_searchAct);
     edit->addSeparator();
@@ -1094,6 +1098,31 @@ void MainWindow::showQuickOpen(const QString &initialQuery)
     pop->popup();
     if (!initialQuery.isEmpty())
         pop->setQuery(initialQuery);
+}
+
+void MainWindow::showGoToSymbol()
+{
+    Document *doc = m_editors->currentDocument();
+    if (!doc)
+        return;
+    QList<PalettePopup::Item> items;
+    for (const Breadcrumbs::Symbol &sym : Breadcrumbs::documentSymbols(doc->textDocument(), doc->languageName())) {
+        PalettePopup::Item it;
+        it.title = sym.name;
+        it.detail = sym.parent;
+        it.hint = QString::number(sym.line + 1);
+        it.data = sym.line + 1;
+        items.append(it);
+    }
+    auto *pop = new PalettePopup(this);
+    pop->setPlaceholder(tr("Go to symbol in %1").arg(doc->fileName()));
+    pop->setEmptyText(tr("No symbols found"));
+    pop->setItems(items);
+    connect(pop, &PalettePopup::accepted, this, [this](const QVariant &data, const QString &) {
+        const int line = data.toInt();
+        QTimer::singleShot(0, this, [this, line] { m_editors->gotoLine(line); });
+    });
+    pop->popup();
 }
 
 void MainWindow::about()

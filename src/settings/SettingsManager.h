@@ -24,6 +24,18 @@ public:
     bool wordWrap() const;
     void setWordWrap(bool on);
 
+    // --- Saving -----------------------------------------------------------
+    enum AutoSaveMode { AutoSaveOff = 0, AutoSaveAfterDelay = 1, AutoSaveOnFocusChange = 2 };
+    int autoSaveMode() const;
+    void setAutoSaveMode(int mode);
+    int autoSaveDelayMs() const; // AutoSaveAfterDelay
+    bool trimTrailingWhitespace() const;
+    void setTrimTrailingWhitespace(bool on);
+    bool insertFinalNewline() const;
+    void setInsertFinalNewline(bool on);
+    bool formatOnSave() const;
+    void setFormatOnSave(bool on);
+
     bool showBreadcrumbs() const;
     void setShowBreadcrumbs(bool on);
 
@@ -75,6 +87,7 @@ signals:
     void editorSettingsChanged();
     void themeChanged(const QString &theme);
     void recentProjectsChanged();
+    void saveSettingsChanged();
 
 private:
     SettingsManager();

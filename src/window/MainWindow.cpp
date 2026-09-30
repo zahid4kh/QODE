@@ -232,6 +232,37 @@ void MainWindow::createActions()
     m_quickOpenAct = make(tr("Go to File…"), QKeySequence(C | K::Key_P), QStringLiteral(":/new-icons/file-input.svg"));
     m_gotoLineAct = make(tr("Go to Line…"), QKeySequence(C | K::Key_G));
     m_matchBracketAct = make(tr("Go to Matching Bracket"), QKeySequence(C | S | K::Key_Backslash));
+    auto &cfg = SettingsManager::instance();
+    m_autoSaveOffAct = make(tr("Off"));
+    m_autoSaveDelayAct = make(tr("After Delay"));
+    m_autoSaveFocusAct = make(tr("On Focus Change"));
+    auto *autoGroup = new QActionGroup(this);
+    for (QAction *a : {m_autoSaveOffAct, m_autoSaveDelayAct, m_autoSaveFocusAct}) {
+        a->setCheckable(true);
+        autoGroup->addAction(a);
+    }
+    (cfg.autoSaveMode() == SettingsManager::AutoSaveAfterDelay ? m_autoSaveDelayAct
+     : cfg.autoSaveMode() == SettingsManager::AutoSaveOnFocusChange ? m_autoSaveFocusAct
+                                                                     : m_autoSaveOffAct)->setChecked(true);
+    m_trimAct = make(tr("Trim Trailing Whitespace"));
+    m_trimAct->setCheckable(true);
+    m_trimAct->setChecked(cfg.trimTrailingWhitespace());
+    m_finalNewlineAct = make(tr("Insert Final Newline"));
+    m_finalNewlineAct->setCheckable(true);
+    m_finalNewlineAct->setChecked(cfg.insertFinalNewline());
+    m_formatOnSaveAct = make(tr("Format on Save"));
+    m_formatOnSaveAct->setCheckable(true);
+    m_formatOnSaveAct->setChecked(cfg.formatOnSave());
+    m_formatAct = make(tr("Format Document"), QKeySequence(A | S | K::Key_F));
+    connect(m_autoSaveOffAct, &QAction::triggered, this, [] { SettingsManager::instance().setAutoSaveMode(SettingsManager::AutoSaveOff); });
+    connect(m_autoSaveDelayAct, &QAction::triggered, this, [] { SettingsManager::instance().setAutoSaveMode(SettingsManager::AutoSaveAfterDelay); });
+    connect(m_autoSaveFocusAct, &QAction::triggered, this, [] { SettingsManager::instance().setAutoSaveMode(SettingsManager::AutoSaveOnFocusChange); });
+    connect(m_trimAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setTrimTrailingWhitespace(on); });
+    connect(m_finalNewlineAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setInsertFinalNewline(on); });
+    connect(m_formatOnSaveAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setFormatOnSave(on); });
+    connect(m_formatAct, &QAction::triggered, m_editors, &EditorManager::formatCurrent);
+    connect(m_editors, &EditorManager::statusMessage, this, [this](const QString &t) { statusBar()->showMessage(t, 6000); });
+
     m_foldAct = make(tr("Fold"), QKeySequence(C | S | K::Key_BracketLeft));
     m_unfoldAct = make(tr("Unfold"), QKeySequence(C | S | K::Key_BracketRight));
     m_foldAllAct = make(tr("Fold All"), QKeySequence(QStringLiteral("Ctrl+K, Ctrl+0")));
@@ -328,6 +359,14 @@ void MainWindow::createMenus()
     file->addAction(m_saveAct);
     file->addAction(m_saveAsAct);
     file->addAction(m_saveAllAct);
+    QMenu *saveOptions = file->addMenu(tr("Save Options"));
+    QMenu *autoSave = saveOptions->addMenu(tr("Auto Save"));
+    autoSave->addAction(m_autoSaveOffAct);
+    autoSave->addAction(m_autoSaveDelayAct);
+    autoSave->addAction(m_autoSaveFocusAct);
+    saveOptions->addAction(m_trimAct);
+    saveOptions->addAction(m_finalNewlineAct);
+    saveOptions->addAction(m_formatOnSaveAct);
     file->addSeparator();
     file->addAction(m_closeFileAct);
     file->addSeparator();
@@ -341,6 +380,8 @@ void MainWindow::createMenus()
     edit->addAction(m_copyAct);
     edit->addAction(m_pasteAct);
     edit->addAction(m_selectAllAct);
+    edit->addSeparator();
+    edit->addAction(m_formatAct);
     edit->addSeparator();
     edit->addAction(m_findAct);
     edit->addAction(m_replaceAct);
@@ -637,6 +678,7 @@ void MainWindow::updateActions()
     m_closeFileAct->setEnabled(hasDoc);
     m_findAct->setEnabled(hasDoc);
     m_matchBracketAct->setEnabled(hasDoc);
+    m_formatAct->setEnabled(hasDoc);
     for (QAction *a : {m_foldAct, m_unfoldAct, m_foldAllAct, m_unfoldAllAct})
         a->setEnabled(hasDoc);
     m_replaceAct->setEnabled(hasDoc);

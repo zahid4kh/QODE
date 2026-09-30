@@ -8,9 +8,11 @@
 #include "FindBar.h"
 #include "dialogs/UnsavedChangesDialog.h"
 #include "filesystem/FileManager.h"
+#include "format/Formatter.h"
 #include "settings/SettingsManager.h"
 
 #include <QApplication>
+#include <QGuiApplication>
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -29,6 +31,27 @@
 
 namespace {
 constexpr qint64 kLargeFileBytes = 20 * 1024 * 1024;
+
+// Replaces only the part of the document that differs, in one undo step, so the caret and scroll position
+// survive a reformat.
+void replaceDocumentText(QTextDocument *doc, const QString &oldText, const QString &newText)
+{
+    if (oldText == newText)
+        return;
+    const int maxPre = qMin(oldText.size(), newText.size());
+    int pre = 0;
+    while (pre < maxPre && oldText.at(pre) == newText.at(pre))
+        ++pre;
+    int suf = 0;
+    while (suf < maxPre - pre && oldText.at(oldText.size() - 1 - suf) == newText.at(newText.size() - 1 - suf))
+        ++suf;
+    QTextCursor c(doc);
+    c.beginEditBlock();
+    c.setPosition(pre);
+    c.setPosition(int(oldText.size() - suf), QTextCursor::KeepAnchor);
+    c.insertText(newText.mid(pre, newText.size() - pre - suf));
+    c.endEditBlock();
+}
 
 // What a tab shows: the breadcrumb bar on top of the editor.
 class EditorPane : public QWidget
@@ -98,6 +121,15 @@ EditorManager::EditorManager(QWidget *parent)
     connect(m_changeTimer, &QTimer::timeout, this, &EditorManager::processPendingChanges);
     connect(m_watcher, &QFileSystemWatcher::fileChanged, this, &EditorManager::onWatchedFileChanged);
 
+    m_autoSaveTimer = new QTimer(this);
+    m_autoSaveTimer->setSingleShot(true);
+    connect(m_autoSaveTimer, &QTimer::timeout, this, &EditorManager::autoSaveAll);
+    connect(&SettingsManager::instance(), &SettingsManager::saveSettingsChanged, this, &EditorManager::applySaveSettings);
+    connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState st) {
+        if (st == Qt::ApplicationInactive && SettingsManager::instance().autoSaveMode() == SettingsManager::AutoSaveOnFocusChange)
+            autoSaveAll();
+    });
+    applySaveSettings();
     connect(&SettingsManager::instance(), &SettingsManager::editorSettingsChanged, this, &EditorManager::updateAllCrumbs);
     connect(&SettingsManager::instance(), &SettingsManager::themeChanged, this, [this] {
         for (Document *d : documents())
@@ -278,6 +310,10 @@ EditorManager::Entry EditorManager::addDocument(Document *doc)
         updateTabTitle(doc);
         emit documentStateChanged();
     });
+    connect(doc->textDocument(), &QTextDocument::contentsChanged, this, [this] {
+        if (SettingsManager::instance().autoSaveMode() == SettingsManager::AutoSaveAfterDelay)
+            m_autoSaveTimer->start(); // restarts, so it fires after the user pauses typing
+    });
     auto *crumbTimer = new QTimer(pane);
     crumbTimer->setSingleShot(true);
     crumbTimer->setInterval(120);
@@ -362,6 +398,9 @@ void EditorManager::updateTabTitle(Document *doc)
 void EditorManager::onCurrentTabChanged(int index)
 {
     const Entry e = entryAt(index);
+    if (SettingsManager::instance().autoSaveMode() == SettingsManager::AutoSaveOnFocusChange && m_lastDoc && m_lastDoc != e.doc)
+        autoSaveDocument(m_lastDoc);
+    m_lastDoc = e.doc;
     m_find->setEditor(e.editor);
     emit currentChanged();
     emit cursorInfoChanged();
@@ -395,6 +434,7 @@ bool EditorManager::saveDocument(Document *doc)
 {
     if (doc->isUntitled())
         return saveDocumentAs(doc);
+    prepareForSave(doc, false, doc->filePath());
     while (true) {
         QString err;
         if (doc->save(&err)) {
@@ -440,6 +480,7 @@ bool EditorManager::saveDocumentAs(Document *doc)
         if (path.isEmpty())
             continue;
         const QString old = doc->filePath();
+        prepareForSave(doc, false, path);
         QString err;
         if (!doc->saveAs(path, &err)) {
             QMessageBox::warning(this, tr("Unable to save file"),
@@ -452,6 +493,111 @@ bool EditorManager::saveDocumentAs(Document *doc)
         watch(path);
         return true;
     }
+}
+
+void EditorManager::prepareForSave(Document *doc, bool automatic, const QString &path)
+{
+    auto &s = SettingsManager::instance();
+    // Auto save while the user pauses typing must not reshuffle the text under their fingers.
+    const bool whileTyping = automatic && s.autoSaveMode() == SettingsManager::AutoSaveAfterDelay;
+    QTextDocument *td = doc->textDocument();
+
+    if (s.formatOnSave() && !whileTyping && !path.isEmpty() && Formatter::isAvailable(path)) {
+        const QString before = doc->text();
+        const Formatter::Result r = Formatter::format(path, before);
+        if (r.ok)
+            replaceDocumentText(td, before, r.text);
+        else
+            emit statusMessage(tr("Format on save skipped: %1").arg(r.error));
+    }
+
+    const bool trim = s.trimTrailingWhitespace() && doc->languageName() != QLatin1String("Markdown"); // "  " is a line break there
+    const bool newline = s.insertFinalNewline();
+    if (!trim && !newline)
+        return;
+    CodeEditor *ed = editorFor(doc);
+    const int caretBlock = whileTyping && ed ? ed->textCursor().blockNumber() : -1;
+
+    QTextCursor c(td);
+    c.beginEditBlock();
+    if (trim) {
+        for (QTextBlock b = td->begin(); b.isValid(); b = b.next()) {
+            if (b.blockNumber() == caretBlock)
+                continue;
+            const QString text = b.text();
+            int end = text.size();
+            while (end > 0 && (text.at(end - 1) == QLatin1Char(' ') || text.at(end - 1) == QLatin1Char('\t')))
+                --end;
+            if (end == text.size())
+                continue;
+            QTextCursor r(td);
+            r.setPosition(b.position() + end);
+            r.setPosition(b.position() + text.size(), QTextCursor::KeepAnchor);
+            r.removeSelectedText();
+        }
+    }
+    if (newline && td->characterCount() > 1 && !td->lastBlock().text().isEmpty()) {
+        c.movePosition(QTextCursor::End);
+        c.insertText(QStringLiteral("\n"));
+    }
+    c.endEditBlock();
+}
+
+bool EditorManager::formatCurrent()
+{
+    Document *d = currentDocument();
+    if (!d)
+        return false;
+    if (d->isUntitled()) {
+        emit statusMessage(tr("Save the file first so QODE knows which formatter to use."));
+        return false;
+    }
+    const QString before = d->text();
+    const Formatter::Result r = Formatter::format(d->filePath(), before);
+    if (!r.ok) {
+        emit statusMessage(r.error);
+        return false;
+    }
+    if (r.text == before) {
+        emit statusMessage(tr("Already formatted (%1)").arg(r.tool));
+        return true;
+    }
+    replaceDocumentText(d->textDocument(), before, r.text);
+    emit statusMessage(tr("Formatted with %1").arg(r.tool));
+    return true;
+}
+
+void EditorManager::applySaveSettings()
+{
+    auto &s = SettingsManager::instance();
+    m_autoSaveTimer->setInterval(s.autoSaveDelayMs());
+    if (s.autoSaveMode() != SettingsManager::AutoSaveAfterDelay)
+        m_autoSaveTimer->stop();
+    else if (!modifiedDocuments().isEmpty())
+        m_autoSaveTimer->start();
+}
+
+// Silent save for auto save: never opens a dialog, and never overwrites a file that changed on disk.
+bool EditorManager::autoSaveDocument(Document *doc)
+{
+    if (!doc || !doc->isModified() || doc->isUntitled() || m_prompting)
+        return false;
+    if (!doc->existsOnDisk() || doc->changedOnDisk())
+        return false; // the external-change prompt decides what happens to this one
+    prepareForSave(doc, true, doc->filePath());
+    QString err;
+    if (!doc->save(&err)) {
+        emit statusMessage(tr("Auto save failed for %1: %2").arg(doc->fileName(), err));
+        return false;
+    }
+    watch(doc->filePath());
+    return true;
+}
+
+void EditorManager::autoSaveAll()
+{
+    for (Document *d : modifiedDocuments())
+        autoSaveDocument(d);
 }
 
 bool EditorManager::saveCurrent()

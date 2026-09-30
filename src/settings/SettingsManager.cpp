@@ -63,6 +63,55 @@ void SettingsManager::setWordWrap(bool on)
     emit editorSettingsChanged();
 }
 
+int SettingsManager::autoSaveMode() const
+{
+    return qBound(0, m_settings.value(QStringLiteral("save/autoSave"), 0).toInt(), 2);
+}
+
+void SettingsManager::setAutoSaveMode(int mode)
+{
+    m_settings.setValue(QStringLiteral("save/autoSave"), mode);
+    emit saveSettingsChanged();
+}
+
+int SettingsManager::autoSaveDelayMs() const
+{
+    return qBound(200, m_settings.value(QStringLiteral("save/autoSaveDelayMs"), 1000).toInt(), 60000);
+}
+
+bool SettingsManager::trimTrailingWhitespace() const
+{
+    return m_settings.value(QStringLiteral("save/trimTrailingWhitespace"), false).toBool();
+}
+
+void SettingsManager::setTrimTrailingWhitespace(bool on)
+{
+    m_settings.setValue(QStringLiteral("save/trimTrailingWhitespace"), on);
+    emit saveSettingsChanged();
+}
+
+bool SettingsManager::insertFinalNewline() const
+{
+    return m_settings.value(QStringLiteral("save/insertFinalNewline"), false).toBool();
+}
+
+void SettingsManager::setInsertFinalNewline(bool on)
+{
+    m_settings.setValue(QStringLiteral("save/insertFinalNewline"), on);
+    emit saveSettingsChanged();
+}
+
+bool SettingsManager::formatOnSave() const
+{
+    return m_settings.value(QStringLiteral("save/formatOnSave"), false).toBool();
+}
+
+void SettingsManager::setFormatOnSave(bool on)
+{
+    m_settings.setValue(QStringLiteral("save/formatOnSave"), on);
+    emit saveSettingsChanged();
+}
+
 bool SettingsManager::showBreadcrumbs() const
 {
     return m_settings.value(QStringLiteral("editor/breadcrumbs"), true).toBool();

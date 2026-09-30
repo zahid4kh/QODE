@@ -20,6 +20,7 @@ SOURCES += \
     src/settings/SettingsManager.cpp \
     src/settings/Theme.cpp \
     src/settings/Icons.cpp \
+    src/format/Formatter.cpp \
     src/search/ProjectSearch.cpp \
     src/search/SearchPanel.cpp \
     src/palette/FuzzyMatcher.cpp \
@@ -61,6 +62,7 @@ HEADERS += \
     src/settings/SettingsManager.h \
     src/settings/Theme.h \
     src/settings/Icons.h \
+    src/format/Formatter.h \
     src/search/ProjectSearch.h \
     src/search/SearchPanel.h \
     src/palette/FuzzyMatcher.h \

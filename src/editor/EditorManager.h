@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QPointer>
 #include <QWidget>
 
 class CodeEditor;
@@ -38,6 +39,7 @@ public:
     bool saveCurrent();
     bool saveCurrentAs();
     bool saveAll();
+    bool formatCurrent(); // Format Document: runs the installed formatter for the file type
     bool closeCurrent();
     bool closeDocument(Document *doc); // prompts if modified
     // Prompt once for every modified document, save/discard per the answer, then close everything.
@@ -58,6 +60,7 @@ public:
     void focusEditor();
 
 signals:
+    void statusMessage(const QString &text); // auto save / format results for the status bar
     void currentChanged();       // active document/editor changed
     void documentStateChanged(); // modified flag / title changed
     void cursorInfoChanged();    // cursor position or overwrite mode
@@ -92,6 +95,11 @@ private:
     bool saveDocument(Document *doc);
     bool saveDocumentAs(Document *doc);
     bool maybeSave(Document *doc);
+    // Format / trim / final newline as configured, as one undo step. `automatic` = triggered by auto save.
+    void prepareForSave(Document *doc, bool automatic, const QString &path);
+    bool autoSaveDocument(Document *doc);
+    void autoSaveAll();
+    void applySaveSettings();
     void updateStack();
     void updateCrumbs(Document *doc);
     void updateAllCrumbs();
@@ -110,5 +118,7 @@ private:
     QStringList m_pendingChanges;
     bool m_prompting = false;
     QString m_projectRoot;
+    QTimer *m_autoSaveTimer;
+    QPointer<Document> m_lastDoc; // for "save on focus change"
     QHash<CodeEditor *, Document *> m_docForEditor;
 };

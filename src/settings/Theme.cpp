@@ -4,6 +4,7 @@ Theme Theme::dark_()
 {
     Theme t;
     t.dark = true;
+    t.frame = "#14161a";
     t.window = "#1e2025";
     t.panel = "#23262d";
     t.editorBg = "#1e2127";
@@ -44,6 +45,7 @@ Theme Theme::light_()
 {
     Theme t;
     t.dark = false;
+    t.frame = "#dcdce1";
     t.window = "#f0f0f2";
     t.panel = "#f7f7f9";
     t.editorBg = "#fafafa";
@@ -104,25 +106,26 @@ QString Theme::styleSheet() const
 {
     const QString fg = editorFg.name();
     return QString(R"(
-QMainWindow, QDialog { background: %1; color: %2; }
+QMainWindow { background: %15; color: %2; }
+QDialog { background: %1; color: %2; }
 QWidget { color: %2; }
-QMenuBar { background: %1; color: %2; border-bottom: 1px solid %3; }
+QMenuBar { background: %15; color: %2; border-bottom: 1px solid %3; }
 QMenuBar::item { padding: 4px 9px; background: transparent; }
-QMenuBar::item:selected { background: %4; }
+QMenuBar::item:selected { background: %4; border-radius: 4px; }
 QMenu { background: %5; color: %2; border: 1px solid %3; padding: 3px; }
 QMenu::item { padding: 4px 22px 4px 18px; }
 QMenu::item:selected { background: %6; }
 QMenu::separator { height: 1px; background: %3; margin: 3px 6px; }
-QToolBar { background: %1; border: none; border-bottom: 1px solid %3; spacing: 2px; padding: 2px; }
+QToolBar { background: %15; border: none; spacing: 2px; padding: 2px; }
 QToolButton { background: transparent; border: 1px solid transparent; border-radius: 3px; padding: 3px; }
 QToolButton:hover { background: %4; }
 QToolButton:checked { background: %6; }
-QStatusBar { background: %1; color: %7; border-top: 1px solid %3; }
+QStatusBar { background: %15; color: %7; }
 QStatusBar::item { border: none; }
 QStatusBar QLabel { padding: 0 8px; color: %7; }
-QSplitter::handle { background: %3; }
-QSplitter::handle:horizontal { width: 1px; }
-QSplitter::handle:vertical { height: 1px; }
+QWidget#island { background: %8; }
+QSplitter { background: %15; }
+QSplitter::handle { background: transparent; }
 QTreeView { background: %5; color: %2; border: none; outline: 0; }
 QTreeView::item { padding: 2px 0; }
 QTreeView::item:hover { background: %4; }
@@ -184,5 +187,6 @@ QMessageBox, QInputDialog { background: %1; }
              onAccent().name(),  // 11
              accent.lighter(dark ? 115 : 108).name(), // 12
              QColor(accent.red(), accent.green(), accent.blue(), dark ? 48 : 36).name(QColor::HexArgb), // 13
-             dark ? QStringLiteral(":/new-icons/x-dark.svg") : QStringLiteral(":/new-icons/x-light.svg")); // 14
+             dark ? QStringLiteral(":/new-icons/x-dark.svg") : QStringLiteral(":/new-icons/x-light.svg"), // 14
+             frame.name()); // 15
 }

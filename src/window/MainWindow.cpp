@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 
+#include "Island.h"
 #include "dialogs/NewProjectDialog.h"
 #include "dialogs/RunConfigDialog.h"
 #include "git/BranchButton.h"
@@ -93,15 +94,18 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_vsplit = new QSplitter(Qt::Vertical, this);
     m_vsplit->setChildrenCollapsible(false);
-    m_vsplit->addWidget(m_editors);
-    m_vsplit->addWidget(m_terminal);
+    m_vsplit->setHandleWidth(8);
+    m_vsplit->addWidget(new Island(m_editors));
+    m_vsplit->addWidget(new Island(m_terminal));
     m_vsplit->setStretchFactor(0, 1);
     m_vsplit->setStretchFactor(1, 0);
-    m_terminal->hide(); // hidden until Ctrl+J
+    m_vsplit->widget(1)->hide(); // hidden until Ctrl+J
 
     m_hsplit = new QSplitter(Qt::Horizontal, this);
     m_hsplit->setChildrenCollapsible(false);
-    m_hsplit->addWidget(m_side);
+    m_hsplit->setHandleWidth(8);
+    m_hsplit->setContentsMargins(8, 2, 8, 0);
+    m_hsplit->addWidget(new Island(m_side));
     m_hsplit->addWidget(m_vsplit);
     m_hsplit->setStretchFactor(0, 0);
     m_hsplit->setStretchFactor(1, 1);
@@ -309,7 +313,7 @@ void MainWindow::createActions()
     connect(m_projNewFileAct, &QAction::triggered, this, [this] { m_explorer->createFileIn(m_explorer->currentDirectory()); });
     connect(m_projNewFolderAct, &QAction::triggered, this, [this] { m_explorer->createFolderIn(m_explorer->currentDirectory()); });
 
-    connect(m_explorerAct, &QAction::toggled, m_side, &QWidget::setVisible);
+    connect(m_explorerAct, &QAction::toggled, this, [this](bool on) { m_side->parentWidget()->setVisible(on); });
     connect(m_terminalAct, &QAction::triggered, this, &MainWindow::toggleTerminal);
     connect(m_runAct, &QAction::triggered, this, &MainWindow::runCurrentFile);
     connect(m_runConfigAct, &QAction::triggered, this, &MainWindow::configureRun);
@@ -759,7 +763,7 @@ void MainWindow::showTerminal()
 {
     if (m_terminal->isVisible())
         return;
-    m_terminal->show();
+    m_terminal->parentWidget()->show();
     const int total = m_vsplit->height();
     const int h = qBound(80, m_terminalHeight, qMax(80, total - 100));
     m_vsplit->setSizes({total - h, h});
@@ -813,7 +817,7 @@ void MainWindow::toggleTerminal()
     } else {
         // Remember the height for the rest of the session.
         m_terminalHeight = m_vsplit->sizes().value(1, m_terminalHeight);
-        m_terminal->hide();
+        m_terminal->parentWidget()->hide();
         m_editors->focusEditor();
     }
     m_terminalAct->setChecked(show);

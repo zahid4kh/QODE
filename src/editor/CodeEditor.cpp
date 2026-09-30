@@ -125,6 +125,7 @@ CodeEditor::CodeEditor(QWidget *parent)
     connect(m_matchTimer, &QTimer::timeout, this, &CodeEditor::recomputeMatches);
 
     setFrameShape(QFrame::NoFrame);
+    setStyleSheet(QStringLiteral("QPlainTextEdit { border: none; border-radius: 0; }")); // no focus ring inside the island
     connect(this, &QPlainTextEdit::blockCountChanged, this, &CodeEditor::updateLineNumberAreaWidth);
     connect(this, &QPlainTextEdit::updateRequest, this, &CodeEditor::updateLineNumberArea);
     connect(this, &QPlainTextEdit::cursorPositionChanged, this, &CodeEditor::refreshSelections);

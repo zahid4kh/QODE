@@ -56,6 +56,7 @@ SOURCES += \
     src/terminal/ShellProcess.cpp \
     src/terminal/TerminalView.cpp \
     src/terminal/Terminal.cpp \
+    src/window/Island.cpp \
     src/window/MainWindow.cpp
 
 HEADERS += \
@@ -101,6 +102,7 @@ HEADERS += \
     src/terminal/ShellProcess.h \
     src/terminal/TerminalView.h \
     src/terminal/Terminal.h \
+    src/window/Island.h \
     src/window/MainWindow.h
 
 RESOURCES += resources/qode.qrc

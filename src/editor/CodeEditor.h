@@ -5,6 +5,7 @@
 #include <QElapsedTimer>
 #include <QPlainTextEdit>
 
+class MiniMap;
 class QTextBlock;
 class QTimer;
 
@@ -43,6 +44,12 @@ public:
     int changeCount() const { return m_hunks.size(); }
     void gotoChange(bool next);
     void gutterClicked(const QPoint &pos);
+    const QVector<GitDiff::Hunk> &hunks() const { return m_hunks; }
+
+    // --- Minimap support ------------------------------------------------------
+    void visibleBlockRange(int *first, int *last) const; // block numbers on screen
+    void scrollBlockToCenter(int blockNumber);
+    int minimapWidth() const;
 
     // --- Brackets -----------------------------------------------------------
     void gotoMatchingBracket();
@@ -89,6 +96,7 @@ private:
     QTextBlock foldHeaderFor(const QTextBlock &block, bool foldedOnly) const;
     void applyFolds();
     void paintFoldMarkers();
+    void positionMinimap();
     void appendBracketSelections(QList<QTextEdit::ExtraSelection> &extra) const;
     int bracketNearCursor() const;              // document position of the bracket at/before the cursor, or -1
     int findMatchingBracket(int pos) const;     // position of its partner, or -1
@@ -112,6 +120,8 @@ private:
     bool m_indentAfterColon = false;
 
     QColor m_gutterBg, m_gutterFg, m_gutterActive, m_currentLine, m_matchBg, m_border;
+    MiniMap *m_minimap;
+    bool m_showMinimap = true;
     bool m_gutterHover = false;
     int m_foldedCount = 0;
     QTimer *m_foldTimer;

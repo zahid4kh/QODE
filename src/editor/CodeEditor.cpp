@@ -1,5 +1,6 @@
 #include "CodeEditor.h"
 
+#include "MiniMap.h"
 #include "SyntaxHighlighter.h"
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
@@ -117,6 +118,7 @@ CodeEditor::CodeEditor(QWidget *parent)
     : QPlainTextEdit(parent)
 {
     m_lineArea = new LineNumberArea(this);
+    m_minimap = new MiniMap(this);
     m_matchTimer = new QTimer(this);
     m_matchTimer->setSingleShot(true);
     m_matchTimer->setInterval(150);
@@ -158,6 +160,7 @@ CodeEditor::CodeEditor(QWidget *parent)
     m_diffTimer->setInterval(200);
     connect(m_diffTimer, &QTimer::timeout, this, &CodeEditor::recomputeDiff);
 
+    connect(verticalScrollBar(), &QScrollBar::rangeChanged, this, &CodeEditor::positionMinimap);
     applyTheme();
     applySettings();
     connect(&SettingsManager::instance(), &SettingsManager::editorSettingsChanged, this, &CodeEditor::applySettings);
@@ -193,15 +196,19 @@ void CodeEditor::applyTheme()
     p.setColor(QPalette::HighlightedText, t.editorFg);
     setPalette(p);
     m_lineArea->update();
+    m_minimap->update();
     refreshSelections();
 }
 
 void CodeEditor::attachDocument(QTextDocument *doc)
 {
     setDocument(doc);
+    // Text edits and highlighting both surface as contentsChanged.
+    connect(doc, &QTextDocument::contentsChanged, m_minimap, &MiniMap::invalidate);
     applySettings();
     updateLineNumberAreaWidth();
     updateGuideScope();
+    m_minimap->invalidate();
 }
 
 void CodeEditor::applySettings()
@@ -213,6 +220,7 @@ void CodeEditor::applySettings()
     setTabStopDistance(QFontMetricsF(f).horizontalAdvance(QLatin1Char(' ')) * s.tabSize());
     setLineWrapMode(s.wordWrap() ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
     m_indentGuides = s.indentGuides();
+    m_showMinimap = s.showMinimap();
     updateGuideScope();
     viewport()->update();
     updateLineNumberAreaWidth();
@@ -235,7 +243,8 @@ int CodeEditor::lineNumberAreaWidth() const
 
 void CodeEditor::updateLineNumberAreaWidth()
 {
-    setViewportMargins(lineNumberAreaWidth(), 0, 0, 0);
+    setViewportMargins(lineNumberAreaWidth(), 0, minimapWidth(), 0);
+    positionMinimap();
 }
 
 void CodeEditor::updateLineNumberArea(const QRect &rect, int dy)
@@ -253,6 +262,39 @@ void CodeEditor::resizeEvent(QResizeEvent *e)
     QPlainTextEdit::resizeEvent(e);
     const QRect cr = contentsRect();
     m_lineArea->setGeometry(QRect(cr.left(), cr.top(), lineNumberAreaWidth(), cr.height()));
+    positionMinimap();
+}
+
+int CodeEditor::minimapWidth() const
+{
+    return m_showMinimap ? MiniMap::kWidth : 0;
+}
+
+void CodeEditor::positionMinimap()
+{
+    m_minimap->setVisible(m_showMinimap);
+    if (!m_showMinimap)
+        return;
+    // Sits between the text and the vertical scroll bar.
+    const QRect vp = viewport()->geometry();
+    m_minimap->setGeometry(vp.right() + 1, vp.top(), MiniMap::kWidth, vp.height());
+}
+
+void CodeEditor::visibleBlockRange(int *first, int *last) const
+{
+    *first = cursorForPosition(QPoint(0, 0)).blockNumber();
+    *last = cursorForPosition(QPoint(0, viewport()->height() - 1)).blockNumber();
+}
+
+// Scroll so that `blockNumber` is in the middle of the viewport. The scroll bar counts laid-out lines, so
+// wrapped blocks count once per screen line and hidden (folded) blocks not at all.
+void CodeEditor::scrollBlockToCenter(int blockNumber)
+{
+    int lines = 0;
+    for (QTextBlock b = document()->begin(); b.isValid() && b.blockNumber() < blockNumber; b = b.next())
+        lines += b.isVisible() ? qMax(1, b.lineCount()) : 0;
+    const int perPage = qMax(1, viewport()->height() / qMax(1, fontMetrics().lineSpacing()));
+    verticalScrollBar()->setValue(qMax(0, lines - perPage / 2));
 }
 
 void CodeEditor::lineNumberAreaPaintEvent(QPaintEvent *event)
@@ -494,6 +536,7 @@ void CodeEditor::applyFolds()
         }
     }
     m_foldedCount = folded;
+    m_minimap->invalidate();
     if (firstChanged >= 0) {
         doc->markContentsDirty(firstChanged, lastChanged - firstChanged);
         if (auto *layout = qobject_cast<QPlainTextDocumentLayout *>(doc->documentLayout()))

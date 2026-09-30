@@ -44,6 +44,7 @@ SOURCES += \
     src/editor/SyntaxHighlighter.cpp \
     src/editor/Document.cpp \
     src/editor/CodeEditor.cpp \
+    src/editor/MiniMap.cpp \
     src/editor/FindBar.cpp \
     src/editor/EditorManager.cpp \
     src/terminal/TerminalScreen.cpp \
@@ -83,6 +84,7 @@ HEADERS += \
     src/editor/SyntaxHighlighter.h \
     src/editor/Document.h \
     src/editor/CodeEditor.h \
+    src/editor/MiniMap.h \
     src/editor/FindBar.h \
     src/editor/EditorManager.h \
     src/terminal/TerminalScreen.h \

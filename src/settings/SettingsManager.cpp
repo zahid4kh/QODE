@@ -63,6 +63,17 @@ void SettingsManager::setWordWrap(bool on)
     emit editorSettingsChanged();
 }
 
+bool SettingsManager::showMinimap() const
+{
+    return m_settings.value(QStringLiteral("editor/minimap"), true).toBool();
+}
+
+void SettingsManager::setShowMinimap(bool on)
+{
+    m_settings.setValue(QStringLiteral("editor/minimap"), on);
+    emit editorSettingsChanged();
+}
+
 bool SettingsManager::indentGuides() const
 {
     return m_settings.value(QStringLiteral("editor/indentGuides"), true).toBool();

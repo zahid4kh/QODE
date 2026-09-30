@@ -24,6 +24,9 @@ public:
     bool wordWrap() const;
     void setWordWrap(bool on);
 
+    bool showMinimap() const;
+    void setShowMinimap(bool on);
+
     bool indentGuides() const;
     void setIndentGuides(bool on);
 

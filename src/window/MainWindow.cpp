@@ -216,6 +216,7 @@ void MainWindow::createActions()
     m_paletteAct = make(tr("Command Palette…"), QKeySequence(C | S | K::Key_P), QStringLiteral(":/new-icons/search.svg"));
     m_quickOpenAct = make(tr("Go to File…"), QKeySequence(C | K::Key_P), QStringLiteral(":/new-icons/file-input.svg"));
     m_gotoLineAct = make(tr("Go to Line…"), QKeySequence(C | K::Key_G));
+    m_matchBracketAct = make(tr("Go to Matching Bracket"), QKeySequence(C | S | K::Key_Backslash));
     m_searchAct = make(tr("Find in Files"), QKeySequence(C | S | K::Key_F), QStringLiteral(":/new-icons/search.svg"));
 
     connect(m_newProjectAct, &QAction::triggered, this, &MainWindow::newProject);
@@ -256,6 +257,7 @@ void MainWindow::createActions()
     connect(m_quickOpenAct, &QAction::triggered, this, [this] { showQuickOpen(); });
     connect(m_gotoLineAct, &QAction::triggered, this, [this] { showQuickOpen(QStringLiteral(":")); });
     connect(m_searchAct, &QAction::triggered, this, &MainWindow::showSearch);
+    connect(m_matchBracketAct, &QAction::triggered, this, [this] { if (auto *e = m_editors->currentEditor()) e->gotoMatchingBracket(); });
     createGitActions();
 
     // Window-wide shortcuts must also work while an editor (which handles Tab itself) has focus.
@@ -296,6 +298,7 @@ void MainWindow::createMenus()
     edit->addAction(m_findAct);
     edit->addAction(m_replaceAct);
     edit->addAction(m_gotoLineAct);
+    edit->addAction(m_matchBracketAct);
     edit->addAction(m_searchAct);
 
     QMenu *view = menuBar()->addMenu(tr("&View"));
@@ -559,6 +562,7 @@ void MainWindow::updateActions()
     m_saveAllAct->setEnabled(!m_editors->modifiedDocuments().isEmpty());
     m_closeFileAct->setEnabled(hasDoc);
     m_findAct->setEnabled(hasDoc);
+    m_matchBracketAct->setEnabled(hasDoc);
     m_replaceAct->setEnabled(hasDoc);
 
     const bool repo = m_git->isRepo();

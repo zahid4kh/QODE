@@ -46,6 +46,8 @@ void SyntaxHighlighter::rebuildFormats()
     m_formats[int(TokenRole::Strong)] = fmt(m_theme.number, true);
     m_formats[int(TokenRole::Code)] = fmt(m_theme.string);
     m_formats[int(TokenRole::Link)] = fmt(m_theme.accent);
+    for (auto it = m_formats.begin(); it != m_formats.end(); ++it)
+        it.value().setProperty(kTokenRoleProperty, it.key());
 }
 
 QTextCharFormat SyntaxHighlighter::formatFor(TokenRole role) const

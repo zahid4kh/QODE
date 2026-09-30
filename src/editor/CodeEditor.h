@@ -40,6 +40,9 @@ public:
     void gotoChange(bool next);
     void gutterClicked(const QPoint &pos);
 
+    // --- Brackets -----------------------------------------------------------
+    void gotoMatchingBracket();
+
 signals:
     void filesDropped(const QStringList &paths);
     void searchResultsChanged();
@@ -57,6 +60,9 @@ private:
     void updateLineNumberAreaWidth();
     void updateLineNumberArea(const QRect &rect, int dy);
     void refreshSelections();
+    void appendBracketSelections(QList<QTextEdit::ExtraSelection> &extra) const;
+    int bracketNearCursor() const;              // document position of the bracket at/before the cursor, or -1
+    int findMatchingBracket(int pos) const;     // position of its partner, or -1
     void recomputeMatches();
     QString indentUnit() const;
     void insertNewlineWithIndent();
@@ -77,6 +83,7 @@ private:
     bool m_indentAfterColon = false;
 
     QColor m_gutterBg, m_gutterFg, m_gutterActive, m_currentLine, m_matchBg, m_border;
+    QColor m_bracketOk, m_bracketBad;
     QColor m_markAdded, m_markModified, m_markDeleted, m_diffAddBg, m_diffDelBg;
 
     bool m_hasBase = false;

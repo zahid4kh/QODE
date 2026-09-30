@@ -5,6 +5,10 @@
 
 #include <QSyntaxHighlighter>
 
+// Every format the highlighter applies carries its TokenRole under this property, so other code
+// (bracket matching, folding) can tell strings and comments from real code.
+constexpr int kTokenRoleProperty = QTextFormat::UserProperty + 1;
+
 class SyntaxHighlighter : public QSyntaxHighlighter
 {
     Q_OBJECT

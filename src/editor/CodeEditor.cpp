@@ -1,5 +1,6 @@
 #include "CodeEditor.h"
 
+#include "SyntaxHighlighter.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
 
@@ -39,6 +40,50 @@ protected:
 private:
     CodeEditor *m_editor;
 };
+
+constexpr int kMaxBracketBlocks = 6000;
+
+bool isOpeningBracket(QChar c)
+{
+    return c == QLatin1Char('(') || c == QLatin1Char('[') || c == QLatin1Char('{');
+}
+
+bool isBracket(QChar c)
+{
+    return isOpeningBracket(c) || c == QLatin1Char(')') || c == QLatin1Char(']') || c == QLatin1Char('}');
+}
+
+QChar partnerOf(QChar c)
+{
+    switch (c.unicode()) {
+    case '(': return QLatin1Char(')');
+    case ')': return QLatin1Char('(');
+    case '[': return QLatin1Char(']');
+    case ']': return QLatin1Char('[');
+    case '{': return QLatin1Char('}');
+    default: return QLatin1Char('{');
+    }
+}
+
+// One flag per character: true inside a string or comment (as classified by the syntax highlighter).
+// Empty when the block has no highlighting, meaning "all code".
+QVector<bool> protectedMask(const QTextBlock &block)
+{
+    QVector<bool> mask;
+    for (const QTextLayout::FormatRange &r : block.layout()->formats()) {
+        const QVariant role = r.format.property(kTokenRoleProperty);
+        if (!role.isValid())
+            continue;
+        const int v = role.toInt();
+        if (v != int(TokenRole::String) && v != int(TokenRole::Comment))
+            continue;
+        if (mask.isEmpty())
+            mask.fill(false, block.length());
+        for (int i = r.start; i < r.start + r.length && i < mask.size(); ++i)
+            mask[i] = true;
+    }
+    return mask;
+}
 
 bool isBlankBefore(const QString &text, int pos)
 {
@@ -95,6 +140,8 @@ void CodeEditor::applyTheme()
     m_markDeleted = t.gitDeleted;
     m_diffAddBg = t.diffAddBg;
     m_diffDelBg = t.diffDelBg;
+    m_bracketOk = QColor(t.accent.red(), t.accent.green(), t.accent.blue(), t.dark ? 80 : 60);
+    m_bracketBad = QColor(t.gitConflict.red(), t.gitConflict.green(), t.gitConflict.blue(), t.dark ? 110 : 80);
     m_matchBg = t.dark ? QColor(QStringLiteral("#614d1f")) : QColor(QStringLiteral("#f5e08a"));
     QPalette p = palette();
     p.setColor(QPalette::Base, t.editorBg);
@@ -224,8 +271,96 @@ void CodeEditor::refreshSelections()
         sel.cursor.setPosition(m.second, QTextCursor::KeepAnchor);
         extra.append(sel);
     }
+    appendBracketSelections(extra);
     setExtraSelections(extra);
     m_lineArea->update();
+}
+
+// --- Bracket matching ---------------------------------------------------------
+
+int CodeEditor::bracketNearCursor() const
+{
+    const QTextCursor c = textCursor();
+    if (c.hasSelection())
+        return -1;
+    const QTextBlock block = c.block();
+    const QString text = block.text();
+    const int col = c.positionInBlock();
+    // The bracket just before the cursor wins over the one just after it.
+    for (int candidate : {col - 1, col}) {
+        if (candidate < 0 || candidate >= text.size() || !isBracket(text.at(candidate)))
+            continue;
+        const QVector<bool> mask = protectedMask(block);
+        if (mask.isEmpty() || !mask.at(candidate))
+            return block.position() + candidate;
+    }
+    return -1;
+}
+
+int CodeEditor::findMatchingBracket(int pos) const
+{
+    QTextBlock block = document()->findBlock(pos);
+    if (!block.isValid())
+        return -1;
+    const int col = pos - block.position();
+    const QChar ch = block.text().at(col);
+    const QChar other = partnerOf(ch);
+    const bool forward = isOpeningBracket(ch);
+    int depth = 0;
+    int blocks = 0;
+    for (QTextBlock b = block; b.isValid() && blocks < kMaxBracketBlocks; b = forward ? b.next() : b.previous(), ++blocks) {
+        const QString text = b.text();
+        const QVector<bool> mask = protectedMask(b);
+        int i = forward ? (b == block ? col : 0) : (b == block ? col : text.size() - 1);
+        for (; i >= 0 && i < text.size(); i += forward ? 1 : -1) {
+            if (!mask.isEmpty() && mask.at(i))
+                continue;
+            const QChar c = text.at(i);
+            if (c == ch) {
+                ++depth;
+            } else if (c == other && --depth == 0) {
+                return b.position() + i;
+            }
+        }
+    }
+    return -1;
+}
+
+void CodeEditor::appendBracketSelections(QList<QTextEdit::ExtraSelection> &extra) const
+{
+    const int pos = bracketNearCursor();
+    if (pos < 0)
+        return;
+    const int match = findMatchingBracket(pos);
+    auto mark = [&](int at, const QColor &color) {
+        QTextEdit::ExtraSelection sel;
+        sel.format.setBackground(color);
+        sel.format.setFontWeight(QFont::Bold);
+        sel.cursor = QTextCursor(document());
+        sel.cursor.setPosition(at);
+        sel.cursor.setPosition(at + 1, QTextCursor::KeepAnchor);
+        extra.append(sel);
+    };
+    if (match >= 0) {
+        mark(pos, m_bracketOk);
+        mark(match, m_bracketOk);
+    } else {
+        mark(pos, m_bracketBad); // unmatched
+    }
+}
+
+void CodeEditor::gotoMatchingBracket()
+{
+    const int pos = bracketNearCursor();
+    if (pos < 0)
+        return;
+    const int match = findMatchingBracket(pos);
+    if (match < 0)
+        return;
+    QTextCursor c = textCursor();
+    c.setPosition(match + (isOpeningBracket(document()->characterAt(match)) ? 0 : 1));
+    setTextCursor(c);
+    ensureCursorVisible();
 }
 
 // --- Search ----------------------------------------------------------------

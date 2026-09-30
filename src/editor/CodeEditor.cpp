@@ -18,7 +18,6 @@
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QPainter>
-#include <QPainterPath>
 #include <QScrollBar>
 #include <QTextBlock>
 #include <QTextDocument>
@@ -194,11 +193,8 @@ void CodeEditor::applyTheme()
     QPalette p = palette();
     p.setColor(QPalette::Base, t.editorBg);
     p.setColor(QPalette::Text, t.editorFg);
-    // The native selection is hidden; paintRoundedSelection() draws a translucent rounded one on top.
-    p.setColor(QPalette::Highlight, Qt::transparent);
+    p.setColor(QPalette::Highlight, t.selection);
     p.setColor(QPalette::HighlightedText, t.editorFg);
-    m_selectionFill = t.accent;
-    m_selectionFill.setAlpha(t.dark ? 80 : 70);
     setPalette(p);
     m_lineArea->update();
     m_minimap->update();
@@ -739,84 +735,9 @@ void CodeEditor::updateGuideScope()
 void CodeEditor::paintEvent(QPaintEvent *event)
 {
     QPlainTextEdit::paintEvent(event);
-    paintRoundedSelection();
     if (m_indentGuides)
         paintIndentGuides();
     paintFoldMarkers();
-}
-
-void CodeEditor::paintRoundedSelection()
-{
-    const QTextCursor cur = textCursor();
-    if (!cur.hasSelection())
-        return;
-    const int selStart = cur.selectionStart();
-    const int selEnd = cur.selectionEnd();
-    const qreal spaceW = QFontMetricsF(font()).horizontalAdvance(QLatin1Char(' '));
-    const int bottomLimit = viewport()->height();
-
-    // One rectangle per visual line covered by the selection.
-    QVector<QRectF> rects;
-    for (QTextBlock block = firstVisibleBlock(); block.isValid(); block = block.next()) {
-        if (!block.isVisible())
-            continue;
-        const QRectF geo = blockBoundingGeometry(block).translated(contentOffset());
-        if (geo.top() > bottomLimit || block.position() > selEnd)
-            break;
-        const int blockEnd = block.position() + block.length() - 1; // position of the newline
-        if (blockEnd < selStart)
-            continue;
-        const QTextLayout *layout = block.layout();
-        for (int i = 0; i < layout->lineCount(); ++i) {
-            const QTextLine line = layout->lineAt(i);
-            const int lineStart = block.position() + line.textStart();
-            const int lineEnd = lineStart + line.textLength();
-            const bool lastLine = i == layout->lineCount() - 1;
-            const int from = qMax(selStart, lineStart);
-            const int to = qMin(selEnd, lineEnd);
-            const bool coversNewline = lastLine && selEnd > blockEnd;
-            if (from > to || (from == to && !coversNewline) || (!lastLine && from == lineEnd))
-                continue;
-            const qreal x1 = geo.left() + line.cursorToX(from - block.position());
-            qreal x2 = geo.left() + line.cursorToX(to - block.position());
-            if (coversNewline)
-                x2 += spaceW;
-            rects.append(QRectF(x1, geo.top() + line.y(), x2 - x1, line.height()));
-        }
-    }
-    if (rects.isEmpty())
-        return;
-
-    constexpr qreal r = 4;
-    constexpr qreal eps = 0.5;
-    QPainterPath path;
-    path.setFillRule(Qt::WindingFill);
-    for (int i = 0; i < rects.size(); ++i) {
-        const QRectF &c = rects[i];
-        const QRectF *prev = i > 0 ? &rects[i - 1] : nullptr;
-        const QRectF *next = i + 1 < rects.size() ? &rects[i + 1] : nullptr;
-        // A corner is rounded only where the outline turns outward (no neighbouring line extends past it).
-        const bool tl = !prev || prev->left() > c.left() + eps;
-        const bool tr = !prev || prev->right() < c.right() - eps;
-        const bool bl = !next || next->left() > c.left() + eps;
-        const bool br = !next || next->right() < c.right() - eps;
-        const qreal rad = qMin(r, qMin(c.width(), c.height()) / 2);
-        QPainterPath rp;
-        rp.moveTo(c.left() + (tl ? rad : 0), c.top());
-        rp.lineTo(c.right() - (tr ? rad : 0), c.top());
-        if (tr) rp.arcTo(QRectF(c.right() - 2 * rad, c.top(), 2 * rad, 2 * rad), 90, -90);
-        rp.lineTo(c.right(), c.bottom() - (br ? rad : 0));
-        if (br) rp.arcTo(QRectF(c.right() - 2 * rad, c.bottom() - 2 * rad, 2 * rad, 2 * rad), 0, -90);
-        rp.lineTo(c.left() + (bl ? rad : 0), c.bottom());
-        if (bl) rp.arcTo(QRectF(c.left(), c.bottom() - 2 * rad, 2 * rad, 2 * rad), 270, -90);
-        rp.lineTo(c.left(), c.top() + (tl ? rad : 0));
-        if (tl) rp.arcTo(QRectF(c.left(), c.top(), 2 * rad, 2 * rad), 180, -90);
-        rp.closeSubpath();
-        path.addPath(rp);
-    }
-    QPainter p(viewport());
-    p.setRenderHint(QPainter::Antialiasing);
-    p.fillPath(path.simplified(), m_selectionFill);
 }
 
 void CodeEditor::paintIndentGuides()

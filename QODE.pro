@@ -28,6 +28,10 @@ SOURCES += \
     src/editor/CodeEditor.cpp \
     src/editor/FindBar.cpp \
     src/editor/EditorManager.cpp \
+    src/terminal/TerminalScreen.cpp \
+    src/terminal/ShellProcess.cpp \
+    src/terminal/TerminalView.cpp \
+    src/terminal/Terminal.cpp \
     src/window/MainWindow.cpp
 
 HEADERS += \
@@ -48,6 +52,10 @@ HEADERS += \
     src/editor/CodeEditor.h \
     src/editor/FindBar.h \
     src/editor/EditorManager.h \
+    src/terminal/TerminalScreen.h \
+    src/terminal/ShellProcess.h \
+    src/terminal/TerminalView.h \
+    src/terminal/Terminal.h \
     src/window/MainWindow.h
 
 RESOURCES += resources/qode.qrc

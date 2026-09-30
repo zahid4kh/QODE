@@ -10,6 +10,7 @@ class ProjectManager;
 class ProjectExplorer;
 class QLabel;
 class QSplitter;
+class Terminal;
 
 class MainWindow : public QMainWindow
 {
@@ -45,19 +46,23 @@ private:
     void updateTitle();
     void updateStatus();
     void updateActions();
+    void toggleTerminal();
     void about();
     void forwardToFocus(const char *slot);
 
     ProjectManager *m_projects;
     ProjectExplorer *m_explorer;
     EditorManager *m_editors;
+    Terminal *m_terminal;
     QSplitter *m_hsplit;
+    QSplitter *m_vsplit;
+    int m_terminalHeight = 240;
 
     QAction *m_newProjectAct, *m_openProjectAct, *m_closeProjectAct, *m_exitAct;
     QAction *m_newFileAct, *m_openFileAct, *m_saveAct, *m_saveAsAct, *m_saveAllAct, *m_closeFileAct;
     QAction *m_undoAct, *m_redoAct, *m_cutAct, *m_copyAct, *m_pasteAct, *m_selectAllAct, *m_findAct, *m_replaceAct;
     QAction *m_projNewFileAct, *m_projNewFolderAct, *m_openProjectFolderAct;
-    QAction *m_explorerAct, *m_fullscreenAct, *m_wordWrapAct, *m_darkThemeAct, *m_lightThemeAct;
+    QAction *m_explorerAct, *m_terminalAct, *m_fullscreenAct, *m_wordWrapAct, *m_darkThemeAct, *m_lightThemeAct;
     QAction *m_nextTabAct, *m_prevTabAct, *m_aboutAct;
 
     QLabel *m_fileLabel, *m_langLabel, *m_encLabel, *m_eolLabel, *m_posLabel, *m_modeLabel;

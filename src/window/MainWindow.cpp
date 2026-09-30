@@ -8,6 +8,7 @@
 #include "filesystem/FileManager.h"
 #include "project/ProjectManager.h"
 #include "settings/SettingsManager.h"
+#include "terminal/Terminal.h"
 
 #include <QAction>
 #include <QActionGroup>
@@ -35,10 +36,20 @@ MainWindow::MainWindow(QWidget *parent)
     m_explorer = new ProjectExplorer(this);
     m_editors = new EditorManager(this);
 
+    m_terminal = new Terminal(this);
+
+    m_vsplit = new QSplitter(Qt::Vertical, this);
+    m_vsplit->setChildrenCollapsible(false);
+    m_vsplit->addWidget(m_editors);
+    m_vsplit->addWidget(m_terminal);
+    m_vsplit->setStretchFactor(0, 1);
+    m_vsplit->setStretchFactor(1, 0);
+    m_terminal->hide(); // hidden until Ctrl+J
+
     m_hsplit = new QSplitter(Qt::Horizontal, this);
     m_hsplit->setChildrenCollapsible(false);
     m_hsplit->addWidget(m_explorer);
-    m_hsplit->addWidget(m_editors);
+    m_hsplit->addWidget(m_vsplit);
     m_hsplit->setStretchFactor(0, 0);
     m_hsplit->setStretchFactor(1, 1);
     setCentralWidget(m_hsplit);
@@ -56,6 +67,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_explorer, &ProjectExplorer::pathRenamed, m_editors, &EditorManager::pathRenamed);
     connect(m_explorer, &ProjectExplorer::pathDeleted, m_editors, &EditorManager::closeDocumentsUnder);
 
+    connect(m_terminal, &Terminal::hideRequested, this, &MainWindow::toggleTerminal);
     connect(m_editors, &EditorManager::currentChanged, this, [this] { updateStatus(); updateActions(); updateTitle(); });
     connect(m_editors, &EditorManager::documentStateChanged, this, [this] { updateStatus(); updateActions(); updateTitle(); });
     connect(m_editors, &EditorManager::cursorInfoChanged, this, &MainWindow::updateStatus);
@@ -109,6 +121,8 @@ void MainWindow::createActions()
     m_explorerAct = make(tr("Project Explorer"), QKeySequence(C | K::Key_B));
     m_explorerAct->setCheckable(true);
     m_explorerAct->setChecked(true);
+    m_terminalAct = make(tr("Terminal"), QKeySequence(C | K::Key_J), QStringLiteral(":/icons/terminal.svg"));
+    m_terminalAct->setCheckable(true);
     m_fullscreenAct = make(tr("Toggle Fullscreen"), QKeySequence(K::Key_F11));
     m_wordWrapAct = make(tr("Word Wrap"), QKeySequence(A | K::Key_Z));
     m_wordWrapAct->setCheckable(true);
@@ -152,6 +166,7 @@ void MainWindow::createActions()
     connect(m_projNewFolderAct, &QAction::triggered, this, [this] { m_explorer->createFolderIn(m_explorer->currentDirectory()); });
 
     connect(m_explorerAct, &QAction::toggled, m_explorer, &QWidget::setVisible);
+    connect(m_terminalAct, &QAction::triggered, this, &MainWindow::toggleTerminal);
     connect(m_fullscreenAct, &QAction::triggered, this, [this] { setWindowState(windowState() ^ Qt::WindowFullScreen); });
     connect(m_wordWrapAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setWordWrap(on); });
     connect(m_darkThemeAct, &QAction::triggered, this, [] { SettingsManager::instance().setTheme(QStringLiteral("dark")); });
@@ -198,6 +213,7 @@ void MainWindow::createMenus()
 
     QMenu *view = menuBar()->addMenu(tr("&View"));
     view->addAction(m_explorerAct);
+    view->addAction(m_terminalAct);
     view->addSeparator();
     view->addAction(m_wordWrapAct);
     QMenu *theme = view->addMenu(tr("Theme"));
@@ -230,6 +246,7 @@ void MainWindow::createToolBar()
     tb->addAction(m_saveAct);
     tb->addAction(m_findAct);
     tb->addSeparator();
+    tb->addAction(m_terminalAct);
 }
 
 void MainWindow::createStatusBar()
@@ -257,6 +274,7 @@ void MainWindow::restoreSettings()
     if (!s.windowGeometry().isEmpty())
         restoreGeometry(s.windowGeometry());
     m_hsplit->setSizes({s.explorerWidth(), qMax(400, width() - s.explorerWidth())});
+    m_terminalHeight = s.terminalHeight();
 }
 
 // --- Startup / session ------------------------------------------------------
@@ -353,6 +371,12 @@ bool MainWindow::closeProject()
 void MainWindow::onProjectOpened(const Project &p)
 {
     m_explorer->setProjectRoot(p.root);
+    // The shell always starts in the project root; nothing is executed automatically.
+    m_terminal->setWorkingDirectory(p.root);
+    if (m_terminal->isRunning())
+        m_terminal->restart();
+    else if (m_terminal->isVisible())
+        m_terminal->ensureStarted();
     updateTitle();
     updateActions();
 }
@@ -360,6 +384,8 @@ void MainWindow::onProjectOpened(const Project &p)
 void MainWindow::onProjectClosed()
 {
     m_explorer->setProjectRoot({});
+    m_terminal->setWorkingDirectory(QDir::homePath());
+    m_terminal->stop();
     updateTitle();
     updateActions();
 }
@@ -434,6 +460,25 @@ void MainWindow::updateStatus()
     m_modeLabel->setText(e->overwriteMode() ? tr("OVR") : tr("INS"));
 }
 
+void MainWindow::toggleTerminal()
+{
+    const bool show = !m_terminal->isVisible();
+    if (show) {
+        m_terminal->show();
+        const int total = m_vsplit->height();
+        const int h = qBound(80, m_terminalHeight, qMax(80, total - 100));
+        m_vsplit->setSizes({total - h, h});
+        m_terminal->ensureStarted();
+        m_terminal->focusTerminal();
+    } else {
+        // Remember the height for the rest of the session.
+        m_terminalHeight = m_vsplit->sizes().value(1, m_terminalHeight);
+        m_terminal->hide();
+        m_editors->focusEditor();
+    }
+    m_terminalAct->setChecked(show);
+}
+
 void MainWindow::about()
 {
     QMessageBox::about(this, tr("About QODE"),
@@ -455,6 +500,10 @@ void MainWindow::closeEvent(QCloseEvent *event)
     s.setWindowGeometry(saveGeometry());
     if (m_explorer->isVisible())
         s.setExplorerWidth(m_hsplit->sizes().value(0));
+    if (m_terminal->isVisible())
+        m_terminalHeight = m_vsplit->sizes().value(1, m_terminalHeight);
+    s.setTerminalHeight(m_terminalHeight);
+    m_terminal->stop();
     event->accept();
 }
 

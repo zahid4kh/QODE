@@ -54,6 +54,9 @@ public:
     QString lastDirectory() const;
     void setLastDirectory(const QString &dir);
 
+    QStringList recentCommands() const; // most recent first
+    void setRecentCommands(const QStringList &commands);
+
 signals:
     void editorSettingsChanged();
     void themeChanged(const QString &theme);

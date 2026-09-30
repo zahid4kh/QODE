@@ -154,8 +154,8 @@ QPushButton#primaryBtn:hover { background: %12; border-color: %12; }
 QPushButton#primaryBtn:disabled { background: %4; color: %7; border-color: %3; }
 QPushButton#flatBtn { background: transparent; border: none; border-top: 1px solid %3; border-radius: 0; padding: 8px 10px; text-align: left; }
 QPushButton#flatBtn:hover { background: %4; }
-QFrame#branchPopup { background: %5; border: 1px solid %10; border-radius: 8px; }
-QFrame#branchPopup QListWidget { background: transparent; outline: 0; }
+QFrame#branchPopup, QFrame#palettePopup { background: %5; border: 1px solid %10; border-radius: 8px; }
+QFrame#branchPopup QListWidget, QFrame#palettePopup QListWidget { background: transparent; outline: 0; }
 QPlainTextEdit { background: %8; border: 1px solid %3; border-radius: 6px; padding: 4px; selection-background-color: %6; }
 QPlainTextEdit:focus { border-color: %9; }
 QLabel#countPill { background: %13; color: %9; border-radius: 8px; padding: 0 7px; font-weight: 700; font-size: 8pt; }

@@ -7,6 +7,7 @@
 #include "git/GitDiff.h"
 #include "git/GitPanel.h"
 #include "git/GitRepository.h"
+#include "palette/PalettePopup.h"
 #include "editor/CodeEditor.h"
 #include "editor/Document.h"
 #include "editor/EditorManager.h"
@@ -34,11 +35,14 @@
 #include <QMessageBox>
 #include <QMimeData>
 #include <QMenu>
+#include <QPointer>
+#include <QSet>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QTabBar>
 #include <QTimer>
+#include <algorithm>
 #include <QToolBar>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -180,6 +184,7 @@ void MainWindow::createActions()
     m_nextTabAct = make(tr("Next Tab"), QKeySequence(C | K::Key_Tab));
     m_prevTabAct = make(tr("Previous Tab"), QKeySequence(C | S | K::Key_Backtab));
     m_aboutAct = make(tr("About QODE"));
+    m_paletteAct = make(tr("Command Palette…"), QKeySequence(C | S | K::Key_P), QStringLiteral(":/new-icons/search.svg"));
 
     connect(m_newProjectAct, &QAction::triggered, this, &MainWindow::newProject);
     connect(m_openProjectAct, &QAction::triggered, this, &MainWindow::openProject);
@@ -215,6 +220,7 @@ void MainWindow::createActions()
     connect(m_nextTabAct, &QAction::triggered, m_editors, &EditorManager::nextTab);
     connect(m_prevTabAct, &QAction::triggered, m_editors, &EditorManager::previousTab);
     connect(m_aboutAct, &QAction::triggered, this, &MainWindow::about);
+    connect(m_paletteAct, &QAction::triggered, this, &MainWindow::showCommandPalette);
     createGitActions();
 
     // Window-wide shortcuts must also work while an editor (which handles Tab itself) has focus.
@@ -255,6 +261,8 @@ void MainWindow::createMenus()
     edit->addAction(m_replaceAct);
 
     QMenu *view = menuBar()->addMenu(tr("&View"));
+    view->addAction(m_paletteAct);
+    view->addSeparator();
     view->addAction(m_explorerAct);
     view->addAction(m_terminalAct);
     view->addSeparator();
@@ -575,6 +583,87 @@ void MainWindow::toggleTerminal()
         m_editors->focusEditor();
     }
     m_terminalAct->setChecked(show);
+}
+
+namespace {
+
+QString plainText(QString t)
+{
+    t.replace(QStringLiteral("&&"), QStringLiteral("\x01"));
+    t.remove(QLatin1Char('&'));
+    t.replace(QLatin1Char('\x01'), QLatin1Char('&'));
+    return t;
+}
+
+// Flattens a menu tree into palette entries ("Git › Switch Branch: main").
+void collectActions(QMenu *menu, const QString &category, const QSet<QAction *> &exclude, QSet<QAction *> &seen,
+                    QList<PalettePopup::Item> &out)
+{
+    emit menu->aboutToShow(); // lazily filled menus (branches) populate themselves here
+    for (QAction *a : menu->actions()) {
+        if (a->isSeparator())
+            continue;
+        if (QMenu *sub = a->menu()) {
+            const QString name = plainText(a->text());
+            collectActions(sub, category.isEmpty() ? name : category + QStringLiteral(" › ") + name, exclude, seen, out);
+            continue;
+        }
+        if (exclude.contains(a) || seen.contains(a) || !a->isEnabled() || !a->isVisible())
+            continue;
+        seen.insert(a);
+        PalettePopup::Item it;
+        it.title = plainText(a->text());
+        it.detail = category;
+        it.hint = a->shortcut().toString(QKeySequence::NativeText);
+        if (a->isCheckable() && a->isChecked())
+            it.hint = it.hint.isEmpty() ? QStringLiteral("✓") : QStringLiteral("✓  ") + it.hint;
+        it.icon = a->icon();
+        it.data = QVariantList{QVariant::fromValue(a), category + QLatin1Char('|') + it.title};
+        out.append(it);
+    }
+}
+
+} // namespace
+
+void MainWindow::showCommandPalette()
+{
+    QList<PalettePopup::Item> items;
+    QSet<QAction *> seen;
+    for (QAction *top : menuBar()->actions())
+        if (QMenu *m = top->menu())
+            collectActions(m, plainText(top->text()), {m_paletteAct}, seen, items);
+
+    // Recently used commands come first while the query is empty.
+    const QStringList recent = SettingsManager::instance().recentCommands();
+    auto rank = [&recent](const PalettePopup::Item &it) { return recent.indexOf(it.data.toList().value(1).toString()); };
+    std::stable_sort(items.begin(), items.end(), [&](const auto &a, const auto &b) {
+        const int ra = rank(a), rb = rank(b);
+        if ((ra < 0) != (rb < 0))
+            return ra >= 0;
+        return ra >= 0 && ra < rb;
+    });
+
+    auto *pop = new PalettePopup(this);
+    pop->setPlaceholder(tr("Type a command…"));
+    pop->setEmptyText(tr("No matching commands"));
+    pop->setItems(items);
+    connect(pop, &PalettePopup::accepted, this, [this](const QVariant &data, const QString &) {
+        const QVariantList parts = data.toList();
+        QPointer<QAction> action = parts.value(0).value<QAction *>();
+        if (!action)
+            return;
+        auto &settings = SettingsManager::instance();
+        QStringList recent = settings.recentCommands();
+        recent.removeAll(parts.value(1).toString());
+        recent.prepend(parts.value(1).toString());
+        settings.setRecentCommands(recent.mid(0, 12));
+        // Let the popup hand focus back first so the command acts on the right widget.
+        QTimer::singleShot(0, this, [action] {
+            if (action && action->isEnabled())
+                action->trigger();
+        });
+    });
+    pop->popup();
 }
 
 void MainWindow::about()

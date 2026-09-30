@@ -163,3 +163,13 @@ void SettingsManager::setLastDirectory(const QString &d)
 {
     m_settings.setValue(QStringLiteral("session/lastDir"), d);
 }
+
+QStringList SettingsManager::recentCommands() const
+{
+    return m_settings.value(QStringLiteral("session/recentCommands")).toStringList();
+}
+
+void SettingsManager::setRecentCommands(const QStringList &c)
+{
+    m_settings.setValue(QStringLiteral("session/recentCommands"), c);
+}

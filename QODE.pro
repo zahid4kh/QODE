@@ -20,6 +20,8 @@ SOURCES += \
     src/settings/SettingsManager.cpp \
     src/settings/Theme.cpp \
     src/settings/Icons.cpp \
+    src/palette/FuzzyMatcher.cpp \
+    src/palette/PalettePopup.cpp \
     src/filesystem/FileManager.cpp \
     src/project/ProjectManager.cpp \
     src/project/ProjectModel.cpp \
@@ -52,6 +54,8 @@ HEADERS += \
     src/settings/SettingsManager.h \
     src/settings/Theme.h \
     src/settings/Icons.h \
+    src/palette/FuzzyMatcher.h \
+    src/palette/PalettePopup.h \
     src/filesystem/FileManager.h \
     src/project/Project.h \
     src/project/ProjectManager.h \

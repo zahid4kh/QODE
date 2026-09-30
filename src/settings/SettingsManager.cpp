@@ -63,6 +63,17 @@ void SettingsManager::setWordWrap(bool on)
     emit editorSettingsChanged();
 }
 
+bool SettingsManager::showBreadcrumbs() const
+{
+    return m_settings.value(QStringLiteral("editor/breadcrumbs"), true).toBool();
+}
+
+void SettingsManager::setShowBreadcrumbs(bool on)
+{
+    m_settings.setValue(QStringLiteral("editor/breadcrumbs"), on);
+    emit editorSettingsChanged();
+}
+
 bool SettingsManager::showMinimap() const
 {
     return m_settings.value(QStringLiteral("editor/minimap"), true).toBool();

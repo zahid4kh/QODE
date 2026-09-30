@@ -201,6 +201,9 @@ void MainWindow::createActions()
     m_wordWrapAct = make(tr("Word Wrap"), QKeySequence(A | K::Key_Z));
     m_wordWrapAct->setCheckable(true);
     m_wordWrapAct->setChecked(SettingsManager::instance().wordWrap());
+    m_breadcrumbsAct = make(tr("Breadcrumbs"));
+    m_breadcrumbsAct->setCheckable(true);
+    m_breadcrumbsAct->setChecked(SettingsManager::instance().showBreadcrumbs());
     m_minimapAct = make(tr("Minimap"));
     m_minimapAct->setCheckable(true);
     m_minimapAct->setChecked(SettingsManager::instance().showMinimap());
@@ -258,6 +261,7 @@ void MainWindow::createActions()
     connect(m_terminalAct, &QAction::triggered, this, &MainWindow::toggleTerminal);
     connect(m_fullscreenAct, &QAction::triggered, this, [this] { setWindowState(windowState() ^ Qt::WindowFullScreen); });
     connect(m_wordWrapAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setWordWrap(on); });
+    connect(m_breadcrumbsAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setShowBreadcrumbs(on); });
     connect(m_minimapAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setShowMinimap(on); });
     connect(m_indentGuidesAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setIndentGuides(on); });
     connect(m_darkThemeAct, &QAction::triggered, this, [] { SettingsManager::instance().setTheme(QStringLiteral("dark")); });
@@ -335,6 +339,7 @@ void MainWindow::createMenus()
     view->addAction(m_wordWrapAct);
     view->addAction(m_indentGuidesAct);
     view->addAction(m_minimapAct);
+    view->addAction(m_breadcrumbsAct);
     QMenu *theme = view->addMenu(tr("Theme"));
     theme->addAction(m_darkThemeAct);
     theme->addAction(m_lightThemeAct);
@@ -527,6 +532,7 @@ void MainWindow::onProjectOpened(const Project &p)
 {
     m_explorer->setProjectRoot(p.root);
     m_projectFiles->setRoot(p.root);
+    m_editors->setProjectRoot(p.root);
     m_searchPanel->setProjectRoot(p.root);
     m_git->setWorkDirectory(p.root);
     // The shell always starts in the project root; nothing is executed automatically.
@@ -543,6 +549,7 @@ void MainWindow::onProjectClosed()
 {
     m_explorer->setProjectRoot({});
     m_projectFiles->setRoot({});
+    m_editors->setProjectRoot({});
     m_searchPanel->setProjectRoot({});
     m_git->setWorkDirectory({});
     m_terminal->setWorkingDirectory(QDir::homePath());

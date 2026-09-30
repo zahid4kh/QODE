@@ -24,6 +24,9 @@ public:
     bool wordWrap() const;
     void setWordWrap(bool on);
 
+    bool showBreadcrumbs() const;
+    void setShowBreadcrumbs(bool on);
+
     bool showMinimap() const;
     void setShowMinimap(bool on);
 

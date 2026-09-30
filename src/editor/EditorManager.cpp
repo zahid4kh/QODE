@@ -1,6 +1,7 @@
 #include "EditorManager.h"
 
 #include "CodeEditor.h"
+#include "Breadcrumbs.h"
 #include "Document.h"
 #include "FindBar.h"
 #include "dialogs/UnsavedChangesDialog.h"
@@ -26,6 +27,27 @@
 
 namespace {
 constexpr qint64 kLargeFileBytes = 20 * 1024 * 1024;
+
+// What a tab shows: the breadcrumb bar on top of the editor.
+class EditorPane : public QWidget
+{
+public:
+    EditorPane(CodeEditor *ed, QWidget *parent)
+        : QWidget(parent)
+        , editor(ed)
+        , crumbs(new Breadcrumbs(this))
+    {
+        ed->setParent(this);
+        auto *lay = new QVBoxLayout(this);
+        lay->setContentsMargins(0, 0, 0, 0);
+        lay->setSpacing(0);
+        lay->addWidget(crumbs);
+        lay->addWidget(ed, 1);
+        setFocusProxy(ed);
+    }
+    CodeEditor *editor;
+    Breadcrumbs *crumbs;
+};
 }
 
 EditorManager::EditorManager(QWidget *parent)
@@ -92,6 +114,7 @@ EditorManager::EditorManager(QWidget *parent)
     connect(m_changeTimer, &QTimer::timeout, this, &EditorManager::processPendingChanges);
     connect(m_watcher, &QFileSystemWatcher::fileChanged, this, &EditorManager::onWatchedFileChanged);
 
+    connect(&SettingsManager::instance(), &SettingsManager::editorSettingsChanged, this, &EditorManager::updateAllCrumbs);
     connect(m_tabs, &QTabWidget::tabCloseRequested, this, &EditorManager::onTabCloseRequested);
     connect(m_tabs, &QTabWidget::currentChanged, this, &EditorManager::onCurrentTabChanged);
     updateStack();
@@ -102,14 +125,15 @@ EditorManager::EditorManager(QWidget *parent)
 int EditorManager::indexOf(Document *doc) const
 {
     for (int i = 0; i < m_tabs->count(); ++i)
-        if (m_docForEditor.value(qobject_cast<CodeEditor *>(m_tabs->widget(i))) == doc)
+        if (entryAt(i).doc == doc)
             return i;
     return -1;
 }
 
 EditorManager::Entry EditorManager::entryAt(int index) const
 {
-    auto *ed = qobject_cast<CodeEditor *>(m_tabs->widget(index));
+    auto *pane = static_cast<EditorPane *>(m_tabs->widget(index));
+    CodeEditor *ed = pane ? pane->editor : nullptr;
     return {ed ? m_docForEditor.value(ed) : nullptr, ed};
 }
 
@@ -120,7 +144,8 @@ Document *EditorManager::currentDocument() const
 
 CodeEditor *EditorManager::currentEditor() const
 {
-    return qobject_cast<CodeEditor *>(m_tabs->currentWidget());
+    auto *pane = static_cast<EditorPane *>(m_tabs->currentWidget());
+    return pane ? pane->editor : nullptr;
 }
 
 CodeEditor *EditorManager::editorFor(Document *doc) const
@@ -255,7 +280,8 @@ void EditorManager::newUntitled()
 
 EditorManager::Entry EditorManager::addDocument(Document *doc)
 {
-    auto *editor = new CodeEditor(m_tabs);
+    auto *editor = new CodeEditor;
+    auto *pane = new EditorPane(editor, m_tabs);
     editor->attachDocument(doc->textDocument());
     editor->setIndentAfterColon(doc->languageName() == QLatin1String("Python"));
     m_docForEditor.insert(editor, doc);
@@ -264,7 +290,19 @@ EditorManager::Entry EditorManager::addDocument(Document *doc)
         updateTabTitle(doc);
         emit documentStateChanged();
     });
+    auto *crumbTimer = new QTimer(pane);
+    crumbTimer->setSingleShot(true);
+    crumbTimer->setInterval(120);
+    connect(crumbTimer, &QTimer::timeout, this, [this, doc] { updateCrumbs(doc); });
+    connect(editor, &QPlainTextEdit::cursorPositionChanged, crumbTimer, qOverload<>(&QTimer::start));
+    connect(pane->crumbs, &Breadcrumbs::lineRequested, this, [editor](int line) {
+        QTextCursor c(editor->document()->findBlockByNumber(line));
+        editor->setTextCursor(c);
+        editor->centerCursor();
+        editor->setFocus();
+    });
     connect(doc, &Document::pathChanged, this, [this, doc, editor](const QString &) {
+        updateCrumbs(doc);
         updateTabTitle(doc);
         editor->setIndentAfterColon(doc->languageName() == QLatin1String("Python"));
         emit documentStateChanged();
@@ -281,13 +319,41 @@ EditorManager::Entry EditorManager::addDocument(Document *doc)
                 openFile(p);
     });
 
-    const int idx = m_tabs->addTab(editor, doc->fileName());
+    const int idx = m_tabs->addTab(pane, doc->fileName());
     m_tabs->setCurrentIndex(idx);
     updateTabTitle(doc);
+    updateCrumbs(doc);
     updateStack();
     emit countChanged(m_tabs->count());
     emit documentAdded(doc);
     return {doc, editor};
+}
+
+void EditorManager::updateCrumbs(Document *doc)
+{
+    const int i = indexOf(doc);
+    if (i < 0)
+        return;
+    auto *pane = static_cast<EditorPane *>(m_tabs->widget(i));
+    const bool show = SettingsManager::instance().showBreadcrumbs();
+    pane->crumbs->setVisible(show);
+    if (!show)
+        return;
+    QList<Breadcrumbs::Crumb> path = doc->isUntitled() ? QList<Breadcrumbs::Crumb>{{tr("Untitled"), -1}}
+                                                       : Breadcrumbs::pathCrumbs(doc->filePath(), m_projectRoot);
+    pane->crumbs->setCrumbs(path, Breadcrumbs::symbolChain(doc->textDocument(), pane->editor->textCursor().blockNumber(), doc->languageName()));
+}
+
+void EditorManager::updateAllCrumbs()
+{
+    for (Document *d : documents())
+        updateCrumbs(d);
+}
+
+void EditorManager::setProjectRoot(const QString &root)
+{
+    m_projectRoot = root;
+    updateAllCrumbs();
 }
 
 void EditorManager::updateTabTitle(Document *doc)
@@ -314,10 +380,11 @@ void EditorManager::removeAt(int index)
         return;
     if (!e.doc->isUntitled())
         unwatch(e.doc->filePath());
+    QWidget *pane = m_tabs->widget(index);
     m_tabs->removeTab(index);
     m_docForEditor.remove(e.editor);
-    // Delete the view before the document it displays.
-    delete e.editor;
+    // Delete the view (the pane owns it) before the document it displays.
+    delete pane;
     delete e.doc;
     updateStack();
     emit countChanged(m_tabs->count());

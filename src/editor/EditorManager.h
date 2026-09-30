@@ -47,6 +47,8 @@ public:
     void closeDocumentsUnder(const QString &path); // no prompt; file/folder was deleted
     void pathRenamed(const QString &oldPath, const QString &newPath);
 
+    void setProjectRoot(const QString &root); // breadcrumbs show paths relative to it
+
     void nextTab();
     void previousTab();
     void showFind();
@@ -86,6 +88,8 @@ private:
     bool saveDocumentAs(Document *doc);
     bool maybeSave(Document *doc);
     void updateStack();
+    void updateCrumbs(Document *doc);
+    void updateAllCrumbs();
 
     void watch(const QString &path);
     void unwatch(const QString &path);
@@ -99,5 +103,6 @@ private:
     QTimer *m_changeTimer;
     QStringList m_pendingChanges;
     bool m_prompting = false;
+    QString m_projectRoot;
     QHash<CodeEditor *, Document *> m_docForEditor;
 };

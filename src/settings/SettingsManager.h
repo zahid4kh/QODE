@@ -33,6 +33,8 @@ public:
     void setTrimTrailingWhitespace(bool on);
     bool insertFinalNewline() const;
     void setInsertFinalNewline(bool on);
+    bool autoActivateVenv() const; // activate a project's Python venv in new terminals
+    void setAutoActivateVenv(bool on);
     bool formatOnSave() const;
     void setFormatOnSave(bool on);
 

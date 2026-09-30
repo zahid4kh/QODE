@@ -101,6 +101,16 @@ void SettingsManager::setInsertFinalNewline(bool on)
     emit saveSettingsChanged();
 }
 
+bool SettingsManager::autoActivateVenv() const
+{
+    return m_settings.value(QStringLiteral("terminal/autoActivateVenv"), true).toBool();
+}
+
+void SettingsManager::setAutoActivateVenv(bool on)
+{
+    m_settings.setValue(QStringLiteral("terminal/autoActivateVenv"), on);
+}
+
 bool SettingsManager::formatOnSave() const
 {
     return m_settings.value(QStringLiteral("save/formatOnSave"), false).toBool();

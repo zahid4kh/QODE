@@ -94,7 +94,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_terminal = new Terminal(this);
     // Python projects: activate the project's virtualenv (whatever its folder is called) in fresh shells.
     m_terminal->setStartupCommandProvider([this](const QString &shell) {
-        if (!m_projects->hasProject())
+        if (!m_projects->hasProject() || !SettingsManager::instance().autoActivateVenv())
             return QString();
         return PythonEnv::activationCommand(m_projects->project().root, shell);
     });
@@ -215,6 +215,10 @@ void MainWindow::createActions()
     m_explorerAct->setChecked(true);
     m_terminalAct = make(tr("Terminal"), QKeySequence(C | K::Key_J), QStringLiteral(":/new-icons/terminal.svg"));
     m_terminalAct->setCheckable(true);
+    m_venvAct = make(tr("Auto-Activate Python venv"));
+    m_venvAct->setCheckable(true);
+    m_venvAct->setChecked(SettingsManager::instance().autoActivateVenv());
+    connect(m_venvAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setAutoActivateVenv(on); });
     m_runAct = make(tr("Run File"), QKeySequence(K::Key_F5));
     m_runAct->setToolTip(tr("Run this file (F5)"));
     m_runConfigAct = make(tr("Run Configuration…"), {}, QStringLiteral(":/new-icons/cog.svg"));
@@ -428,6 +432,7 @@ void MainWindow::createMenus()
     view->addSeparator();
     view->addAction(m_explorerAct);
     view->addAction(m_terminalAct);
+    view->addAction(m_venvAct);
     view->addSeparator();
     view->addAction(m_runAct);
     view->addAction(m_runConfigAct);

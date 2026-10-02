@@ -1,6 +1,6 @@
 # QODE
 
-A native C++/Qt 6 code editor for Linux: project explorer, tabbed syntax-highlighted editor and an integrated terminal (`Ctrl+J`). See [PRD.md](PRD.md) for the full spec.
+A native C++/Qt 6 code editor for Linux: project explorer, tabbed syntax-highlighted editor and an integrated terminal (`Ctrl+J`).
 
 ## Build
 
@@ -32,21 +32,3 @@ Currently supported: diagnostics (squiggles, tinted line numbers, error/warning 
 **Kotlin**: choose **LSP > Download and Set Up…** (also shown when you open a `.kt` file without a server). QODE downloads JetBrains' standalone Linux archive (about 370 MB, SHA-256 verified) from download.jetbrains.com, unpacks it into `~/.local/share/QODE/lsp/kotlin`, links it as `~/.local/bin/kotlin-lsp` and test-runs it. No Java install is needed (the server brings its own runtime) and no administrator rights are used. The dialog installs the tested version; tick the box there for the latest release. The **LSP** menu has one submenu per server (status, set up, restart, log, remove): **Update / Reinstall…** manages the download later, and **Remove Language Server…** shows and runs the removal (for Kotlin it deletes the download, link and caches with a visible log; for clangd it gives the `apt`/`dnf`/`pacman` command to run in QODE's terminal) and then offers to restart QODE. To do it by hand, take the *standalone* `kotlin-server-<version>.tar.gz` from the [releases page](https://github.com/Kotlin/kotlin-lsp/releases) (not the `.vsix`, that is the VS Code extension), unpack it and put `bin/intellij-server` on your `PATH` as `kotlin-lsp`, or use **LSP > Set Server Path…**. Go to Definition on a library symbol opens its source (unpacked read-only from the dependency's `-sources.jar` or the JDK's `src.zip`), unused imports turn gray (hover one to remove them, choosing which in a dialog), import lists fold with a chevron on the first import, **Alt+Enter** offers quick fixes such as *Import → java.io.File*, and accepting a completion for a class you have not imported adds the `import` line for you. The server analyses Gradle and Maven projects (a `build.gradle(.kts)` / `pom.xml` in the project folder); the first import can take a while and its progress shows in the status bar.
 
 **Run** in a qmake application project: the first time you press Run on a C++ source, QODE suggests a command that configures, builds in `build/` and starts the program (`cd {project} && mkdir -p build && cd build && qmake6 ../app.pro && make -j$(nproc) && ./app`); edit it in the Run Configuration dialog if you build differently.
-
-## Layout
-
-```
-src/app         QApplication subclass, theme application
-src/window      MainWindow (menus, toolbar, splitters, status bar, session)
-src/project     ProjectManager, Project, filesystem proxy model, QmakeProject (.pro reader)
-src/explorer    ProjectExplorer (QFileSystemModel tree, context menus)
-src/editor      Document, CodeEditor, EditorManager, FindBar, syntax highlighting
-src/lsp         LspClient (JSON-RPC over stdio), LspManager (servers + document sync), server registry
-src/terminal    ShellProcess (pty), TerminalScreen (VT emulator), TerminalView, Terminal
-src/dialogs     New project / new file / unsaved-changes dialogs
-src/filesystem  FileManager helpers
-src/settings    SettingsManager (QSettings), Theme
-resources/      qode.qrc, icons, desktop entry
-```
-
-Adding a language: write a builder in `src/editor/Language.cpp` and register its extensions in `Registry`.

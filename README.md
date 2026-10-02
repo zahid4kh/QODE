@@ -2,6 +2,20 @@
 
 A native C++/Qt 6 code editor for Linux: project explorer, tabbed syntax-highlighted editor and an integrated terminal (`Ctrl+J`).
 
+## Screenshots
+
+![QODE editor with the project explorer, syntax highlighting, breadcrumbs, minimap and inline git blame](media/editor-dark.png)
+
+*Editor with project explorer, breadcrumbs, code folding, minimap and inline git blame.*
+
+![QODE with two editors side by side](media/editor-light.png)
+
+*Split editor: files side by side, each with its own tabs and breadcrumbs.*
+
+![QODE welcome page with recent projects](media/home-dark.png)
+
+*Welcome page with quick actions and recent projects.*
+
 ## Build
 
 Requires Qt 6 (Core, Gui, Widgets), qmake6 and a C++17 compiler.

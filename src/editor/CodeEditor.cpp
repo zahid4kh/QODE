@@ -150,6 +150,7 @@ CodeEditor::CodeEditor(QWidget *parent)
     setStyleSheet(QStringLiteral("QPlainTextEdit { border: none; border-radius: 0; }")); // no focus ring inside the island
     connect(this, &QPlainTextEdit::blockCountChanged, this, &CodeEditor::updateLineNumberAreaWidth);
     connect(this, &QPlainTextEdit::updateRequest, this, &CodeEditor::updateLineNumberArea);
+    viewport()->setMouseTracking(true);
     connect(this, &QPlainTextEdit::cursorPositionChanged, this, &CodeEditor::refreshSelections);
     connect(this, &QPlainTextEdit::cursorPositionChanged, this, [this] { if (!m_blame.isEmpty()) viewport()->update(); });
     connect(this, &QPlainTextEdit::textChanged, this, [this] {
@@ -456,6 +457,15 @@ void CodeEditor::refreshSelections()
         sel.cursor = QTextCursor(document());
         sel.cursor.setPosition(r.first);
         sel.cursor.setPosition(r.second, QTextCursor::KeepAnchor);
+        extra.append(sel);
+    }
+    if (m_link.first >= 0) {
+        QTextEdit::ExtraSelection sel;
+        sel.format.setUnderlineStyle(QTextCharFormat::SingleUnderline);
+        sel.format.setForeground(Theme::byName(SettingsManager::instance().theme()).accent);
+        sel.cursor = QTextCursor(document());
+        sel.cursor.setPosition(m_link.first);
+        sel.cursor.setPosition(m_link.second, QTextCursor::KeepAnchor);
         extra.append(sel);
     }
     setExtraSelections(extra);
@@ -1312,6 +1322,8 @@ void CodeEditor::handleBackspaceInIndent(QKeyEvent *event)
 
 void CodeEditor::keyPressEvent(QKeyEvent *event)
 {
+    if (event->key() == Qt::Key_Control)
+        updateLink(true);
     if (isReadOnly()) {
         QPlainTextEdit::keyPressEvent(event);
         return;
@@ -1389,6 +1401,55 @@ void CodeEditor::mouseDoubleClickEvent(QMouseEvent *event)
     m_tripleClickTimer.start();
 }
 
+// Ctrl held over an identifier that Go to Definition can follow: underline it and show a hand cursor.
+void CodeEditor::updateLink(bool ctrlDown)
+{
+    QPair<int, int> link{-1, -1};
+    if (ctrlDown && viewport()->underMouse() && m_canGoToDefinition && m_canGoToDefinition()) {
+        const QTextCursor at = cursorForPosition(viewport()->mapFromGlobal(QCursor::pos()));
+        const QString text = at.block().text();
+        const int col = at.positionInBlock();
+        if (col < text.size() && isIdentifierChar(text.at(col))) {
+            int a = col, b = col;
+            while (a > 0 && isIdentifierChar(text.at(a - 1)))
+                --a;
+            while (b < text.size() && isIdentifierChar(text.at(b)))
+                ++b;
+            link = {at.block().position() + a, at.block().position() + b};
+        }
+    }
+    viewport()->setCursor(link.first >= 0 ? Qt::PointingHandCursor : Qt::IBeamCursor);
+    if (link == m_link)
+        return;
+    m_link = link;
+    refreshSelections();
+}
+
+void CodeEditor::mouseMoveEvent(QMouseEvent *event)
+{
+    QPlainTextEdit::mouseMoveEvent(event);
+    updateLink(event->modifiers() == Qt::ControlModifier);
+}
+
+void CodeEditor::keyReleaseEvent(QKeyEvent *event)
+{
+    QPlainTextEdit::keyReleaseEvent(event);
+    if (event->key() == Qt::Key_Control)
+        updateLink(false);
+}
+
+void CodeEditor::focusOutEvent(QFocusEvent *event)
+{
+    QPlainTextEdit::focusOutEvent(event);
+    updateLink(false);
+}
+
+void CodeEditor::leaveEvent(QEvent *event)
+{
+    QPlainTextEdit::leaveEvent(event);
+    updateLink(false);
+}
+
 void CodeEditor::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton && event->modifiers() == Qt::ControlModifier) {
@@ -1397,6 +1458,7 @@ void CodeEditor::mousePressEvent(QMouseEvent *event)
         const int col = at.positionInBlock();
         if (col < text.size() && isIdentifierChar(text.at(col))) {
             emit definitionRequested(at.blockNumber(), col);
+            updateLink(false);
             return;
         }
     }

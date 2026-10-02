@@ -235,6 +235,7 @@ MainWindow::MainWindow(QWidget *parent)
                     guard->showHover(text);
             });
         });
+        ed->setDefinitionAvailable([this, doc] { return m_lsp->isServed(doc); });
         connect(ed, &CodeEditor::definitionRequested, this, [this, ed](int line, int column) { goToDefinition(ed, line, column); });
         connect(ed, &CodeEditor::bookmarksChanged, this, [this, doc, ed] {
             if (!doc->isUntitled())

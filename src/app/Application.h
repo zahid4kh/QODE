@@ -9,4 +9,7 @@ public:
     Application(int &argc, char **argv);
 
     void applyTheme(const QString &name);
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
 };

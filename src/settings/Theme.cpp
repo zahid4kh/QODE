@@ -172,7 +172,7 @@ QScrollBar::handle { background: %10; border-radius: 4px; min-height: 24px; min-
 QScrollBar::handle:hover { background: %7; }
 QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
 QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
-QToolTip { background: %5; color: %2; border: 1px solid %3; }
+QToolTip { background: %5; color: %2; border: 1px solid %10; border-radius: 8px; padding: 6px 8px; }
 QMessageBox, QInputDialog { background: %1; }
 )")
         .arg(window.name(),      // 1

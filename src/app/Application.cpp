@@ -7,7 +7,11 @@
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
 
+#include <QAbstractButton>
+#include <QComboBox>
 #include <QDir>
+#include <QMenuBar>
+#include <QTabBar>
 #include <QFont>
 #include <QFontDatabase>
 #include <QIcon>
@@ -35,8 +39,28 @@ Application::Application(int &argc, char **argv)
     ui.setPointSizeF(9.5);
     setFont(ui);
 
+    installEventFilter(this); // app-wide: gives clickable widgets a hand cursor (see eventFilter)
     applyTheme(SettingsManager::instance().theme());
     connect(&SettingsManager::instance(), &SettingsManager::themeChanged, this, &Application::applyTheme);
+}
+
+// Buttons, tabs and combo boxes get the pointing-hand cursor when they are first polished, unless a
+// widget already chose its own cursor.
+bool Application::eventFilter(QObject *watched, QEvent *event)
+{
+    if (event->type() == QEvent::Polish && watched->isWidgetType()) {
+        auto *w = static_cast<QWidget *>(watched);
+        if (qstrcmp(w->metaObject()->className(), "QTipLabel") == 0) { // tooltip window: transparent corners so the stylesheet's radius shows
+            w->setWindowFlags(w->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
+            w->setAttribute(Qt::WA_TranslucentBackground);
+            return QApplication::eventFilter(watched, event);
+        }
+        const bool clickable = qobject_cast<QAbstractButton *>(w) || qobject_cast<QTabBar *>(w) || qobject_cast<QComboBox *>(w) ||
+                               qobject_cast<QMenuBar *>(w);
+        if (clickable && !w->testAttribute(Qt::WA_SetCursor))
+            w->setCursor(Qt::PointingHandCursor);
+    }
+    return QApplication::eventFilter(watched, event);
 }
 
 void Application::applyTheme(const QString &name)

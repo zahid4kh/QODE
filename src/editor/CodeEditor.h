@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include "git/GitDiff.h"
 #include "git/GitTypes.h"
 #include "lsp/LspTypes.h"
@@ -20,6 +21,8 @@ public:
 
     int lineNumberAreaWidth() const;
     void lineNumberAreaPaintEvent(QPaintEvent *event);
+    // Ctrl+hover underlines identifiers only while this returns true (a language server serves the file).
+    void setDefinitionAvailable(std::function<bool()> check) { m_canGoToDefinition = std::move(check); }
 
     int currentLine() const { return textCursor().blockNumber() + 1; }
     int currentColumn() const { return textCursor().positionInBlock() + 1; }
@@ -107,6 +110,10 @@ protected:
     void paintEvent(QPaintEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void keyReleaseEvent(QKeyEvent *event) override;
+    void focusOutEvent(QFocusEvent *event) override;
+    void leaveEvent(QEvent *event) override;
     void mouseDoubleClickEvent(QMouseEvent *event) override;
     bool viewportEvent(QEvent *event) override;
     bool canInsertFromMimeData(const QMimeData *source) const override;
@@ -163,6 +170,9 @@ private:
     QVector<GitBlameLine> m_blame;
     QList<int> m_bookmarks;
     QVector<LspDiagnostic> m_diagnostics;
+    void updateLink(bool ctrlDown);
+    std::function<bool()> m_canGoToDefinition;
+    QPair<int, int> m_link{-1, -1}; // identifier under the mouse while Ctrl is held
     int m_hoverPos = -1;       // document position of the pending hover request
     QPoint m_hoverGlobal;      // where its tooltip goes
     QString m_hoverDiagnostics; // diagnostics tooltip HTML at that position

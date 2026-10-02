@@ -1,0 +1,28 @@
+.TH QODE-REMOVE-LSP 1 "" "qode" "User Commands"
+.SH NAME
+qode\-remove\-lsp \- list or remove the language servers used by QODE
+.SH SYNOPSIS
+.B qode\-remove\-lsp
+[\fB\-\-list\fR] [\fB\-\-kotlin\fR] [\fB\-\-cpp\fR] [\fB\-\-all\fR] [\fB\-y\fR]
+.SH DESCRIPTION
+Shows or removes the Kotlin language server that QODE downloaded (~/.local/share/QODE/lsp/kotlin, its caches
+and the ~/.local/bin/kotlin-lsp link) and the C/C++ language server clangd (with
+.B sudo apt remove
+and
+.BR "apt autoremove" ).
+.SH OPTIONS
+.TP
+.B \-\-list
+Show what is installed (default).
+.TP
+.B \-\-kotlin
+Remove the Kotlin language server.
+.TP
+.B \-\-cpp
+Remove clangd.
+.TP
+.B \-\-all
+Both.
+.TP
+.B \-y, \-\-yes
+Do not ask for confirmation.

@@ -1,0 +1,20 @@
+#!/bin/bash
+# preinst: runs before the files of qode are unpacked.
+set -e
+
+case "$1" in
+    install|upgrade)
+        # Nothing to prepare: the Qt 6 libraries come in as package dependencies.
+        :
+        ;;
+
+    abort-upgrade)
+        ;;
+
+    *)
+        echo "preinst called with unknown argument '$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

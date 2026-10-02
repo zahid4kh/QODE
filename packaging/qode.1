@@ -1,0 +1,28 @@
+.TH QODE 1 "" "qode" "User Commands"
+.SH NAME
+qode \- native Qt code editor with integrated terminal and language server client
+.SH SYNOPSIS
+.B qode
+[\fB\-\-new\-window\fR] [\fIproject\-folder\fR | \fIfile\fR ...]
+.SH DESCRIPTION
+QODE is a code editor with a project explorer, tabbed syntax-highlighted editor, split views,
+Git integration, project search and an integrated terminal (Ctrl+J). It talks to language servers
+(clangd for C/C++, kotlin-lsp for Kotlin) found on PATH; servers are never bundled.
+.SH OPTIONS
+.TP
+.B \-\-new\-window
+Do not restore the previous session.
+.SH FILES
+.TP
+.I ~/.config/QODE/
+Settings (QODE.conf) and per-project data (projects/*.json).
+.TP
+.I ~/.local/share/QODE/
+Language servers downloaded by QODE.
+.TP
+.I ~/.cache/QODE/
+Language server caches and unpacked library sources.
+.PP
+All of these are deleted when the package is removed, unless QODE_KEEP_USER_DATA=1 is set.
+.SH SEE ALSO
+.BR qode\-remove\-lsp (1)

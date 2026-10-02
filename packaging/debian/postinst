@@ -1,0 +1,36 @@
+#!/bin/bash
+# postinst: runs after the files of qode are unpacked and the package is configured.
+set -e
+
+case "$1" in
+    configure)
+        chmod 755 /usr/bin/qode /usr/bin/qode-remove-lsp 2>/dev/null || true
+
+        # Convenience link for shells whose PATH has /usr/local/bin before /usr/bin. Never replaces
+        # anything that is not our own link (for example a "make install" copy of the editor).
+        if [ ! -e /usr/local/bin/qode ] && [ ! -L /usr/local/bin/qode ] && [ -d /usr/local/bin ]; then
+            ln -s /usr/bin/qode /usr/local/bin/qode
+        fi
+
+        if command -v update-desktop-database >/dev/null 2>&1; then
+            update-desktop-database -q /usr/share/applications 2>/dev/null || true
+        fi
+        if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+            gtk-update-icon-cache -q -f -t /usr/share/icons/hicolor 2>/dev/null || true
+        fi
+        hash -r 2>/dev/null || true
+
+        echo "QODE installed. Start it from the applications menu or with: qode [project-folder | file ...]"
+        echo "Language servers are never bundled; see 'qode-remove-lsp --help' to list or remove ones you set up."
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument '$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

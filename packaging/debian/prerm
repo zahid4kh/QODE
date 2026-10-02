@@ -1,0 +1,41 @@
+#!/bin/bash
+# prerm: runs before the files of qode are removed.
+set -e
+
+case "$1" in
+    remove|deconfigure)
+        # The data folders are deleted afterwards (see postrm), so a running editor must not write into them.
+        if pgrep -x qode >/dev/null 2>&1; then
+            echo "qode: closing running QODE windows (save your work first next time)." >&2
+            pkill -x qode || true
+            sleep 1
+        fi
+
+        # Our convenience link (only if it really is ours).
+        if [ -L /usr/local/bin/qode ] && [ "$(readlink /usr/local/bin/qode)" = "/usr/bin/qode" ]; then
+            rm -f /usr/local/bin/qode
+        fi
+
+        # Tell the user, while the helper still exists, what language servers are around.
+        echo "qode: removing QODE will also delete, for every user, ~/.config/QODE (settings and per-project data)," >&2
+        echo "      ~/.local/share/QODE (downloaded Kotlin language server) and ~/.cache/QODE." >&2
+        echo "      Set QODE_KEEP_USER_DATA=1 in the environment of apt/dpkg to keep them." >&2
+        if command -v clangd >/dev/null 2>&1; then
+            echo "      clangd is installed system-wide; QODE leaves it alone. 'qode-remove-lsp --cpp' removes it first." >&2
+        fi
+        ;;
+
+    upgrade)
+        # A new version replaces the files in place; running windows and user data are left alone.
+        ;;
+
+    failed-upgrade)
+        ;;
+
+    *)
+        echo "prerm called with unknown argument '$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

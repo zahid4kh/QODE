@@ -8,3 +8,4 @@ Icon=qode
 Terminal=false
 Categories=Development;TextEditor;
 MimeType=text/plain;text/x-c;text/x-c++src;text/x-chdr;text/x-python;application/json;
+StartupWMClass=QODE

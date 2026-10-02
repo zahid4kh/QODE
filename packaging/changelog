@@ -1,0 +1,5 @@
+qode (0.1.0) unstable; urgency=low
+
+  * Initial Debian package of QODE.
+
+ -- Zahid Khalilov <halilzahid@gmail.com>  Fri, 02 Oct 2026 18:15:05 +0200

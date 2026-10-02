@@ -1,0 +1,125 @@
+#!/bin/bash
+# qode-remove-lsp: list and remove the language servers QODE uses (C/C++ clangd, Kotlin kotlin-lsp).
+# Part of the qode package. Only touches your own home folder, except for the clangd package, which is removed
+# with apt (sudo) after asking.
+set -u
+
+usage() {
+    cat <<USAGE
+Usage: qode-remove-lsp [options]
+
+  --list        show which language servers are installed (default when no option is given)
+  --kotlin      remove the Kotlin language server QODE downloaded:
+                  ~/.local/share/QODE/lsp/kotlin, ~/.cache/QODE/lsp/kotlin (index cache),
+                  ~/.cache/QODE/lsp/library-sources, the ~/.local/bin/kotlin-lsp link
+  --cpp         remove the C/C++ language server (clangd) with: sudo apt remove <package> && sudo apt autoremove
+  --all         both of the above
+  -y, --yes     do not ask for confirmation
+  -h, --help    this text
+
+QODE has to be restarted afterwards.
+USAGE
+}
+
+DATA="${XDG_DATA_HOME:-$HOME/.local/share}/QODE/lsp"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/QODE/lsp"
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}/QODE/QODE.conf"
+LINK="$HOME/.local/bin/kotlin-lsp"
+DO_LIST=0 DO_KOTLIN=0 DO_CPP=0 YES=0
+
+size_of() { du -sh "$1" 2>/dev/null | cut -f1; }
+
+confirm() {
+    [ "$YES" = 1 ] && return 0
+    read -r -p "$1 [y/N] " answer
+    [[ "$answer" =~ ^[Yy]$ ]]
+}
+
+clangd_package() {
+    local exe
+    exe="$(command -v clangd 2>/dev/null)" || return 1
+    exe="$(readlink -f "$exe")"
+    dpkg -S "$exe" 2>/dev/null | head -n1 | cut -d: -f1
+}
+
+list() {
+    echo "Kotlin language server (downloaded by QODE):"
+    if [ -d "$DATA/kotlin" ]; then
+        echo "  installed: $DATA/kotlin ($(size_of "$DATA/kotlin"))"
+        [ -d "$CACHE/kotlin" ] && echo "  index cache: $CACHE/kotlin ($(size_of "$CACHE/kotlin"))"
+        [ -d "$CACHE/library-sources" ] && echo "  library sources: $CACHE/library-sources ($(size_of "$CACHE/library-sources"))"
+        [ -L "$LINK" ] && echo "  command link: $LINK -> $(readlink "$LINK")"
+    else
+        echo "  not installed"
+    fi
+    echo "C/C++ language server (clangd):"
+    if command -v clangd >/dev/null 2>&1; then
+        local pkg
+        pkg="$(clangd_package)"
+        echo "  installed: $(command -v clangd) (package: ${pkg:-unknown})"
+        echo "  remove with: sudo apt remove ${pkg:-clangd} && sudo apt autoremove"
+    else
+        echo "  not installed"
+    fi
+}
+
+remove_kotlin() {
+    if [ ! -e "$DATA/kotlin" ] && [ ! -e "$CACHE/kotlin" ] && [ ! -e "$CACHE/library-sources" ] && [ ! -L "$LINK" ]; then
+        echo "Kotlin language server: nothing to remove."
+        return
+    fi
+    echo "This will delete:"
+    for p in "$DATA/kotlin" "$CACHE/kotlin" "$CACHE/library-sources"; do
+        [ -e "$p" ] && echo "  rm -rf $p ($(size_of "$p"))"
+    done
+    if [ -L "$LINK" ] && readlink "$LINK" | grep -q "/QODE/lsp/"; then
+        echo "  rm $LINK"
+    fi
+    confirm "Remove the Kotlin language server?" || { echo "Skipped."; return; }
+    rm -rf -- "$DATA/kotlin" "$CACHE/kotlin" "$CACHE/library-sources"
+    if [ -L "$LINK" ] && readlink "$LINK" | grep -q "/QODE/lsp/"; then
+        rm -f -- "$LINK"
+    fi
+    rm -f -- "$LINK.new"
+    # Forget a server path chosen in QODE's LSP menu (QSettings key lsp/kotlinPath).
+    [ -f "$CONF" ] && sed -i '/^kotlinPath=/d' "$CONF"
+    echo "Kotlin language server removed."
+}
+
+remove_cpp() {
+    if ! command -v clangd >/dev/null 2>&1; then
+        echo "clangd: not installed."
+        return
+    fi
+    local pkg
+    pkg="$(clangd_package)"
+    if [ -z "$pkg" ]; then
+        echo "clangd ($(command -v clangd)) was not installed by a Debian package; delete that file yourself."
+        return
+    fi
+    echo "Command: sudo apt remove $pkg && sudo apt autoremove"
+    confirm "Run it now?" || { echo "Skipped."; return; }
+    local sudo=""
+    [ "$(id -u)" = 0 ] || sudo="sudo"
+    $sudo apt remove $([ "$YES" = 1 ] && echo -y) "$pkg" && $sudo apt autoremove $([ "$YES" = 1 ] && echo -y)
+    [ -f "$CONF" ] && sed -i '/^clangdPath=/d' "$CONF"
+}
+
+[ $# -eq 0 ] && DO_LIST=1
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --list) DO_LIST=1 ;;
+        --kotlin) DO_KOTLIN=1 ;;
+        --cpp|--clangd) DO_CPP=1 ;;
+        --all) DO_KOTLIN=1 DO_CPP=1 ;;
+        -y|--yes) YES=1 ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
+    esac
+    shift
+done
+
+[ "$DO_LIST" = 1 ] && list
+[ "$DO_KOTLIN" = 1 ] && remove_kotlin
+[ "$DO_CPP" = 1 ] && remove_cpp
+exit 0

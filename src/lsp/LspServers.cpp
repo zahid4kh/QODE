@@ -17,6 +17,17 @@ QString LspServerSpec::languageId(const QString &path) const
 
 namespace LspServers {
 
+QString managedDir(const QString &id)
+{
+    return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QStringLiteral("/QODE/lsp/") + id;
+}
+
+QString managedExecutable(const QString &id)
+{
+    const QFileInfo fi(managedDir(id) + QStringLiteral("/current/bin/intellij-server"));
+    return fi.isFile() && fi.isExecutable() ? fi.absoluteFilePath() : QString();
+}
+
 const QList<LspServerSpec> &all()
 {
     static const QList<LspServerSpec> specs = [] {
@@ -41,6 +52,28 @@ const QList<LspServerSpec> &all()
             "Make sure it is on your PATH (run \"clangd --version\" in a terminal), or point QODE at it with "
             "LSP > Set Server Path. Releases are also published at https://github.com/clangd/clangd/releases");
         l.append(clangd);
+
+        LspServerSpec kotlin;
+        kotlin.id = QStringLiteral("kotlin");
+        kotlin.displayName = QStringLiteral("Kotlin language server");
+        kotlin.executables = {QStringLiteral("kotlin-lsp"), QStringLiteral("kotlin-lsp.sh")};
+        // {cache} becomes a per-project folder under ~/.cache/QODE (the server otherwise indexes into a fresh /tmp folder).
+        kotlin.arguments = {QStringLiteral("--stdio"), QStringLiteral("--system-path={cache}")};
+        kotlin.extensions = {QStringLiteral("kt"), QStringLiteral("kts")};
+        kotlin.installable = true;
+        kotlin.installHelp = QStringLiteral(
+            "The Kotlin language server is JetBrains' official server (Alpha). It ships its own Java runtime, so you do "
+            "not need to install Java for it.\n\n"
+            "Easiest: LSP > Kotlin > Download and Set Up. QODE downloads the standalone Linux archive from "
+            "download.jetbrains.com (about 370 MB), unpacks it to ~/.local/share/QODE/lsp/kotlin and links it as "
+            "~/.local/bin/kotlin-lsp.\n\n"
+            "By hand: download the standalone archive (kotlin-server-<version>.tar.gz) from "
+            "https://github.com/Kotlin/kotlin-lsp/releases, unpack it, and put bin/intellij-server on your PATH as "
+            "\"kotlin-lsp\" (for example ln -s <folder>/bin/intellij-server ~/.local/bin/kotlin-lsp), or point QODE at it "
+            "with LSP > Set Server Path. Do not use the .vsix file: that is the VS Code extension.\n\n"
+            "Projects should be Gradle or Maven projects (a build.gradle(.kts) or pom.xml in the project folder) so the "
+            "server can find your dependencies.");
+        l.append(kotlin);
         return l;
     }();
     return specs;
@@ -92,7 +125,7 @@ QString locate(const LspServerSpec &spec, const QString &configuredPath)
         if (!best.isEmpty())
             return best;
     }
-    return {};
+    return spec.installable ? managedExecutable(spec.id) : QString();
 }
 
 bool hasCompileDatabase(const QString &root)

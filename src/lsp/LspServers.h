@@ -13,16 +13,21 @@ struct LspServerSpec {
     QStringList extensions; // lowercase file extensions this server handles
     bool fallbackFlags = false; // accepts initializationOptions.fallbackFlags (clangd)
     QString installHelp;    // shown when the executable is missing
+    bool installable = false; // QODE can download and set the server up itself (LspInstaller)
 
     // LSP language id for a file ("c", "cpp", ...), or an empty string.
     QString languageId(const QString &path) const;
 };
 
 namespace LspServers {
+// Where QODE keeps a server it downloaded itself ("<data>/QODE/lsp/<id>"), and that server's launcher.
+QString managedDir(const QString &id);
+QString managedExecutable(const QString &id); // empty when nothing is installed
 const QList<LspServerSpec> &all();
 const LspServerSpec *forFile(const QString &path);
 const LspServerSpec *byId(const QString &id);
-// The configured path when it is executable, otherwise the first match on PATH. Empty when not found.
+// The configured path when it is executable, otherwise the first match on PATH, otherwise a copy QODE downloaded.
+// Empty when not found.
 QString locate(const LspServerSpec &spec, const QString &configuredPath);
 // True when `root` (or its build/ folder) holds a compile_commands.json / compile_flags.txt.
 bool hasCompileDatabase(const QString &root);

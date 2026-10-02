@@ -3,6 +3,7 @@
 #include "LspTypes.h"
 
 #include <QHash>
+#include <QJsonArray>
 #include <functional>
 #include <QObject>
 #include <QPointer>
@@ -29,6 +30,8 @@ public:
         QString path;   // resolved executable
         QString detail; // "clangd 18.1.3", an error, ...
         int documents = 0; // open files this server handles
+        QString progress;  // what the server reports it is busy with ("Importing Gradle project 40%"), or empty
+        bool installable = false; // QODE can download it (LspInstaller)
     };
 
     explicit LspManager(QObject *parent = nullptr);
@@ -83,6 +86,7 @@ private:
         LspClient *client = nullptr;
         ServerState state;
         int restarts = 0;
+        QHash<QString, QStringList> progress; // $/progress token -> {title, text shown} of the running operations
     };
     struct Tracked {
         QString uri, path, serverId;
@@ -105,6 +109,8 @@ private:
     QString rootFor(const QString &filePath) const;
     LspClient *readyClientFor(Document *doc, QString *uri);
     void clearDiagnosticsFor(const QString &path);
+    void setDiagnosticsFor(const QString &path, const QJsonArray &list);
+    void pullDiagnostics(Document *doc); // servers with diagnosticProvider (Kotlin) are asked instead of pushing
 
     QString m_root;
     QHash<QString, Server> m_servers;

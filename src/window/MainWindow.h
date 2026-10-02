@@ -99,6 +99,8 @@ private:
     void rebuildLspMenu();
     void updateLspStatus();
     void showLspInstallHelp(const QString &serverId);
+    void installLspServer(const QString &serverId);
+    void removeLspServer(const QString &serverId);
     void chooseLspServerPath(const QString &serverId);
     void showLspLog(const QString &serverId);
     void editCompilerFlags();

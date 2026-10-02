@@ -6,9 +6,12 @@
 #include "project/QmakeProject.h"
 #include "settings/SettingsManager.h"
 
+#include <QCryptographicHash>
+#include <QDir>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QProcess>
+#include <QStandardPaths>
 #include <QTextDocument>
 #include <QTimer>
 #include <QUrl>
@@ -108,7 +111,18 @@ void LspManager::startServer(Server &s, const QString &rootPath)
         if (!flags.isEmpty())
             options.insert(QStringLiteral("fallbackFlags"), QJsonArray::fromStringList(flags));
     }
-    s.client = new LspClient(exe, s.spec->arguments, rootPath, options, this);
+    // {cache}: a folder per server and project for the server's own indexes (survives restarts, never in the project).
+    QStringList args = s.spec->arguments;
+    if (args.join(QLatin1Char(' ')).contains(QLatin1String("{cache}"))) {
+        const QString key = QString::fromLatin1(QCryptographicHash::hash(rootPath.toUtf8(), QCryptographicHash::Md5).toHex().left(12));
+        const QString cache = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE/lsp/") +
+                              s.spec->id + QLatin1Char('/') + key;
+        QDir().mkpath(cache);
+        args.replaceInStrings(QStringLiteral("{cache}"), cache);
+    }
+    s.progress.clear();
+    s.state.progress.clear();
+    s.client = new LspClient(exe, args, rootPath, options, this);
     const QString id = s.spec->id;
     connect(s.client, &LspClient::ready, this, [this, id] { onServerReady(id); });
     connect(s.client, &LspClient::stopped, this, [this, id](bool crashed) { onServerStopped(id, crashed); });
@@ -138,6 +152,8 @@ void LspManager::onServerStopped(const QString &id, bool crashed)
         s.client->deleteLater();
         s.client = nullptr;
     }
+    s.progress.clear();
+    s.state.progress.clear();
     for (Tracked &t : m_tracked)
         if (t.serverId == id)
             t.opened = false;
@@ -194,10 +210,13 @@ void LspManager::restart(const QString &serverId)
     bool needed = false;
     for (const Tracked &t : std::as_const(m_tracked))
         needed = needed || t.serverId == serverId;
-    if (needed)
+    if (needed) {
         startServer(s, root);
-    else
-        setStatus(s, Status::Idle);
+    } else {
+        s.state.path = LspServers::locate(*spec, serverPath(serverId));
+        setStatus(s, s.state.path.isEmpty() ? Status::NotFound : Status::Idle,
+                  s.state.path.isEmpty() ? tr("not found on PATH") : QString());
+    }
 }
 
 // --- Settings / state ----------------------------------------------------------------------------
@@ -235,6 +254,7 @@ QList<LspManager::ServerState> LspManager::servers() const
             if (st.path.isEmpty())
                 st.status = Status::NotFound;
         }
+        st.installable = spec.installable;
         for (const Tracked &t : m_tracked)
             st.documents += t.serverId == spec.id;
         out << st;
@@ -383,6 +403,7 @@ void LspManager::sendOpen(Document *doc, Tracked &t)
                                               {QStringLiteral("languageId"), s.spec->languageId(t.path)},
                                               {QStringLiteral("version"), t.version},
                                               {QStringLiteral("text"), doc->text()}}}});
+    pullDiagnostics(doc);
 }
 
 void LspManager::flushChanges()
@@ -401,6 +422,7 @@ void LspManager::flushChanges()
                                       QJsonObject{{QStringLiteral("uri"), t.uri}, {QStringLiteral("version"), t.version}}},
                                      {QStringLiteral("contentChanges"),
                                       QJsonArray{QJsonObject{{QStringLiteral("text"), it.key()->text()}}}}});
+        pullDiagnostics(it.key());
     }
 }
 
@@ -414,6 +436,7 @@ void LspManager::documentSaved(Document *doc)
     if (s.client && s.client->isRunning())
         s.client->notify(QStringLiteral("textDocument/didSave"),
                          QJsonObject{{QStringLiteral("textDocument"), QJsonObject{{QStringLiteral("uri"), it->uri}}}});
+    pullDiagnostics(doc);
 }
 
 // A qmake .pro / .pri changed: the flags derived from it are stale, so servers using them restart.
@@ -619,16 +642,55 @@ void LspManager::definition(Document *doc, int line, int column, std::function<v
 
 // --- Server -> client ------------------------------------------------------------------------------
 
-void LspManager::onNotification(const QString &, const QString &method, const QJsonValue &params)
+void LspManager::onNotification(const QString &id, const QString &method, const QJsonValue &params)
 {
+    if (method == QLatin1String("$/progress")) {
+        // Work-done progress: "begin" / "report" / "end" for a token. Show the newest running operation.
+        Server &s = m_servers[id];
+        const QJsonObject o = params.toObject();
+        const QString token = o.value(QStringLiteral("token")).toVariant().toString();
+        const QJsonObject v = o.value(QStringLiteral("value")).toObject();
+        const QString kind = v.value(QStringLiteral("kind")).toString();
+        if (kind == QLatin1String("end")) {
+            s.progress.remove(token);
+        } else {
+            QString title = v.value(QStringLiteral("title")).toString();
+            if (title.isEmpty())
+                title = s.progress.value(token).value(0); // "report" messages omit it
+            QString text = title;
+            const QString message = v.value(QStringLiteral("message")).toString();
+            if (!message.isEmpty())
+                text += QStringLiteral(" — ") + message;
+            if (v.contains(QStringLiteral("percentage")))
+                text += QStringLiteral(" %1%").arg(v.value(QStringLiteral("percentage")).toInt());
+            s.progress.insert(token, {title, text});
+            s.state.progress = text;
+        }
+        if (s.progress.isEmpty())
+            s.state.progress.clear();
+        else if (kind == QLatin1String("end"))
+            s.state.progress = s.progress.constBegin()->value(1);
+        emit statusChanged();
+        return;
+    }
+    if (method == QLatin1String("workspace/diagnostic/refresh")) {
+        for (auto it = m_tracked.begin(); it != m_tracked.end(); ++it)
+            if (it->serverId == id && it->opened)
+                pullDiagnostics(it.key());
+        return;
+    }
     if (method != QLatin1String("textDocument/publishDiagnostics"))
         return;
     const QJsonObject o = params.toObject();
-    const QString path = QUrl(o.value(QStringLiteral("uri")).toString()).toLocalFile();
+    setDiagnosticsFor(QUrl(o.value(QStringLiteral("uri")).toString()).toLocalFile(), o.value(QStringLiteral("diagnostics")).toArray());
+}
+
+void LspManager::setDiagnosticsFor(const QString &path, const QJsonArray &items)
+{
     if (path.isEmpty())
         return;
     QVector<LspDiagnostic> list;
-    for (const QJsonValue &v : o.value(QStringLiteral("diagnostics")).toArray()) {
+    for (const QJsonValue &v : items) {
         const QJsonObject d = v.toObject();
         const QJsonObject range = d.value(QStringLiteral("range")).toObject();
         const QJsonObject a = range.value(QStringLiteral("start")).toObject();
@@ -650,6 +712,28 @@ void LspManager::onNotification(const QString &, const QString &method, const QJ
         m_diagnostics.insert(path, list);
     emit diagnosticsChanged(path);
     emit statusChanged();
+}
+
+// Pull model: the server publishes nothing on its own, so ask after every open / change / save.
+void LspManager::pullDiagnostics(Document *doc)
+{
+    const auto it = m_tracked.constFind(doc);
+    if (it == m_tracked.constEnd() || !it->opened)
+        return;
+    LspClient *client = m_servers.value(it->serverId).client;
+    if (!client || !client->isRunning() || !client->serverCapabilities().contains(QStringLiteral("diagnosticProvider")))
+        return;
+    const QString path = it->path;
+    QPointer<LspClient> guard(client);
+    client->request(QStringLiteral("textDocument/diagnostic"),
+                    QJsonObject{{QStringLiteral("textDocument"), QJsonObject{{QStringLiteral("uri"), it->uri}}}},
+                    [this, path, guard](const QJsonValue &result, const QJsonObject &error) {
+                        if (!guard || !error.isEmpty())
+                            return;
+                        const QJsonObject r = result.toObject();
+                        if (r.value(QStringLiteral("kind")).toString() == QLatin1String("full"))
+                            setDiagnosticsFor(path, r.value(QStringLiteral("items")).toArray());
+                    });
 }
 
 void LspManager::clearDiagnosticsFor(const QString &path)

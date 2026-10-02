@@ -5,6 +5,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QProcess>
+#include <QTimer>
 #include <QUrl>
 
 namespace {
@@ -35,6 +36,7 @@ LspClient::LspClient(const QString &program, const QStringList &arguments, const
         QJsonObject textDocument{
             {QStringLiteral("synchronization"), QJsonObject{{QStringLiteral("didSave"), true}}},
             {QStringLiteral("publishDiagnostics"), QJsonObject{{QStringLiteral("relatedInformation"), false}}},
+            {QStringLiteral("diagnostic"), QJsonObject{{QStringLiteral("dynamicRegistration"), false}}}, // pull model (Kotlin)
             {QStringLiteral("hover"), QJsonObject{{QStringLiteral("contentFormat"), QJsonArray{QStringLiteral("markdown"), QStringLiteral("plaintext")}}}},
             {QStringLiteral("definition"), QJsonObject{{QStringLiteral("linkSupport"), true}}},
             {QStringLiteral("completion"),
@@ -55,6 +57,7 @@ LspClient::LspClient(const QString &program, const QStringList &arguments, const
                                     {QStringLiteral("name"), QFileInfo(m_root).fileName()}}}},
             {QStringLiteral("capabilities"),
              QJsonObject{{QStringLiteral("textDocument"), textDocument},
+                         {QStringLiteral("window"), QJsonObject{{QStringLiteral("workDoneProgress"), true}}},
                          {QStringLiteral("general"), QJsonObject{{QStringLiteral("positionEncodings"), QJsonArray{QStringLiteral("utf-16")}}}}}},
         };
         if (!m_initOptions.isEmpty())
@@ -67,6 +70,7 @@ LspClient::LspClient(const QString &program, const QStringList &arguments, const
             const QJsonObject info = result.toObject().value(QStringLiteral("serverInfo")).toObject();
             m_serverName = info.value(QStringLiteral("name")).toString();
             m_serverVersion = info.value(QStringLiteral("version")).toString();
+            m_capabilities = result.toObject().value(QStringLiteral("capabilities")).toObject();
             notify(QStringLiteral("initialized"), QJsonObject());
             m_state = State::Running;
             emit ready();
@@ -176,8 +180,16 @@ void LspClient::handle(const QByteArray &body)
     if (msg.contains(QStringLiteral("method"))) {
         if (msg.contains(QStringLiteral("id")))
             handleServerRequest(msg);
-        else
-            emit notification(msg.value(QStringLiteral("method")).toString(), msg.value(QStringLiteral("params")));
+        else {
+            const QString method = msg.value(QStringLiteral("method")).toString();
+            // Some servers (Kotlin) log through the protocol instead of stderr: keep it for Show Server Log.
+            if (method == QLatin1String("window/logMessage")) {
+                m_log << msg.value(QStringLiteral("params")).toObject().value(QStringLiteral("message")).toString().split(QLatin1Char('\n'));
+                while (m_log.size() > kMaxLogLines)
+                    m_log.removeFirst();
+            }
+            emit notification(method, msg.value(QStringLiteral("params")));
+        }
         return;
     }
     const int id = msg.value(QStringLiteral("id")).toInt(-1);
@@ -206,6 +218,8 @@ void LspClient::handleServerRequest(const QJsonObject &message)
                method == QLatin1String("window/workDoneProgress/create") || method == QLatin1String("window/showMessageRequest") ||
                method.endsWith(QLatin1String("/refresh"))) {
         reply.insert(QStringLiteral("result"), QJsonValue::Null);
+        if (method == QLatin1String("workspace/diagnostic/refresh"))
+            QTimer::singleShot(0, this, [this] { emit notification(QStringLiteral("workspace/diagnostic/refresh"), QJsonObject()); });
     } else {
         reply.insert(QStringLiteral("error"), QJsonObject{{QStringLiteral("code"), -32601}, {QStringLiteral("message"), QStringLiteral("Method not found")}});
     }

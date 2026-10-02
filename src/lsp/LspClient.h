@@ -32,6 +32,7 @@ public:
     QString serverName() const { return m_serverName; }
     QString serverVersion() const { return m_serverVersion; }
     QString errorString() const { return m_error; }
+    QJsonObject serverCapabilities() const { return m_capabilities; }
     QStringList logLines() const { return m_log; } // the server's stderr, most recent last
 
     int request(const QString &method, const QJsonValue &params, Callback callback = {});
@@ -53,7 +54,7 @@ private:
 
     QProcess *m_proc;
     QString m_root;
-    QJsonObject m_initOptions;
+    QJsonObject m_initOptions, m_capabilities;
     State m_state = State::Idle;
     QByteArray m_buffer;
     int m_nextId = 1;

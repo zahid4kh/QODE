@@ -4,6 +4,7 @@
 #include "Island.h"
 #include "SideSections.h"
 #include "dialogs/CompilerFlagsDialog.h"
+#include "dialogs/LspInstallDialog.h"
 #include "dialogs/NewProjectDialog.h"
 #include "dialogs/RunConfigDialog.h"
 #include "project/QmakeProject.h"
@@ -16,6 +17,7 @@
 #include "git/GitPanel.h"
 #include "git/GitRepository.h"
 #include "git/PatchDialog.h"
+#include "lsp/LspInstaller.h"
 #include "lsp/LspManager.h"
 #include "palette/PalettePopup.h"
 #include "editor/CodeEditor.h"
@@ -885,8 +887,15 @@ void MainWindow::rebuildLspMenu()
             m_lspMenu->addAction(st.detail)->setEnabled(false);
         else if (!st.path.isEmpty())
             m_lspMenu->addAction(st.path)->setEnabled(false);
+        if (!st.progress.isEmpty())
+            m_lspMenu->addAction(st.progress)->setEnabled(false);
         const QString id = st.id;
         m_lspMenu->addSeparator();
+        const bool managed = st.installable && LspInstaller::isManaged(st.path);
+        if (st.installable && st.status == Status::NotFound)
+            connect(m_lspMenu->addAction(tr("Download and Set Up…")), &QAction::triggered, this, [this, id] { installLspServer(id); });
+        else if (managed)
+            connect(m_lspMenu->addAction(tr("Update / Reinstall…")), &QAction::triggered, this, [this, id] { installLspServer(id); });
         if (st.status == Status::NotFound)
             connect(m_lspMenu->addAction(tr("How to Install…")), &QAction::triggered, this, [this, id] { showLspInstallHelp(id); });
         else
@@ -897,6 +906,8 @@ void MainWindow::rebuildLspMenu()
                     [this, id] { m_lsp->setServerPath(id, {}); });
         if (st.status == Status::Running)
             connect(m_lspMenu->addAction(tr("Show Server Log…")), &QAction::triggered, this, [this, id] { showLspLog(id); });
+        if (managed)
+            connect(m_lspMenu->addAction(tr("Remove Downloaded Server…")), &QAction::triggered, this, [this, id] { removeLspServer(id); });
         m_lspMenu->addSeparator();
     }
     QString detectedFrom;
@@ -934,11 +945,15 @@ void MainWindow::updateLspStatus()
             tip = tr("%1 is not installed. Click for instructions.").arg(name);
             if (!m_lspHintShown) {
                 m_lspHintShown = true;
-                statusBar()->showMessage(tr("%1 not found — open the LSP menu to see how to install it").arg(name), 8000);
+                statusBar()->showMessage(st.installable ? tr("%1 not found — choose LSP > Download and Set Up to install it").arg(name)
+                                                        : tr("%1 not found — open the LSP menu to see how to install it").arg(name),
+                                         8000);
             }
             break;
         case Status::Starting:
             text = tr("%1 starting…").arg(name);
+            if (!st.progress.isEmpty())
+                tip = st.progress;
             break;
         case Status::Crashed:
             text = tr("%1 stopped").arg(name);
@@ -954,6 +969,10 @@ void MainWindow::updateLspStatus()
                 text += QStringLiteral("  ⚠ %1").arg(w);
             color = e ? t.gitConflict : (w ? t.gitModified : t.gitAdded);
             tip = tr("%1 — running").arg(st.detail.isEmpty() ? name : st.detail);
+            if (!st.progress.isEmpty()) { // e.g. a Gradle import: the server is up but still working
+                text += QStringLiteral("  ⟳ ") + (st.progress.size() > 40 ? st.progress.left(39) + QStringLiteral("…") : st.progress);
+                tip += QLatin1Char('\n') + st.progress;
+            }
             break;
         }
         default:
@@ -1014,6 +1033,29 @@ void MainWindow::showLspInstallHelp(const QString &serverId)
     QMessageBox box(QMessageBox::Information, tr("Language server not found"), m_lsp->installHelp(serverId), QMessageBox::Ok, this);
     box.setTextInteractionFlags(Qt::TextSelectableByMouse);
     box.exec();
+}
+
+void MainWindow::installLspServer(const QString &serverId)
+{
+    LspInstallDialog dlg(this);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    // A path chosen earlier would shadow the new install; clearing it also restarts the server.
+    m_lsp->setServerPath(serverId, {});
+    statusBar()->showMessage(tr("Kotlin language server installed"), 5000);
+}
+
+void MainWindow::removeLspServer(const QString &serverId)
+{
+    if (QMessageBox::question(this, tr("Remove downloaded server"),
+                              tr("Delete the language server downloaded by QODE (%1) and its ~/.local/bin link?").arg(LspInstaller::installRoot())) !=
+        QMessageBox::Yes)
+        return;
+    m_lsp->shutdown(); // stops the running process before its files disappear
+    QString error;
+    if (!LspInstaller::remove(&error))
+        QMessageBox::warning(this, tr("Remove downloaded server"), error);
+    m_lsp->restart(serverId);
 }
 
 void MainWindow::chooseLspServerPath(const QString &serverId)

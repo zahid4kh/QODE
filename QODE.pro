@@ -56,6 +56,7 @@ SOURCES += \
     src/dialogs/UnsavedChangesDialog.cpp \
     src/dialogs/RunConfigDialog.cpp \
     src/dialogs/CompilerFlagsDialog.cpp \
+    src/dialogs/LspInstallDialog.cpp \
     src/editor/Language.cpp \
     src/editor/SyntaxHighlighter.cpp \
     src/editor/Document.cpp \
@@ -73,6 +74,7 @@ SOURCES += \
     src/terminal/Terminal.cpp \
     src/terminal/TerminalPanel.cpp \
     src/lsp/LspClient.cpp \
+    src/lsp/LspInstaller.cpp \
     src/lsp/LspManager.cpp \
     src/lsp/LspServers.cpp \
     src/window/Island.cpp \
@@ -116,6 +118,7 @@ HEADERS += \
     src/dialogs/UnsavedChangesDialog.h \
     src/dialogs/RunConfigDialog.h \
     src/dialogs/CompilerFlagsDialog.h \
+    src/dialogs/LspInstallDialog.h \
     src/editor/Language.h \
     src/editor/SyntaxHighlighter.h \
     src/editor/Document.h \
@@ -133,6 +136,7 @@ HEADERS += \
     src/terminal/Terminal.h \
     src/terminal/TerminalPanel.h \
     src/lsp/LspClient.h \
+    src/lsp/LspInstaller.h \
     src/lsp/LspManager.h \
     src/lsp/LspServers.h \
     src/lsp/LspTypes.h \

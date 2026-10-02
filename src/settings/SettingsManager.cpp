@@ -1,9 +1,15 @@
 #include "SettingsManager.h"
 
+#include <QCryptographicHash>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QFontDatabase>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
+#include <QSaveFile>
 
 SettingsManager::SettingsManager()
     : m_settings(QStringLiteral("QODE"), QStringLiteral("QODE"))
@@ -35,23 +41,23 @@ void SettingsManager::setEditorFont(const QFont &font)
 
 int SettingsManager::tabSize() const
 {
-    return m_settings.value(QStringLiteral("editor/tabSize"), 4).toInt();
+    return qBound(1, projectValue(QStringLiteral("tabSize"), m_settings.value(QStringLiteral("editor/tabSize"), 4)).toInt(), 16);
 }
 
 void SettingsManager::setTabSize(int size)
 {
-    m_settings.setValue(QStringLiteral("editor/tabSize"), size);
+    setScopedValue(QStringLiteral("editor/tabSize"), QStringLiteral("tabSize"), size);
     emit editorSettingsChanged();
 }
 
 bool SettingsManager::useSpaces() const
 {
-    return m_settings.value(QStringLiteral("editor/useSpaces"), true).toBool();
+    return projectValue(QStringLiteral("useSpaces"), m_settings.value(QStringLiteral("editor/useSpaces"), true)).toBool();
 }
 
 void SettingsManager::setUseSpaces(bool on)
 {
-    m_settings.setValue(QStringLiteral("editor/useSpaces"), on);
+    setScopedValue(QStringLiteral("editor/useSpaces"), QStringLiteral("useSpaces"), on);
     emit editorSettingsChanged();
 }
 
@@ -106,22 +112,23 @@ void SettingsManager::setInsertFinalNewline(bool on)
 
 bool SettingsManager::autoActivateVenv() const
 {
-    return m_settings.value(QStringLiteral("terminal/autoActivateVenv"), true).toBool();
+    return projectValue(QStringLiteral("autoActivateVenv"), m_settings.value(QStringLiteral("terminal/autoActivateVenv"), true)).toBool();
 }
 
 void SettingsManager::setAutoActivateVenv(bool on)
 {
-    m_settings.setValue(QStringLiteral("terminal/autoActivateVenv"), on);
+    setScopedValue(QStringLiteral("terminal/autoActivateVenv"), QStringLiteral("autoActivateVenv"), on);
+    emit projectSettingsChanged();
 }
 
 bool SettingsManager::formatOnSave() const
 {
-    return m_settings.value(QStringLiteral("save/formatOnSave"), false).toBool();
+    return projectValue(QStringLiteral("formatOnSave"), m_settings.value(QStringLiteral("save/formatOnSave"), false)).toBool();
 }
 
 void SettingsManager::setFormatOnSave(bool on)
 {
-    m_settings.setValue(QStringLiteral("save/formatOnSave"), on);
+    setScopedValue(QStringLiteral("save/formatOnSave"), QStringLiteral("formatOnSave"), on);
     emit saveSettingsChanged();
 }
 
@@ -150,10 +157,7 @@ void SettingsManager::setShowMinimap(bool on)
 QHash<QString, QList<int>> SettingsManager::bookmarks() const
 {
     QHash<QString, QList<int>> out;
-    // QSettings hands comma-containing INI values back as a list.
-    const QVariant raw = m_settings.value(QStringLiteral("session/bookmarks"));
-    const QString json = raw.typeId() == QMetaType::QStringList ? raw.toStringList().join(QLatin1Char(',')) : raw.toString();
-    const QJsonObject o = QJsonDocument::fromJson(json.toUtf8()).object();
+    const QJsonObject o = m_data.value(QStringLiteral("bookmarks")).toObject();
     for (auto it = o.begin(); it != o.end(); ++it) {
         QList<int> lines;
         for (const QJsonValue &v : it.value().toArray())
@@ -174,7 +178,8 @@ void SettingsManager::setBookmarks(const QHash<QString, QList<int>> &bookmarks)
         if (!a.isEmpty())
             o.insert(it.key(), a);
     }
-    m_settings.setValue(QStringLiteral("session/bookmarks"), QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact)));
+    m_data.insert(QStringLiteral("bookmarks"), o);
+    saveProject();
 }
 
 bool SettingsManager::blameInline() const
@@ -223,12 +228,20 @@ void SettingsManager::setIndentGuides(bool on)
 
 QString SettingsManager::theme() const
 {
+    const QString local = m_data.value(QStringLiteral("theme")).toString();
+    if (local == QLatin1String("dark") || local == QLatin1String("light"))
+        return local;
     return m_settings.value(QStringLiteral("ui/theme"), QStringLiteral("dark")).toString();
 }
 
 void SettingsManager::setTheme(const QString &theme)
 {
-    m_settings.setValue(QStringLiteral("ui/theme"), theme);
+    if (m_projectRoot.isEmpty()) {
+        m_settings.setValue(QStringLiteral("ui/theme"), theme);
+    } else {
+        m_data.insert(QStringLiteral("theme"), theme);
+        saveProject();
+    }
     emit themeChanged(theme);
 }
 
@@ -294,22 +307,31 @@ void SettingsManager::setLastProject(const QString &p)
 
 QStringList SettingsManager::openFiles() const
 {
-    return m_settings.value(QStringLiteral("session/openFiles")).toStringList();
+    QStringList out;
+    for (const QJsonValue &v : m_data.value(QStringLiteral("session")).toObject().value(QStringLiteral("openFiles")).toArray())
+        out.append(v.toString());
+    return out;
 }
 
 void SettingsManager::setOpenFiles(const QStringList &f)
 {
-    m_settings.setValue(QStringLiteral("session/openFiles"), f);
+    QJsonObject s = m_data.value(QStringLiteral("session")).toObject();
+    s.insert(QStringLiteral("openFiles"), QJsonArray::fromStringList(f));
+    m_data.insert(QStringLiteral("session"), s);
+    saveProject();
 }
 
 QString SettingsManager::activeFile() const
 {
-    return m_settings.value(QStringLiteral("session/activeFile")).toString();
+    return m_data.value(QStringLiteral("session")).toObject().value(QStringLiteral("activeFile")).toString();
 }
 
 void SettingsManager::setActiveFile(const QString &f)
 {
-    m_settings.setValue(QStringLiteral("session/activeFile"), f);
+    QJsonObject s = m_data.value(QStringLiteral("session")).toObject();
+    s.insert(QStringLiteral("activeFile"), f);
+    m_data.insert(QStringLiteral("session"), s);
+    saveProject();
 }
 
 QString SettingsManager::lastDirectory() const
@@ -324,15 +346,18 @@ void SettingsManager::setLastDirectory(const QString &d)
 
 QString SettingsManager::runCommand(const QString &key) const
 {
-    return m_settings.value(QStringLiteral("run/") + key).toString();
+    return m_data.value(QStringLiteral("run")).toObject().value(key).toString();
 }
 
 void SettingsManager::setRunCommand(const QString &key, const QString &command)
 {
+    QJsonObject r = m_data.value(QStringLiteral("run")).toObject();
     if (command.isEmpty())
-        m_settings.remove(QStringLiteral("run/") + key);
+        r.remove(key);
     else
-        m_settings.setValue(QStringLiteral("run/") + key, command);
+        r.insert(key, command);
+    m_data.insert(QStringLiteral("run"), r);
+    saveProject();
 }
 
 QStringList SettingsManager::recentCommands() const
@@ -372,4 +397,103 @@ void SettingsManager::clearRecentProjects()
 {
     m_settings.remove(QStringLiteral("session/recentProjects"));
     emit recentProjectsChanged();
+}
+
+// --- Per-project data ---------------------------------------------------------
+
+// Project overrides live under "settings" in the project file; `fallback` is the global value.
+QVariant SettingsManager::projectValue(const QString &key, const QVariant &fallback) const
+{
+    const QJsonValue v = m_data.value(QStringLiteral("settings")).toObject().value(key);
+    return v.isUndefined() || v.isNull() ? fallback : v.toVariant();
+}
+
+// With a project open the value becomes that project's override, otherwise the global default.
+void SettingsManager::setScopedValue(const QString &globalKey, const QString &projectKey, const QVariant &value)
+{
+    if (m_projectRoot.isEmpty()) {
+        m_settings.setValue(globalKey, value);
+        return;
+    }
+    QJsonObject s = m_data.value(QStringLiteral("settings")).toObject();
+    s.insert(projectKey, QJsonValue::fromVariant(value));
+    m_data.insert(QStringLiteral("settings"), s);
+    saveProject();
+}
+
+QString SettingsManager::projectFilePath() const
+{
+    if (m_projectRoot.isEmpty())
+        return {};
+    QString name = QFileInfo(m_projectRoot).fileName();
+    name.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9._-]")), QStringLiteral("_"));
+    const QString hash = QString::fromLatin1(QCryptographicHash::hash(m_projectRoot.toUtf8(), QCryptographicHash::Sha1).toHex().left(8));
+    const QString dir = QFileInfo(m_settings.fileName()).absolutePath() + QStringLiteral("/projects");
+    return dir + QLatin1Char('/') + name + QLatin1Char('-') + hash + QStringLiteral(".json");
+}
+
+void SettingsManager::setProject(const QString &root)
+{
+    const QString before = theme();
+    m_projectRoot = root;
+    m_data = QJsonObject();
+    if (!root.isEmpty()) {
+        QFile f(projectFilePath());
+        if (f.open(QIODevice::ReadOnly))
+            m_data = QJsonDocument::fromJson(f.readAll()).object();
+        else
+            migrateLegacyProjectData(root);
+        m_data.insert(QStringLiteral("version"), 1);
+        m_data.insert(QStringLiteral("root"), root);
+        saveProject();
+    }
+    if (theme() != before)
+        emit themeChanged(theme());
+    emit editorSettingsChanged();
+    emit saveSettingsChanged();
+    emit projectSettingsChanged();
+}
+
+void SettingsManager::saveProject() const
+{
+    if (m_projectRoot.isEmpty())
+        return;
+    const QString path = projectFilePath();
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QSaveFile f(path);
+    if (f.open(QIODevice::WriteOnly)) {
+        f.write(QJsonDocument(m_data).toJson(QJsonDocument::Indented));
+        f.commit();
+    }
+}
+
+// Run commands, bookmarks and open files used to be global keys in QODE.conf. The project that
+// was open last owns them; they are moved into its file and removed from the conf.
+void SettingsManager::migrateLegacyProjectData(const QString &root)
+{
+    if (m_settings.value(QStringLiteral("session/project")).toString() != root)
+        return;
+    m_settings.beginGroup(QStringLiteral("run"));
+    QJsonObject run;
+    for (const QString &k : m_settings.childKeys())
+        run.insert(k, m_settings.value(k).toString());
+    m_settings.endGroup();
+    if (!run.isEmpty())
+        m_data.insert(QStringLiteral("run"), run);
+
+    const QVariant raw = m_settings.value(QStringLiteral("session/bookmarks"));
+    const QString json = raw.typeId() == QMetaType::QStringList ? raw.toStringList().join(QLatin1Char(',')) : raw.toString();
+    const QJsonObject bm = QJsonDocument::fromJson(json.toUtf8()).object();
+    if (!bm.isEmpty())
+        m_data.insert(QStringLiteral("bookmarks"), bm);
+
+    QJsonObject session;
+    session.insert(QStringLiteral("openFiles"), QJsonArray::fromStringList(m_settings.value(QStringLiteral("session/openFiles")).toStringList()));
+    session.insert(QStringLiteral("activeFile"), m_settings.value(QStringLiteral("session/activeFile")).toString());
+    m_data.insert(QStringLiteral("session"), session);
+
+    m_settings.remove(QStringLiteral("run"));
+    m_settings.remove(QStringLiteral("session/bookmarks"));
+    m_settings.remove(QStringLiteral("session/openFiles"));
+    m_settings.remove(QStringLiteral("session/activeFile"));
 }

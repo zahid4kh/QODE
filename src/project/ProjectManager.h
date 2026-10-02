@@ -17,9 +17,9 @@ public:
     const Project &project() const { return m_project; }
     QString root() const { return m_project.root; }
 
-    // Create `location/name` (and .qode/project.json), then open it.
+    // Create `location/name` then open it.
     bool createProject(const QString &name, const QString &location, QString *error);
-    // Opens any directory; .qode metadata is optional.
+    // Opens any directory.
     bool openProject(const QString &path, QString *error);
     void closeProject();
 
@@ -29,8 +29,6 @@ signals:
     void projectClosed();
 
 private:
-    void writeMetadata(const Project &p) const;
-
     State m_state = State::NoProject;
     Project m_project;
 };

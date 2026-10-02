@@ -197,7 +197,6 @@ MainWindow::MainWindow(QWidget *parent)
     });
     connect(m_searchPanel, &SearchPanel::replaceRequested, this, &MainWindow::replaceInFiles);
 
-    m_bookmarks = SettingsManager::instance().bookmarks();
     m_tasks->setOverridesProvider([this] {
         QHash<QString, QString> out;
         for (Document *d : m_editors->modifiedDocuments())
@@ -344,6 +343,10 @@ void MainWindow::createActions()
     themeGroup->addAction(m_darkThemeAct);
     themeGroup->addAction(m_lightThemeAct);
     (SettingsManager::instance().theme() == QLatin1String("light") ? m_lightThemeAct : m_darkThemeAct)->setChecked(true);
+    // A project can carry its own theme, so the menu follows whatever becomes active.
+    connect(&SettingsManager::instance(), &SettingsManager::themeChanged, this, [this](const QString &t) {
+        (t == QLatin1String("light") ? m_lightThemeAct : m_darkThemeAct)->setChecked(true);
+    });
 
     m_nextTabAct = make(tr("Next Tab"), QKeySequence(C | K::Key_Tab));
     m_prevTabAct = make(tr("Previous Tab"), QKeySequence(C | S | K::Key_Backtab));
@@ -388,6 +391,13 @@ void MainWindow::createActions()
     connect(m_trimAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setTrimTrailingWhitespace(on); });
     connect(m_finalNewlineAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setInsertFinalNewline(on); });
     connect(m_formatOnSaveAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setFormatOnSave(on); });
+    // Format on Save and venv activation can be overridden per project; resync the menu on project change.
+    connect(&SettingsManager::instance(), &SettingsManager::projectSettingsChanged, this, [this] {
+        auto &s = SettingsManager::instance();
+        QSignalBlocker b1(m_formatOnSaveAct), b2(m_venvAct);
+        m_formatOnSaveAct->setChecked(s.formatOnSave());
+        m_venvAct->setChecked(s.autoActivateVenv());
+    });
     connect(m_formatAct, &QAction::triggered, m_editors, &EditorManager::formatCurrent);
     connect(m_editors, &EditorManager::statusMessage, this, [this](const QString &t) { statusBar()->showMessage(t, 6000); });
 
@@ -705,12 +715,7 @@ void MainWindow::restoreSession()
         QString err;
         m_projects->openProject(project, &err); // silently skip if it can't be opened
     }
-    for (const QString &f : s.openFiles())
-        if (QFileInfo(f).isFile())
-            m_editors->openFile(f);
-    const QString active = s.activeFile();
-    if (!active.isEmpty() && QFileInfo(active).isFile())
-        m_editors->openFile(active);
+    // The project's open files are reopened by onProjectOpened.
 }
 
 // --- Projects -----------------------------------------------------------------
@@ -752,6 +757,7 @@ bool MainWindow::closeProject()
 {
     if (!m_projects->hasProject())
         return true;
+    saveSession(); // remember this project's open files before they are closed
     if (!m_editors->closeAll())
         return false;
     m_projects->closeProject();
@@ -775,6 +781,9 @@ void MainWindow::openRecentProject(const QString &path)
 
 void MainWindow::onProjectOpened(const Project &p)
 {
+    SettingsManager::instance().setProject(p.root);
+    m_bookmarks = SettingsManager::instance().bookmarks();
+    m_tasks->setBookmarks(m_bookmarks);
     SettingsManager::instance().addRecentProject(p.root);
     m_explorer->setProjectRoot(p.root);
     m_projectFiles->setRoot(p.root);
@@ -791,10 +800,22 @@ void MainWindow::onProjectOpened(const Project &p)
         m_terminal->ensureStarted();
     updateTitle();
     updateActions();
+
+    // Reopen what was open in this project last time.
+    auto &s = SettingsManager::instance();
+    for (const QString &f : s.openFiles())
+        if (QFileInfo(f).isFile())
+            m_editors->openFile(f);
+    const QString active = s.activeFile();
+    if (!active.isEmpty() && QFileInfo(active).isFile())
+        m_editors->openFile(active);
 }
 
 void MainWindow::onProjectClosed()
 {
+    SettingsManager::instance().setProject({});
+    m_bookmarks.clear();
+    m_tasks->setBookmarks(m_bookmarks);
     m_explorer->setProjectRoot({});
     m_projectFiles->setRoot({});
     m_editors->setProjectRoot({});

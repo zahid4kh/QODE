@@ -41,15 +41,6 @@ bool ProjectManager::createProject(const QString &name, const QString &location,
         return false;
     }
 
-    Project p;
-    p.root = QFileInfo(path).canonicalFilePath();
-    p.name = name.trimmed();
-    if (!QDir().mkpath(p.metadataDir())) {
-        if (error)
-            *error = QStringLiteral("Could not create the .qode directory in %1.").arg(path);
-        return false;
-    }
-    writeMetadata(p);
     return openProject(path, error);
 }
 
@@ -75,15 +66,6 @@ bool ProjectManager::openProject(const QString &path, QString *error)
     p.root = fi.canonicalFilePath();
     p.name = fi.fileName().isEmpty() ? p.root : QFileInfo(p.root).fileName();
 
-    // Optional metadata: use the stored name if present and well-formed.
-    QFile meta(p.metadataFile());
-    if (meta.open(QIODevice::ReadOnly)) {
-        const QJsonObject o = QJsonDocument::fromJson(meta.readAll()).object();
-        const QString n = o.value(QStringLiteral("name")).toString();
-        if (!n.isEmpty())
-            p.name = n;
-    }
-
     m_project = p;
     m_state = State::Open;
     emit projectOpened(m_project);
@@ -99,12 +81,4 @@ void ProjectManager::closeProject()
     m_project = Project();
     m_state = State::NoProject;
     emit projectClosed();
-}
-
-void ProjectManager::writeMetadata(const Project &p) const
-{
-    QJsonObject o;
-    o.insert(QStringLiteral("name"), p.name);
-    o.insert(QStringLiteral("version"), 1);
-    FileManager::writeFile(p.metadataFile(), QJsonDocument(o).toJson(QJsonDocument::Indented), nullptr);
 }

@@ -2,9 +2,12 @@
 
 #include <QByteArray>
 #include <QFont>
+#include <QHash>
+#include <QJsonObject>
 #include <QObject>
 #include <QSettings>
 #include <QStringList>
+#include <QVariant>
 
 class SettingsManager : public QObject
 {
@@ -44,7 +47,7 @@ public:
     bool showMinimap() const;
     void setShowMinimap(bool on);
 
-    // Bookmarked lines (0-based) per absolute file path.
+    // Bookmarked lines (0-based) per absolute file path (current project).
     QHash<QString, QList<int>> bookmarks() const;
     void setBookmarks(const QHash<QString, QList<int>> &bookmarks);
     bool blameInline() const;
@@ -56,8 +59,14 @@ public:
     bool indentGuides() const;
     void setIndentGuides(bool on);
 
-    QString theme() const; // "dark" | "light"
-    void setTheme(const QString &theme);
+    // Per-project data (theme/tab size/spaces/format-on-save/venv overrides, run commands, open files, bookmarks) lives in
+    // ~/.config/QODE/projects/<name>-<hash>.json, created when a project is opened. With no
+    // project open these accessors work on a throwaway in-memory copy that is never saved.
+    void setProject(const QString &root); // empty = no project
+    QString projectFilePath() const;
+
+    QString theme() const; // "dark" | "light"; the project's override, else the global default
+    void setTheme(const QString &theme); // sets the project's override while a project is open
 
     QByteArray windowGeometry() const;
     void setWindowGeometry(const QByteArray &geometry);
@@ -102,8 +111,16 @@ signals:
     void themeChanged(const QString &theme);
     void recentProjectsChanged();
     void saveSettingsChanged();
+    void projectSettingsChanged(); // the open project changed, or a per-project toggle did
 
 private:
     SettingsManager();
+    QVariant projectValue(const QString &key, const QVariant &fallback) const;
+    void setScopedValue(const QString &globalKey, const QString &projectKey, const QVariant &value);
+    void saveProject() const;
+    void migrateLegacyProjectData(const QString &root);
+
     QSettings m_settings;
+    QString m_projectRoot;
+    QJsonObject m_data; // the open project's JSON document
 };

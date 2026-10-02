@@ -1,7 +1,7 @@
 # QODE needs Qt 6 (Core, Gui, Widgets only)
 lessThan(QT_MAJOR_VERSION, 6): error("QODE requires Qt 6 - build with qmake6.")
 
-QT += core gui widgets
+QT += core gui widgets network
 
 # Video playback needs Qt Multimedia; without it the media panel still shows images.
 qtHaveModule(multimedia) {
@@ -23,6 +23,7 @@ INCLUDEPATH += $$PWD/src
 SOURCES += \
     src/main.cpp \
     src/app/Application.cpp \
+    src/app/InstanceRegistry.cpp \
     src/settings/SettingsManager.cpp \
     src/settings/Theme.cpp \
     src/settings/Icons.cpp \
@@ -72,6 +73,7 @@ SOURCES += \
 
 HEADERS += \
     src/app/Application.h \
+    src/app/InstanceRegistry.h \
     src/settings/SettingsManager.h \
     src/settings/Theme.h \
     src/settings/Icons.h \

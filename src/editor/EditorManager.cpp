@@ -1,3 +1,4 @@
+#include "app/InstanceRegistry.h"
 #include "EditorManager.h"
 
 #include "CodeEditor.h"
@@ -201,6 +202,12 @@ QStringList EditorManager::openFilePaths() const
     return out;
 }
 
+// Tell other QODE windows which files this one has open.
+void EditorManager::syncFileClaims()
+{
+    InstanceRegistry::instance().setClaims(InstanceRegistry::File, openFilePaths());
+}
+
 int EditorManager::count() const
 {
     return m_tabs->count();
@@ -233,6 +240,12 @@ bool EditorManager::openFile(const QString &pathIn)
     }
     if (fi.isDir()) {
         QMessageBox::warning(this, tr("Unable to open file"), tr("\"%1\" is a directory.").arg(path));
+        return false;
+    }
+    if (InstanceRegistry::instance().isHeldElsewhere(InstanceRegistry::File, path)) {
+        QMessageBox::information(this, tr("File already open"),
+                                 tr("\"%1\" is currently open in another QODE window.\n\nClose it there first, or switch to that window.")
+                                     .arg(fi.fileName()));
         return false;
     }
     if (fi.size() > kLargeFileBytes) {
@@ -340,6 +353,7 @@ EditorManager::Entry EditorManager::addDocument(Document *doc)
         editor->setIndentAfterColon(doc->languageName() == QLatin1String("Python"));
     editor->setLanguage(doc->languageName());
         emit documentStateChanged();
+        syncFileClaims();
         emit documentPathChanged(doc);
     });
     connect(editor, &QPlainTextEdit::cursorPositionChanged, this, [this, editor] {
@@ -359,6 +373,7 @@ EditorManager::Entry EditorManager::addDocument(Document *doc)
     updateCrumbs(doc);
     updateStack();
     emit countChanged(m_tabs->count());
+    syncFileClaims();
     emit documentAdded(doc);
     return {doc, editor};
 }
@@ -435,6 +450,7 @@ void EditorManager::removeAt(int index)
     // Delete the view (the pane owns it) before the document it displays.
     delete pane;
     delete e.doc;
+    syncFileClaims();
     updateStack();
     emit countChanged(m_tabs->count());
     if (m_tabs->count() == 0) {

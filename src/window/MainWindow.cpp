@@ -1,3 +1,4 @@
+#include "app/InstanceRegistry.h"
 #include "MainWindow.h"
 
 #include "Island.h"
@@ -717,7 +718,8 @@ void MainWindow::restoreSession()
 {
     auto &s = SettingsManager::instance();
     const QString project = s.lastProject();
-    if (!project.isEmpty() && QFileInfo(project).isDir()) {
+    // A project another window already has open is skipped quietly, so a second QODE starts empty.
+    if (!project.isEmpty() && QFileInfo(project).isDir() && !InstanceRegistry::instance().isHeldElsewhere(InstanceRegistry::Project, project)) {
         QString err;
         m_projects->openProject(project, &err); // silently skip if it can't be opened
     }
@@ -756,6 +758,14 @@ void MainWindow::openProject()
 
 void MainWindow::openProjectPath(const QString &path)
 {
+    if (m_projects->hasProject() && QFileInfo(path).canonicalFilePath() == m_projects->root())
+        return; // already open here
+    if (InstanceRegistry::instance().isHeldElsewhere(InstanceRegistry::Project, path)) {
+        QMessageBox::information(this, tr("Project already open"),
+                                 tr("\"%1\" is currently open in another QODE window.\n\nClose it there first, or switch to that window.")
+                                     .arg(FileManager::displayPath(path)));
+        return;
+    }
     if (m_projects->hasProject() && !closeProject())
         return;
     QString err;
@@ -793,6 +803,7 @@ void MainWindow::openRecentProject(const QString &path)
 
 void MainWindow::onProjectOpened(const Project &p)
 {
+    InstanceRegistry::instance().setClaims(InstanceRegistry::Project, {p.root});
     SettingsManager::instance().setProject(p.root);
     m_bookmarks = SettingsManager::instance().bookmarks();
     m_tasks->setBookmarks(m_bookmarks);
@@ -825,6 +836,7 @@ void MainWindow::onProjectOpened(const Project &p)
 
 void MainWindow::onProjectClosed()
 {
+    InstanceRegistry::instance().setClaims(InstanceRegistry::Project, {});
     SettingsManager::instance().setProject({});
     m_bookmarks.clear();
     m_tasks->setBookmarks(m_bookmarks);

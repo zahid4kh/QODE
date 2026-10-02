@@ -85,6 +85,7 @@ protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
 
 private:
+    void syncFileClaims();
     struct Entry {
         Document *doc;
         CodeEditor *editor;

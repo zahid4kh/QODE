@@ -102,6 +102,7 @@ private:
     void showLspInstallHelp(const QString &serverId);
     void installLspServer(const QString &serverId);
     void removeLspServer(const QString &serverId);
+    void restartApplication();
     void chooseLspServerPath(const QString &serverId);
     void showLspLog(const QString &serverId);
     void editCompilerFlags();

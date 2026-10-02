@@ -5,6 +5,7 @@
 #include "SideSections.h"
 #include "dialogs/CompilerFlagsDialog.h"
 #include "dialogs/LspInstallDialog.h"
+#include "dialogs/LspRemoveDialog.h"
 #include "dialogs/NewProjectDialog.h"
 #include "dialogs/RunConfigDialog.h"
 #include "project/QmakeProject.h"
@@ -54,7 +55,10 @@
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPainter>
+#include <QPixmap>
 #include <QProcess>
+#include <QWidgetAction>
 #include <QMimeData>
 #include <QMenu>
 #include <QPointer>
@@ -907,63 +911,129 @@ void MainWindow::createLspMenu(QMenu *menu)
     connect(menu, &QMenu::aboutToShow, this, &MainWindow::rebuildLspMenu);
 }
 
+namespace {
+
+// A non-clickable line inside a menu (headers, status text), styled with the theme.
+void addMenuLabel(QMenu *menu, const QString &html)
+{
+    auto *label = new QLabel(html);
+    label->setTextFormat(Qt::RichText);
+    label->setStyleSheet(QStringLiteral("background: transparent; padding: 4px 14px;"));
+    auto *action = new QWidgetAction(menu);
+    action->setDefaultWidget(label);
+    menu->addAction(action);
+}
+
+// "SET UP", "REMOVE", ...: a small spaced-out caption that starts a group of items.
+void addMenuSection(QMenu *menu, const QString &title, const Theme &theme, bool separator = true)
+{
+    if (separator)
+        menu->addSeparator();
+    auto *label = new QLabel(title.toUpper());
+    QFont f = label->font();
+    f.setBold(true);
+    f.setPointSizeF(qMax(7.0, f.pointSizeF() - 1.5));
+    f.setLetterSpacing(QFont::AbsoluteSpacing, 1.2);
+    label->setFont(f);
+    label->setStyleSheet(QStringLiteral("background: transparent; color: %1; padding: 6px 14px 2px 14px;").arg(theme.textMuted.name()));
+    auto *action = new QWidgetAction(menu);
+    action->setDefaultWidget(label);
+    menu->addAction(action);
+}
+
+QIcon dotIcon(const QColor &color)
+{
+    QPixmap pm(16, 16);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(Qt::NoPen);
+    p.setBrush(color);
+    p.drawEllipse(QRectF(4, 4, 8, 8));
+    return QIcon(pm);
+}
+
+} // namespace
+
 void MainWindow::rebuildLspMenu()
 {
+    // Submenus are children of the menu and are not removed by clear().
+    const QList<QMenu *> old = m_lspMenu->findChildren<QMenu *>(QString(), Qt::FindDirectChildrenOnly);
+    qDeleteAll(old);
     m_lspMenu->clear();
+    m_lspMenu->setToolTipsVisible(true);
+    const Theme theme = Theme::byName(SettingsManager::instance().theme());
     using Status = LspManager::Status;
+
+    addMenuSection(m_lspMenu, tr("Language servers"), theme, false);
     for (const LspManager::ServerState &st : m_lsp->servers()) {
-        QString state;
-        switch (st.status) {
-        case Status::Running: state = tr("running"); break;
-        case Status::Starting: state = tr("starting…"); break;
-        case Status::NotFound: state = tr("not installed"); break;
-        case Status::Crashed: state = tr("stopped"); break;
-        default: state = st.path.isEmpty() ? tr("idle") : tr("ready"); break;
-        }
-        QAction *head = m_lspMenu->addAction(QStringLiteral("%1 — %2").arg(st.name, state));
-        head->setEnabled(false);
-        if (!st.detail.isEmpty() && st.status != Status::Running)
-            m_lspMenu->addAction(st.detail)->setEnabled(false);
-        else if (!st.path.isEmpty())
-            m_lspMenu->addAction(st.path)->setEnabled(false);
-        if (!st.progress.isEmpty())
-            m_lspMenu->addAction(st.progress)->setEnabled(false);
         const QString id = st.id;
-        m_lspMenu->addSeparator();
+        QString state;
+        QColor color = theme.textMuted;
+        switch (st.status) {
+        case Status::Running: state = tr("Running"); color = theme.gitAdded; break;
+        case Status::Starting: state = tr("Starting…"); color = theme.gitModified; break;
+        case Status::NotFound: state = tr("Not installed"); break;
+        case Status::Crashed: state = tr("Stopped"); color = theme.gitConflict; break;
+        default: state = st.path.isEmpty() ? tr("Idle") : tr("Ready"); color = theme.accent; break;
+        }
+        QMenu *sub = m_lspMenu->addMenu(dotIcon(color), QStringLiteral("%1    %2").arg(st.name, state));
+        sub->setToolTipsVisible(true);
+
+        // Status block
+        QString head = QStringLiteral("<span style='font-size:11pt'><b>%1</b></span><br><span style='color:%2'>&#9679; %3</span>")
+                           .arg(st.name.toHtmlEscaped(), color.name(), state);
+        const QString where = !st.detail.isEmpty() && st.status != Status::Running ? st.detail : st.path;
+        if (!where.isEmpty())
+            head += QStringLiteral("<br><span style='color:%1'>%2</span>").arg(theme.textMuted.name(), where.toHtmlEscaped());
+        if (!st.progress.isEmpty())
+            head += QStringLiteral("<br><span style='color:%1'>%2</span>").arg(theme.textMuted.name(), st.progress.toHtmlEscaped());
+        addMenuLabel(sub, head);
+
         const bool managed = st.installable && LspInstaller::isManaged(st.path);
-        if (st.installable && st.status == Status::NotFound)
-            connect(m_lspMenu->addAction(tr("Download and Set Up…")), &QAction::triggered, this, [this, id] { installLspServer(id); });
+        const bool installed = st.status != Status::NotFound;
+
+        addMenuSection(sub, tr("Set up"), theme);
+        if (st.installable && !installed)
+            connect(sub->addAction(tr("Download and Set Up…")), &QAction::triggered, this, [this, id] { installLspServer(id); });
         else if (managed)
-            connect(m_lspMenu->addAction(tr("Update / Reinstall…")), &QAction::triggered, this, [this, id] { installLspServer(id); });
-        if (st.status == Status::NotFound)
-            connect(m_lspMenu->addAction(tr("How to Install…")), &QAction::triggered, this, [this, id] { showLspInstallHelp(id); });
-        else
-            connect(m_lspMenu->addAction(tr("Restart Server")), &QAction::triggered, this, [this, id] { m_lsp->restart(id); });
-        connect(m_lspMenu->addAction(tr("Set Server Path…")), &QAction::triggered, this, [this, id] { chooseLspServerPath(id); });
+            connect(sub->addAction(tr("Update / Reinstall…")), &QAction::triggered, this, [this, id] { installLspServer(id); });
+        if (!installed)
+            connect(sub->addAction(tr("How to Install…")), &QAction::triggered, this, [this, id] { showLspInstallHelp(id); });
+        connect(sub->addAction(tr("Set Server Path…")), &QAction::triggered, this, [this, id] { chooseLspServerPath(id); });
         if (!m_lsp->serverPath(id).isEmpty())
-            connect(m_lspMenu->addAction(tr("Auto-detect Server on PATH")), &QAction::triggered, this,
-                    [this, id] { m_lsp->setServerPath(id, {}); });
-        if (st.status == Status::Running)
-            connect(m_lspMenu->addAction(tr("Show Server Log…")), &QAction::triggered, this, [this, id] { showLspLog(id); });
-        if (managed)
-            connect(m_lspMenu->addAction(tr("Remove Downloaded Server…")), &QAction::triggered, this, [this, id] { removeLspServer(id); });
-        m_lspMenu->addSeparator();
+            connect(sub->addAction(tr("Auto-detect Server on PATH")), &QAction::triggered, this, [this, id] { m_lsp->setServerPath(id, {}); });
+
+        if (installed) {
+            addMenuSection(sub, tr("Server"), theme);
+            connect(sub->addAction(tr("Restart Server")), &QAction::triggered, this, [this, id] { m_lsp->restart(id); });
+            if (st.status == Status::Running)
+                connect(sub->addAction(tr("Show Server Log…")), &QAction::triggered, this, [this, id] { showLspLog(id); });
+        }
+
+        addMenuSection(sub, tr("Remove"), theme);
+        QAction *rm = sub->addAction(tr("Remove Language Server…"));
+        rm->setEnabled(installed);
+        rm->setToolTip(installed ? tr("Shows what is deleted or which commands to run") : tr("Not installed"));
+        connect(rm, &QAction::triggered, this, [this, id] { removeLspServer(id); });
     }
+
+    addMenuSection(m_lspMenu, tr("Project"), theme);
     QString detectedFrom;
     m_lsp->detectedFlags(&detectedFrom);
-    QAction *flags = m_lspMenu->addAction(m_lsp->hasCompileDatabase() ? tr("Project Compiler Flags…")
-                                          : !detectedFrom.isEmpty()   ? tr("Project Compiler Flags… (detected from %1)").arg(detectedFrom)
-                                                                      : tr("No compile_commands.json — edit compiler flags…"));
+    QAction *flags = m_lspMenu->addAction(m_lsp->hasCompileDatabase() ? tr("Compiler Flags…")
+                                          : !detectedFrom.isEmpty()   ? tr("Compiler Flags… (detected from %1)").arg(detectedFrom)
+                                                                      : tr("Compiler Flags… (no compile_commands.json)"));
     flags->setEnabled(m_projects->hasProject());
-    flags->setToolTip(m_projects->hasProject() ? tr("Flags used when the project has no compile_commands.json")
+    flags->setToolTip(m_projects->hasProject() ? tr("Flags used for C/C++ when the project has no compile_commands.json")
                                                : tr("Open a project first"));
-    m_lspMenu->setToolTipsVisible(true);
     connect(flags, &QAction::triggered, this, &MainWindow::editCompilerFlags);
-    m_lspMenu->addSeparator();
-    m_lspMenu->addAction(tr("%1 errors, %2 warnings in open files")
-                             .arg(m_lsp->diagnosticCount(LspDiagnostic::Error))
-                             .arg(m_lsp->diagnosticCount(LspDiagnostic::Warning)))
-        ->setEnabled(false);
+
+    addMenuSection(m_lspMenu, tr("Diagnostics"), theme);
+    addMenuLabel(m_lspMenu, tr("<span style='color:%1'>%2 errors, %3 warnings in open files</span>")
+                                .arg(theme.textMuted.name())
+                                .arg(m_lsp->diagnosticCount(LspDiagnostic::Error))
+                                .arg(m_lsp->diagnosticCount(LspDiagnostic::Warning)));
 }
 
 void MainWindow::updateLspStatus()
@@ -1164,15 +1234,25 @@ void MainWindow::installLspServer(const QString &serverId)
 
 void MainWindow::removeLspServer(const QString &serverId)
 {
-    if (QMessageBox::question(this, tr("Remove downloaded server"),
-                              tr("Delete the language server downloaded by QODE (%1) and its ~/.local/bin link?").arg(LspInstaller::installRoot())) !=
-        QMessageBox::Yes)
+    auto *dlg = new LspRemoveDialog(serverId, this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->setWindowModality(Qt::NonModal); // the terminal must stay usable for the sudo password
+    connect(dlg, &LspRemoveDialog::removalStarting, m_lsp, &LspManager::shutdown);
+    connect(dlg, &LspRemoveDialog::terminalCommandRequested, this, [this](const QString &cmd) {
+        showTerminal();
+        m_terminal->runCommand(cmd);
+    });
+    connect(dlg, &LspRemoveDialog::restartRequested, this, [this] { QTimer::singleShot(0, this, &MainWindow::restartApplication); });
+    dlg->show();
+}
+
+// Closes this window (saving the session like a normal quit) and starts QODE again once the project claim is released.
+void MainWindow::restartApplication()
+{
+    if (!close())
         return;
-    m_lsp->shutdown(); // stops the running process before its files disappear
-    QString error;
-    if (!LspInstaller::remove(&error))
-        QMessageBox::warning(this, tr("Remove downloaded server"), error);
-    m_lsp->restart(serverId);
+    QProcess::startDetached(QStringLiteral("/bin/sh"),
+                            {QStringLiteral("-c"), QStringLiteral("sleep 1; exec \"$0\""), QCoreApplication::applicationFilePath()});
 }
 
 void MainWindow::chooseLspServerPath(const QString &serverId)

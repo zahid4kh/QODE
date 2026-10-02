@@ -59,6 +59,7 @@ SOURCES += \
     src/dialogs/RunConfigDialog.cpp \
     src/dialogs/CompilerFlagsDialog.cpp \
     src/dialogs/LspInstallDialog.cpp \
+    src/dialogs/LspRemoveDialog.cpp \
     src/editor/Language.cpp \
     src/editor/SyntaxHighlighter.cpp \
     src/editor/Document.cpp \
@@ -124,6 +125,7 @@ HEADERS += \
     src/dialogs/RunConfigDialog.h \
     src/dialogs/CompilerFlagsDialog.h \
     src/dialogs/LspInstallDialog.h \
+    src/dialogs/LspRemoveDialog.h \
     src/editor/Language.h \
     src/editor/SyntaxHighlighter.h \
     src/editor/Document.h \

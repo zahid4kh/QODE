@@ -119,6 +119,9 @@ public:
 
     QString runCommand(const QString &key) const; // per file type, see RunConfigDialog::keyFor
     void setRunCommand(const QString &key, const QString &command);
+    // Dev server of a web project: {manager, script, port, command}; missing keys mean automatic.
+    QJsonObject webServer() const;
+    void setWebServer(const QJsonObject &config);
 
     // Language servers: executable override per server id ("" = look on PATH).
     QString lspServerPath(const QString &serverId) const;

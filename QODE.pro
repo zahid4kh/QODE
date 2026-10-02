@@ -22,6 +22,10 @@ DEFINES += QODE_VERSION=\\\"$$VERSION\\\"
 INCLUDEPATH += $$PWD/src
 
 SOURCES += \
+    src/webdev/WebProject.cpp \
+    src/webdev/DevServer.cpp \
+    src/webdev/DevServerBar.cpp \
+    src/webdev/ServerDialogs.cpp \
     src/main.cpp \
     src/app/Application.cpp \
     src/app/InstanceRegistry.cpp \
@@ -60,6 +64,7 @@ SOURCES += \
     src/dialogs/CompilerFlagsDialog.cpp \
     src/dialogs/LspInstallDialog.cpp \
     src/dialogs/LspRemoveDialog.cpp \
+    src/dialogs/NpmInstallDialog.cpp \
     src/editor/Language.cpp \
     src/editor/SyntaxHighlighter.cpp \
     src/editor/Document.cpp \
@@ -82,11 +87,16 @@ SOURCES += \
     src/lsp/LspInstaller.cpp \
     src/lsp/LspManager.cpp \
     src/lsp/LspServers.cpp \
+    src/lsp/NpmInstaller.cpp \
     src/window/Island.cpp \
     src/window/SideSections.cpp \
     src/window/MainWindow.cpp
 
 HEADERS += \
+    src/webdev/WebProject.h \
+    src/webdev/DevServer.h \
+    src/webdev/DevServerBar.h \
+    src/webdev/ServerDialogs.h \
     src/app/Application.h \
     src/app/InstanceRegistry.h \
     src/settings/SettingsManager.h \
@@ -126,6 +136,7 @@ HEADERS += \
     src/dialogs/CompilerFlagsDialog.h \
     src/dialogs/LspInstallDialog.h \
     src/dialogs/LspRemoveDialog.h \
+    src/dialogs/NpmInstallDialog.h \
     src/editor/Language.h \
     src/editor/SyntaxHighlighter.h \
     src/editor/Document.h \
@@ -148,6 +159,7 @@ HEADERS += \
     src/lsp/LspInstaller.h \
     src/lsp/LspManager.h \
     src/lsp/LspServers.h \
+    src/lsp/NpmInstaller.h \
     src/lsp/LspTypes.h \
     src/window/Island.h \
     src/window/SideSections.h \

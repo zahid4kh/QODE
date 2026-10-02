@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QString>
 #include <QStringList>
 
@@ -13,7 +14,15 @@ struct LspServerSpec {
     QStringList extensions; // lowercase file extensions this server handles
     bool fallbackFlags = false; // accepts initializationOptions.fallbackFlags (clangd)
     QString installHelp;    // shown when the executable is missing
-    bool installable = false; // QODE can download and set the server up itself (LspInstaller)
+    // How QODE can set the server up itself: Download = Kotlin's archive (LspInstaller), Npm = `npm install` into a private
+    // folder (NpmInstaller), shared by every server with the same managedId.
+    enum class Installer { None, Download, Npm };
+    Installer installer = Installer::None;
+    bool installable = false; // installer != None
+    QString managedId;        // folder under <data>/QODE/lsp/ (defaults to id)
+    QString managedBinary;    // launcher inside that folder, e.g. "node_modules/.bin/vscode-html-language-server"
+    bool needsNode = false;   // a Node.js script: `node` must be reachable by its "#!/usr/bin/env node" line
+    QHash<QString, QString> languageIds; // extension -> LSP language id when it differs from `id`
 
     // LSP language id for a file ("c", "cpp", ...), or an empty string.
     QString languageId(const QString &path) const;
@@ -22,7 +31,15 @@ struct LspServerSpec {
 namespace LspServers {
 // Where QODE keeps a server it downloaded itself ("<data>/QODE/lsp/<id>"), and that server's launcher.
 QString managedDir(const QString &id);
-QString managedExecutable(const QString &id); // empty when nothing is installed
+QString managedExecutable(const LspServerSpec &spec); // empty when nothing is installed
+// True when `path` resolves into the folder QODE installs this server's files into.
+bool isManaged(const LspServerSpec &spec, const QString &path);
+// Every server installed by the same managed install (the four web servers share one npm folder).
+QList<const LspServerSpec *> sharingInstall(const LspServerSpec &spec);
+// A Node.js executable: PATH first, then the usual version-manager folders (a desktop-launched QODE does not see the
+// PATH nvm / fnm set up in a shell). Empty when there is none.
+QString nodeExecutable();
+QString npmExecutable(); // next to node, else PATH
 const QList<LspServerSpec> &all();
 const LspServerSpec *forFile(const QString &path);
 const LspServerSpec *byId(const QString &id);

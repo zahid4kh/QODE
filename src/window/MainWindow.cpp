@@ -6,8 +6,10 @@
 #include "dialogs/CompilerFlagsDialog.h"
 #include "dialogs/LspInstallDialog.h"
 #include "dialogs/LspRemoveDialog.h"
+#include "dialogs/NpmInstallDialog.h"
 #include "dialogs/NewProjectDialog.h"
 #include "dialogs/RunConfigDialog.h"
+#include "webdev/DevServerBar.h"
 #include "project/QmakeProject.h"
 #include "media/MarkdownPreview.h"
 #include "tasks/TasksPanel.h"
@@ -21,6 +23,7 @@
 #include "dialogs/UnusedImportsDialog.h"
 #include "lsp/JarSource.h"
 #include "lsp/LspInstaller.h"
+#include "lsp/LspServers.h"
 #include "lsp/LspManager.h"
 #include "palette/PalettePopup.h"
 #include "editor/CodeEditor.h"
@@ -740,8 +743,33 @@ void MainWindow::createToolBar()
     tb->addAction(m_scmAct);
     tb->addAction(m_terminalAct);
     tb->addSeparator();
-    tb->addAction(m_runAct);
-    tb->addAction(m_runConfigAct);
+    m_mainToolBar = tb;
+    // A web project runs its dev server instead of single files: the server controls replace the two run buttons.
+    m_serverBar = new DevServerBar(this);
+    m_serverBarAct = tb->addWidget(m_serverBar);
+    connect(m_serverBar, &DevServerBar::availabilityChanged, this, [this] {
+        updateRunToolbar();
+        updateActions();
+    });
+    connect(m_serverBar, &DevServerBar::stateChanged, this, &MainWindow::updateActions);
+    updateRunToolbar();
+}
+
+void MainWindow::updateRunToolbar()
+{
+    const bool web = m_serverBar->isAvailable();
+    m_mainToolBar->removeAction(m_runAct);
+    m_mainToolBar->removeAction(m_runConfigAct);
+    if (!web) {
+        m_mainToolBar->insertAction(m_serverBarAct, m_runAct);
+        m_mainToolBar->insertAction(m_serverBarAct, m_runConfigAct);
+    }
+    m_serverBarAct->setVisible(web);
+    m_runAct->setText(web ? tr("Start / Restart Dev Server") : tr("Run File"));
+    m_runAct->setToolTip(web ? tr("Start the dev server, or restart it (F5)") : tr("Run this file (F5)"));
+    m_runConfigAct->setText(web ? tr("Dev Server Settings…") : tr("Run Configuration…"));
+    m_runConfigAct->setToolTip(web ? tr("Package manager, script and port of the dev server")
+                                   : tr("Set the command that runs this type of file"));
 }
 
 void MainWindow::createStatusBar()
@@ -1004,7 +1032,8 @@ void MainWindow::rebuildLspMenu()
             head += QStringLiteral("<br><span style='color:%1'>%2</span>").arg(theme.textMuted.name(), st.progress.toHtmlEscaped());
         addMenuLabel(sub, head);
 
-        const bool managed = st.installable && LspInstaller::isManaged(st.path);
+        const LspServerSpec *spec = LspServers::byId(id);
+        const bool managed = spec && LspServers::isManaged(*spec, st.path);
         const bool installed = st.status != Status::NotFound;
 
         addMenuSection(sub, tr("Set up"), theme);
@@ -1238,12 +1267,26 @@ void MainWindow::showLspInstallHelp(const QString &serverId)
 
 void MainWindow::installLspServer(const QString &serverId)
 {
-    LspInstallDialog dlg(this);
-    if (dlg.exec() != QDialog::Accepted)
+    const LspServerSpec *spec = LspServers::byId(serverId);
+    if (!spec)
         return;
-    // A path chosen earlier would shadow the new install; clearing it also restarts the server.
-    m_lsp->setServerPath(serverId, {});
-    statusBar()->showMessage(tr("Kotlin language server installed"), 5000);
+    QString what;
+    if (spec->installer == LspServerSpec::Installer::Npm) {
+        NpmInstallDialog dlg(this);
+        if (dlg.exec() != QDialog::Accepted)
+            return;
+        what = tr("Web language servers");
+    } else {
+        LspInstallDialog dlg(this);
+        if (dlg.exec() != QDialog::Accepted)
+            return;
+        what = tr("Kotlin language server");
+    }
+    // A path chosen earlier would shadow the new install; clearing it also restarts the server. One install can
+    // provide several servers (the web ones), so all of them are refreshed.
+    for (const LspServerSpec *s : LspServers::sharingInstall(*spec))
+        m_lsp->setServerPath(s->id, {});
+    statusBar()->showMessage(tr("%1 installed").arg(what), 5000);
 }
 
 void MainWindow::removeLspServer(const QString &serverId)
@@ -1333,8 +1376,13 @@ void MainWindow::openProjectPath(const QString &path)
     QString err;
     if (!m_projects->openProject(path, &err))
         QMessageBox::warning(this, tr("Unable to open project"), tr("Unable to open project.\n\nPath:\n%1\n\nReason:\n%2").arg(FileManager::displayPath(path), err));
-    else
+    else {
         SettingsManager::instance().setLastDirectory(QFileInfo(path).absolutePath());
+        // The project's saved layout may have the sidebar hidden; opening a project yourself with no file tree and the
+        // welcome page still showing looks like nothing happened.
+        if (!m_explorerAct->isChecked())
+            m_explorerAct->setChecked(true);
+    }
 }
 
 bool MainWindow::closeProject()
@@ -1368,6 +1416,7 @@ void MainWindow::onProjectOpened(const Project &p)
     InstanceRegistry::instance().setClaims(InstanceRegistry::Project, {p.root});
     SettingsManager::instance().setProject(p.root);
     m_lsp->setProjectRoot(p.root);
+    m_serverBar->setProjectRoot(p.root);
     m_bookmarks = SettingsManager::instance().bookmarks();
     m_tasks->setBookmarks(m_bookmarks);
     SettingsManager::instance().addRecentProject(p.root);
@@ -1405,6 +1454,7 @@ void MainWindow::onProjectClosed()
     InstanceRegistry::instance().setClaims(InstanceRegistry::Project, {});
     SettingsManager::instance().setProject({});
     m_lsp->setProjectRoot({});
+    m_serverBar->setProjectRoot({});
     m_bookmarks.clear();
     m_tasks->setBookmarks(m_bookmarks);
     m_explorer->setProjectRoot({});
@@ -1464,8 +1514,13 @@ void MainWindow::updateActions()
     for (QAction *a : {m_foldAct, m_unfoldAct, m_foldAllAct, m_unfoldAllAct})
         a->setEnabled(hasDoc);
     m_replaceAct->setEnabled(hasDoc);
-    m_runAct->setEnabled(!currentFilePath().isEmpty() || (hasDoc && m_editors->currentDocument()->isUntitled()));
-    m_runConfigAct->setEnabled(!currentFilePath().isEmpty());
+    if (m_serverBar && m_serverBar->isAvailable()) {
+        m_runAct->setEnabled(true);
+        m_runConfigAct->setEnabled(true);
+    } else {
+        m_runAct->setEnabled(!currentFilePath().isEmpty() || (hasDoc && m_editors->currentDocument()->isUntitled()));
+        m_runConfigAct->setEnabled(!currentFilePath().isEmpty());
+    }
 
     const bool repo = m_git->isRepo();
     const QString path = currentFilePath();
@@ -1615,6 +1670,10 @@ void MainWindow::showTerminal()
 
 void MainWindow::configureRun()
 {
+    if (m_serverBar->isAvailable()) {
+        m_serverBar->configure();
+        return;
+    }
     const QString path = currentFilePath();
     if (path.isEmpty())
         return;
@@ -1643,6 +1702,16 @@ void MainWindow::configureRun()
 
 void MainWindow::runCurrentFile()
 {
+    // In a web project F5 means the dev server, unless this file type has a command of its own.
+    if (m_serverBar->isAvailable()) {
+        const QString file = currentFilePath();
+        if (file.isEmpty() || SettingsManager::instance().runCommand(RunConfigDialog::keyFor(file)).isEmpty()) {
+            if (!m_editors->saveAll())
+                return;
+            m_serverBar->start(); // restarts when it is already running
+            return;
+        }
+    }
     Document *doc = m_editors->currentDocument();
     if (!doc)
         return;
@@ -2029,6 +2098,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
         m_terminalHeight = m_vsplit->sizes().value(1, m_terminalHeight);
     s.setTerminalHeight(m_terminalHeight);
     m_terminal->stop();
+    m_serverBar->shutdown();
     m_lsp->shutdown();
     event->accept();
 }

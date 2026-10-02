@@ -400,7 +400,7 @@ void LspInstaller::smokeTest()
         }
         succeed();
     });
-    m_proc->start(LspServers::managedExecutable(QStringLiteral("kotlin")), {QStringLiteral("--version")});
+    m_proc->start(LspServers::managedExecutable(*LspServers::byId(QStringLiteral("kotlin"))), {QStringLiteral("--version")});
     timeout->start(60000);
 }
 
@@ -414,5 +414,5 @@ void LspInstaller::succeed()
     QDir(workDir()).removeRecursively();
     m_active = false;
     emit progress(-1, 0);
-    emit finished(LspServers::managedExecutable(QStringLiteral("kotlin")), m_note.trimmed());
+    emit finished(LspServers::managedExecutable(*LspServers::byId(QStringLiteral("kotlin"))), m_note.trimmed());
 }

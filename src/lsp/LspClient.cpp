@@ -5,6 +5,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QTimer>
 #include <QUrl>
 
@@ -94,6 +95,13 @@ LspClient::~LspClient()
         m_proc->kill();
         m_proc->waitForFinished(300);
     }
+}
+
+void LspClient::prependToPath(const QString &dir)
+{
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.insert(QStringLiteral("PATH"), dir + QLatin1Char(':') + env.value(QStringLiteral("PATH")));
+    m_proc->setProcessEnvironment(env);
 }
 
 void LspClient::start()

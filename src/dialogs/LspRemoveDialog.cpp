@@ -2,6 +2,7 @@
 
 #include "lsp/JarSource.h"
 #include "lsp/LspInstaller.h"
+#include "lsp/NpmInstaller.h"
 #include "lsp/LspServers.h"
 #include "settings/SettingsManager.h"
 
@@ -109,6 +110,8 @@ LspRemoveDialog::LspRemoveDialog(const QString &serverId, QWidget *parent) : QDi
 
     if (serverId == QLatin1String("kotlin"))
         buildManaged();
+    else if (spec && spec->installer == LspServerSpec::Installer::Npm)
+        buildNpm();
     else
         buildSystem();
 }
@@ -227,9 +230,12 @@ void LspRemoveDialog::runNext()
 {
     if (m_next >= m_steps.size()) {
         // The saved path would otherwise keep pointing at a file that no longer exists.
-        const QString configured = SettingsManager::instance().lspServerPath(m_id);
-        if (!configured.isEmpty() && LspInstaller::isManaged(configured))
-            SettingsManager::instance().setLspServerPath(m_id, {});
+        if (const LspServerSpec *spec = LspServers::byId(m_id))
+            for (const LspServerSpec *s : LspServers::sharingInstall(*spec)) {
+                const QString configured = SettingsManager::instance().lspServerPath(s->id);
+                if (!configured.isEmpty() && LspServers::isManaged(*s, configured))
+                    SettingsManager::instance().setLspServerPath(s->id, {});
+            }
         finish(!m_failed);
         return;
     }
@@ -281,11 +287,35 @@ void LspRemoveDialog::finish(bool ok)
 {
     m_running = false;
     log(QString());
-    log(ok ? tr("Finished. The Kotlin language server has been removed.") : tr("Finished with errors. Some files could not be removed; see the messages above."));
+    const bool web = m_id != QLatin1String("kotlin");
+    log(ok ? (web ? tr("Finished. The web language servers have been removed.") : tr("Finished. The Kotlin language server has been removed.")) : tr("Finished with errors. Some files could not be removed; see the messages above."));
     m_primary->hide();
     m_close->setEnabled(true);
     askRestart(ok ? tr("Restart QODE so the language server state is fully reset?")
                   : tr("Restart QODE after checking the messages above?"));
+}
+
+// --- Servers installed with npm (TypeScript / JavaScript, HTML, CSS, JSON) -----------------------------
+
+void LspRemoveDialog::buildNpm()
+{
+    const QString root = NpmInstaller::installRoot();
+    m_intro->setText(tr("<b>Remove the web language servers</b> that QODE installed with npm: TypeScript / JavaScript, HTML, "
+                        "CSS and JSON share one folder, so all four go together. Nothing outside your home folder is touched "
+                        "and no administrator rights are needed. This is the exact command that will run:"));
+    m_steps.clear();
+    m_steps.append({tr("Delete the installed servers (about %1)").arg(QLocale().formattedDataSize(dirSize(root))),
+                    QStringLiteral("rm -rf %1").arg(shown(root)), root, false});
+    for (const Step &s : std::as_const(m_steps)) {
+        log(QStringLiteral("# %1").arg(s.text));
+        log(QStringLiteral("$ %1").arg(s.display));
+    }
+    log(QStringLiteral("# %1").arg(tr("Forget the saved server paths (if they pointed to this install)")));
+
+    m_secondary->hide();
+    m_primary->setText(tr("Remove"));
+    m_primary->setDefault(true);
+    connect(m_primary, &QPushButton::clicked, this, &LspRemoveDialog::startManaged);
 }
 
 // --- A system package (clangd) -------------------------------------------------------------------------

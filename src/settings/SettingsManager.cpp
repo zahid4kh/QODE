@@ -463,6 +463,20 @@ void SettingsManager::setRunCommand(const QString &key, const QString &command)
     saveProject();
 }
 
+QJsonObject SettingsManager::webServer() const
+{
+    return m_data.value(QStringLiteral("webServer")).toObject();
+}
+
+void SettingsManager::setWebServer(const QJsonObject &config)
+{
+    if (config.isEmpty())
+        m_data.remove(QStringLiteral("webServer"));
+    else
+        m_data.insert(QStringLiteral("webServer"), config);
+    saveProject();
+}
+
 QStringList SettingsManager::recentCommands() const
 {
     return m_settings.value(QStringLiteral("session/recentCommands")).toStringList();

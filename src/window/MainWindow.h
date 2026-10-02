@@ -9,6 +9,7 @@
 #include <QPointer>
 
 class CodeEditor;
+class DevServerBar;
 class DiffDialog;
 class Document;
 class QTimer;
@@ -80,6 +81,7 @@ private:
     void hideMedia();
     void runCurrentFile();
     void configureRun();
+    void updateRunToolbar();
     void about();
     void showCommandPalette();
     void showGoToSymbol();
@@ -161,6 +163,9 @@ private:
     QAction *m_explorerAct, *m_terminalAct, *m_runAct, *m_runConfigAct, *m_venvAct, *m_fullscreenAct, *m_wordWrapAct, *m_darkThemeAct, *m_lightThemeAct;
     QAction *m_nextTabAct, *m_prevTabAct, *m_splitRightAct, *m_splitDownAct, *m_aboutAct, *m_paletteAct, *m_quickOpenAct, *m_gotoLineAct, *m_gotoSymbolAct, *m_gotoDefinitionAct, *m_searchAct, *m_matchBracketAct, *m_indentGuidesAct, *m_stickyAct, *m_blameInlineAct, *m_bookmarkToggleAct, *m_bookmarkNextAct, *m_bookmarkPrevAct, *m_showBookmarksAct, *m_showTodosAct, *m_previewAct, *m_newTerminalAct, *m_blameGutterAct, *m_minimapAct, *m_breadcrumbsAct;
     QMenu *m_recentMenu;
+    DevServerBar *m_serverBar = nullptr;
+    QAction *m_serverBarAct = nullptr;
+    QToolBar *m_mainToolBar = nullptr;
     QAction *m_autoSaveOffAct, *m_autoSaveDelayAct, *m_autoSaveFocusAct, *m_trimAct, *m_finalNewlineAct, *m_formatOnSaveAct, *m_formatAct;
     QAction *m_foldAct, *m_unfoldAct, *m_foldAllAct, *m_unfoldAllAct;
 

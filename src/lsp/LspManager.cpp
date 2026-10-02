@@ -105,6 +105,15 @@ void LspManager::startServer(Server &s, const QString &rootPath)
                   configured.isEmpty() ? tr("not found on PATH") : tr("%1 is not an executable file").arg(configured));
         return;
     }
+    QString nodeDir;
+    if (s.spec->needsNode) {
+        const QString node = LspServers::nodeExecutable();
+        if (node.isEmpty()) {
+            setStatus(s, Status::NotFound, tr("Node.js not found — install Node.js (the server is a Node.js program)"));
+            return;
+        }
+        nodeDir = QFileInfo(node).absolutePath();
+    }
     QJsonObject options;
     if (s.spec->fallbackFlags) {
         QStringList flags;
@@ -115,6 +124,16 @@ void LspManager::startServer(Server &s, const QString &rootPath)
         flags += parseFlags(projectFlagsText(), rootPath); // the user's lines come last and win
         if (!flags.isEmpty())
             options.insert(QStringLiteral("fallbackFlags"), QJsonArray::fromStringList(flags));
+    }
+    if (s.spec->id == QLatin1String("typescript")) {
+        // typescript-language-server does not look next to itself for TypeScript: use the project's own version when it
+        // has one (so the editor agrees with its build), otherwise the copy installed together with the server.
+        const QString rel = QStringLiteral("node_modules/typescript/lib/tsserver.js");
+        for (const QString &dir : {rootPath, LspServers::managedDir(s.spec->managedId)})
+            if (QFileInfo::exists(dir + QLatin1Char('/') + rel)) {
+                options.insert(QStringLiteral("tsserver"), QJsonObject{{QStringLiteral("path"), dir + QLatin1Char('/') + rel}});
+                break;
+            }
     }
     // {cache}: a folder per server and project for the server's own indexes (survives restarts, never in the project).
     QStringList args = s.spec->arguments;
@@ -128,6 +147,8 @@ void LspManager::startServer(Server &s, const QString &rootPath)
     s.progress.clear();
     s.state.progress.clear();
     s.client = new LspClient(exe, args, rootPath, options, this);
+    if (!nodeDir.isEmpty())
+        s.client->prependToPath(nodeDir);
     s.client->setApplyEditHandler([this](const QJsonObject &edit) { return handleApplyEdit(edit); });
     const QString id = s.spec->id;
     connect(s.client, &LspClient::ready, this, [this, id] { onServerReady(id); });

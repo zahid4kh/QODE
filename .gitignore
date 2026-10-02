@@ -6,3 +6,5 @@ staging_qode/
 build-deb/
 debian-staging-script
 *.deb
+docs/node_modules
+docs/.next

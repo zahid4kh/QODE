@@ -35,7 +35,7 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = nullptr);
 
-    void openInitialPaths(const QStringList &paths);
+    void openInitialPaths(const QStringList &paths, bool restoreLastSession = true);
 
 protected:
     void closeEvent(QCloseEvent *event) override;
@@ -51,6 +51,7 @@ private:
     void saveSession();
     void restoreSession();
 
+    void newWindow();
     void newProject();
     void openProject();
     void openProjectPath(const QString &path);
@@ -126,7 +127,7 @@ private:
     QSplitter *m_vsplit;
     int m_terminalHeight = 240;
 
-    QAction *m_newProjectAct, *m_openProjectAct, *m_closeProjectAct, *m_exitAct;
+    QAction *m_newWindowAct, *m_newProjectAct, *m_openProjectAct, *m_closeProjectAct, *m_exitAct;
     QAction *m_newFileAct, *m_openFileAct, *m_saveAct, *m_saveAsAct, *m_saveAllAct, *m_closeFileAct;
     QAction *m_undoAct, *m_redoAct, *m_cutAct, *m_copyAct, *m_pasteAct, *m_selectAllAct, *m_findAct, *m_replaceAct;
     QAction *m_projNewFileAct, *m_projNewFolderAct, *m_openProjectFolderAct;

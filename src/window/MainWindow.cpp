@@ -45,6 +45,7 @@
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QProcess>
 #include <QMimeData>
 #include <QMenu>
 #include <QPointer>
@@ -265,6 +266,7 @@ void MainWindow::createActions()
     const auto S = Qt::SHIFT;
     const auto A = Qt::ALT;
 
+    m_newWindowAct = make(tr("New Window"), QKeySequence(C | A | K::Key_N));
     m_newProjectAct = make(tr("New Project…"), QKeySequence(C | S | K::Key_N));
     m_openProjectAct = make(tr("Open Project…"), QKeySequence(C | S | K::Key_O), QStringLiteral(":/new-icons/folder.svg"));
     m_closeProjectAct = make(tr("Close Project"), QKeySequence(C | S | K::Key_W), QStringLiteral(":/new-icons/x.svg"));
@@ -407,6 +409,7 @@ void MainWindow::createActions()
     m_unfoldAllAct = make(tr("Unfold All"), QKeySequence(QStringLiteral("Ctrl+K, Ctrl+J")));
     m_searchAct = make(tr("Find in Files"), QKeySequence(C | S | K::Key_F), QStringLiteral(":/new-icons/search.svg"));
 
+    connect(m_newWindowAct, &QAction::triggered, this, &MainWindow::newWindow);
     connect(m_newProjectAct, &QAction::triggered, this, &MainWindow::newProject);
     connect(m_openProjectAct, &QAction::triggered, this, &MainWindow::openProject);
     connect(m_openProjectFolderAct, &QAction::triggered, this, &MainWindow::openProject);
@@ -487,6 +490,8 @@ void MainWindow::createActions()
 void MainWindow::createMenus()
 {
     QMenu *file = menuBar()->addMenu(tr("&File"));
+    file->addAction(m_newWindowAct);
+    file->addSeparator();
     file->addAction(m_newProjectAct);
     file->addAction(m_openProjectAct);
     m_recentMenu = file->addMenu(tr("Open Recent"));
@@ -679,10 +684,11 @@ void MainWindow::restoreSettings()
 
 // --- Startup / session ------------------------------------------------------
 
-void MainWindow::openInitialPaths(const QStringList &paths)
+void MainWindow::openInitialPaths(const QStringList &paths, bool restoreLastSession)
 {
     if (paths.isEmpty()) {
-        restoreSession();
+        if (restoreLastSession)
+            restoreSession();
         return;
     }
     bool projectOpened = false;
@@ -719,6 +725,12 @@ void MainWindow::restoreSession()
 }
 
 // --- Projects -----------------------------------------------------------------
+
+// Every window is its own process: no shared state, and one crashing or closing never affects another.
+void MainWindow::newWindow()
+{
+    QProcess::startDetached(QCoreApplication::applicationFilePath(), {QStringLiteral("--new-window")});
+}
 
 void MainWindow::newProject()
 {

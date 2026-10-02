@@ -6,4 +6,6 @@ cd "$(dirname "$0")"
 if [[ ! -x build/qode ]]; then
     ./compile.sh
 fi
+
+clear
 exec ./build/qode "$@"

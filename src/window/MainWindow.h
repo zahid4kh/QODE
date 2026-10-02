@@ -105,6 +105,8 @@ private:
     void showLspLog(const QString &serverId);
     void editCompilerFlags();
     void goToDefinition(CodeEditor *editor, int line, int column);
+    void showCodeActions(Document *doc, CodeEditor *editor, int startLine, int startColumn, int endLine, int endColumn);
+    bool applyWorkspaceEdit(const QJsonObject &edit);
 
     // Git
     void createGitActions();

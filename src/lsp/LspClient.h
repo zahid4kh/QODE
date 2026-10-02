@@ -38,6 +38,8 @@ public:
     int request(const QString &method, const QJsonValue &params, Callback callback = {});
     void notify(const QString &method, const QJsonValue &params);
     void cancel(int id);
+    // Answers the server's workspace/applyEdit (WorkspaceEdit in, true when every change was applied).
+    void setApplyEditHandler(std::function<bool(const QJsonObject &edit)> handler) { m_applyEdit = std::move(handler); }
 
 signals:
     void ready();
@@ -61,5 +63,6 @@ private:
     QHash<int, Callback> m_pending;
     QString m_serverName, m_serverVersion, m_error;
     QStringList m_log;
+    std::function<bool(const QJsonObject &)> m_applyEdit;
     bool m_exiting = false; // we asked it to leave
 };

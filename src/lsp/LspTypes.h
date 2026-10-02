@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QString>
 #include <QVector>
 
@@ -12,6 +14,7 @@ struct LspDiagnostic {
     QString message;
     QString source;
     QString code;
+    QJsonObject raw; // as sent by the server; code action requests hand it back
 };
 
 // A place in a file (0-based line, UTF-16 column), e.g. a definition.
@@ -40,4 +43,13 @@ struct LspCompletionItem {
     bool hasEdit = false;
     LspTextEdit edit;                     // replaces the prefix the server saw
     QVector<LspTextEdit> additionalEdits; // e.g. an #include line
+    QString command;      // run after accepting (Kotlin: jetbrains.kotlin.completion.apply adds the import and inserts the text)
+    QJsonArray commandArgs;
+};
+
+// One entry of a textDocument/codeAction answer (quick fix, refactoring, "organize imports").
+struct LspCodeAction {
+    QString title;
+    QString kind;
+    QJsonObject json; // the whole CodeAction; its `edit` and/or `command` are applied when chosen
 };

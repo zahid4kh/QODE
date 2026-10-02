@@ -39,6 +39,12 @@ LspClient::LspClient(const QString &program, const QStringList &arguments, const
             {QStringLiteral("diagnostic"), QJsonObject{{QStringLiteral("dynamicRegistration"), false}}}, // pull model (Kotlin)
             {QStringLiteral("hover"), QJsonObject{{QStringLiteral("contentFormat"), QJsonArray{QStringLiteral("markdown"), QStringLiteral("plaintext")}}}},
             {QStringLiteral("definition"), QJsonObject{{QStringLiteral("linkSupport"), true}}},
+            {QStringLiteral("codeAction"),
+             QJsonObject{{QStringLiteral("codeActionLiteralSupport"),
+                          QJsonObject{{QStringLiteral("codeActionKind"),
+                                       QJsonObject{{QStringLiteral("valueSet"),
+                                                    QJsonArray{QStringLiteral("quickfix"), QStringLiteral("refactor"), QStringLiteral("source"),
+                                                               QStringLiteral("source.organizeImports")}}}}}}}},
             {QStringLiteral("completion"),
              QJsonObject{{QStringLiteral("contextSupport"), true},
                          {QStringLiteral("completionItem"),
@@ -57,6 +63,9 @@ LspClient::LspClient(const QString &program, const QStringList &arguments, const
                                     {QStringLiteral("name"), QFileInfo(m_root).fileName()}}}},
             {QStringLiteral("capabilities"),
              QJsonObject{{QStringLiteral("textDocument"), textDocument},
+                         {QStringLiteral("workspace"),
+                          QJsonObject{{QStringLiteral("applyEdit"), true},
+                                      {QStringLiteral("workspaceEdit"), QJsonObject{{QStringLiteral("documentChanges"), true}}}}},
                          {QStringLiteral("window"), QJsonObject{{QStringLiteral("workDoneProgress"), true}}},
                          {QStringLiteral("general"), QJsonObject{{QStringLiteral("positionEncodings"), QJsonArray{QStringLiteral("utf-16")}}}}}},
         };
@@ -213,7 +222,8 @@ void LspClient::handleServerRequest(const QJsonObject &message)
             nulls.append(QJsonValue::Null);
         reply.insert(QStringLiteral("result"), nulls);
     } else if (method == QLatin1String("workspace/applyEdit")) {
-        reply.insert(QStringLiteral("result"), QJsonObject{{QStringLiteral("applied"), false}});
+        const bool ok = m_applyEdit && m_applyEdit(message.value(QStringLiteral("params")).toObject().value(QStringLiteral("edit")).toObject());
+        reply.insert(QStringLiteral("result"), QJsonObject{{QStringLiteral("applied"), ok}});
     } else if (method == QLatin1String("client/registerCapability") || method == QLatin1String("client/unregisterCapability") ||
                method == QLatin1String("window/workDoneProgress/create") || method == QLatin1String("window/showMessageRequest") ||
                method.endsWith(QLatin1String("/refresh"))) {

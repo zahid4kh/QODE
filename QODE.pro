@@ -15,6 +15,7 @@ CONFIG -= app_bundle
 TEMPLATE = app
 TARGET = qode
 VERSION = 0.1.0
+LIBS += -lz # JarSource reads library source jars
 DEFINES += QT_DEPRECATED_WARNINGS QT_NO_CAST_TO_ASCII QT_NO_CAST_FROM_BYTEARRAY
 DEFINES += QODE_VERSION=\\\"$$VERSION\\\"
 
@@ -74,6 +75,7 @@ SOURCES += \
     src/terminal/Terminal.cpp \
     src/terminal/TerminalPanel.cpp \
     src/lsp/LspClient.cpp \
+    src/lsp/JarSource.cpp \
     src/lsp/LspInstaller.cpp \
     src/lsp/LspManager.cpp \
     src/lsp/LspServers.cpp \
@@ -136,6 +138,7 @@ HEADERS += \
     src/terminal/Terminal.h \
     src/terminal/TerminalPanel.h \
     src/lsp/LspClient.h \
+    src/lsp/JarSource.h \
     src/lsp/LspInstaller.h \
     src/lsp/LspManager.h \
     src/lsp/LspServers.h \

@@ -17,6 +17,7 @@
 #include "git/GitPanel.h"
 #include "git/GitRepository.h"
 #include "git/PatchDialog.h"
+#include "lsp/JarSource.h"
 #include "lsp/LspInstaller.h"
 #include "lsp/LspManager.h"
 #include "palette/PalettePopup.h"
@@ -142,6 +143,7 @@ MainWindow::MainWindow(QWidget *parent)
     setCentralWidget(m_hsplit);
 
     m_lsp = new LspManager(this);
+    m_lsp->setApplyEditHandler([this](const QJsonObject &edit) { return applyWorkspaceEdit(edit); });
     createActions();
     createMenus();
     createToolBar();
@@ -246,6 +248,16 @@ MainWindow::MainWindow(QWidget *parent)
                     });
                 });
         ed->setDefinitionAvailable([this, doc] { return m_lsp->isServed(doc); });
+        if (JarSource::isLibraryPath(doc->filePath()))
+            ed->setReadOnly(true); // library source unpacked by Go to Definition
+        // Kotlin completions add their import (and insert the text) through a server command.
+        ed->setCompletionCommandRunner([this, doc](const LspCompletionItem &item, int line, int column, std::function<void(bool)> finished) {
+            if (!m_lsp->supportsCommand(doc, item.command))
+                return false;
+            m_lsp->runCompletionCommand(doc, item, line, column, std::move(finished));
+            return true;
+        });
+        connect(ed, &CodeEditor::codeActionsRequested, this, [this, doc, ed](int sl, int sc, int el, int ec) { showCodeActions(doc, ed, sl, sc, el, ec); });
         connect(ed, &CodeEditor::definitionRequested, this, [this, ed](int line, int column) { goToDefinition(ed, line, column); });
         connect(ed, &CodeEditor::bookmarksChanged, this, [this, doc, ed] {
             if (!doc->isUntitled())
@@ -1017,6 +1029,58 @@ void MainWindow::goToDefinition(CodeEditor *editor, int line, int column)
         }
         menu.exec(QCursor::pos());
     });
+}
+
+// Alt+Enter: the server's quick fixes ("Import → java.io.File") and refactorings for the caret / selection.
+void MainWindow::showCodeActions(Document *doc, CodeEditor *editor, int startLine, int startColumn, int endLine, int endColumn)
+{
+    if (!m_lsp->isServed(doc)) {
+        statusBar()->showMessage(tr("Quick fixes need a running language server for this file"), 4000);
+        return;
+    }
+    QPointer<CodeEditor> guard(editor);
+    m_lsp->codeActions(doc, startLine, startColumn, endLine, endColumn, [this, doc, guard](const QVector<LspCodeAction> &found) {
+        if (!guard)
+            return;
+        QVector<LspCodeAction> actions = found;
+        auto rank = [](const LspCodeAction &a) { return a.kind.startsWith(QLatin1String("quickfix")) ? 0 : a.kind.startsWith(QLatin1String("source")) ? 1 : 2; };
+        std::stable_sort(actions.begin(), actions.end(), [&](const LspCodeAction &a, const LspCodeAction &b) { return rank(a) < rank(b); });
+        if (actions.isEmpty()) {
+            statusBar()->showMessage(tr("No quick fixes available here"), 3000);
+            return;
+        }
+        auto *menu = new QMenu(guard);
+        menu->setAttribute(Qt::WA_DeleteOnClose);
+        for (const LspCodeAction &a : std::as_const(actions)) {
+            QString title = a.title;
+            title.replace(QLatin1Char('&'), QStringLiteral("&&"));
+            connect(menu->addAction(title), &QAction::triggered, this, [this, doc, a] {
+                m_lsp->runCodeAction(doc, a, [this](bool ok) {
+                    if (!ok)
+                        statusBar()->showMessage(tr("The language server could not apply that action"), 4000);
+                });
+            });
+        }
+        menu->popup(guard->viewport()->mapToGlobal(guard->cursorRect().bottomLeft() + QPoint(0, 2)));
+    });
+}
+
+// A WorkspaceEdit from the server (import added, rename, ...): open files are edited in place as one undo step each.
+bool MainWindow::applyWorkspaceEdit(const QJsonObject &edit)
+{
+    bool ok = false;
+    const QHash<QString, QVector<LspTextEdit>> byPath = LspManager::editsOf(edit, &ok);
+    if (!ok || byPath.isEmpty())
+        return false;
+    for (auto it = byPath.constBegin(); it != byPath.constEnd(); ++it) {
+        Document *doc = m_editors->documentForPath(it.key());
+        if (!doc && m_editors->openFile(it.key()))
+            doc = m_editors->documentForPath(it.key());
+        CodeEditor *ed = doc ? m_editors->editorFor(doc) : nullptr;
+        if (!ed || !ed->applyTextEdits(it.value()))
+            return false;
+    }
+    return true;
 }
 
 void MainWindow::editCompilerFlags()

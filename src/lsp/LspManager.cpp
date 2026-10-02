@@ -1,5 +1,6 @@
 #include "LspManager.h"
 
+#include "JarSource.h"
 #include "LspClient.h"
 #include "LspServers.h"
 #include "editor/Document.h"
@@ -19,7 +20,11 @@
 namespace {
 constexpr int kMaxRestarts = 2;
 constexpr int kChangeDelayMs = 200;
-QString uriFor(const QString &path) { return QUrl::fromLocalFile(path).toString(); }
+QString uriFor(const QString &path)
+{
+    const QString jar = JarSource::uriForPath(path); // unpacked library source: the server knows it by its jar URI
+    return jar.isEmpty() ? QUrl::fromLocalFile(path).toString() : jar;
+}
 } // namespace
 
 LspManager::LspManager(QObject *parent) : QObject(parent), m_changeTimer(new QTimer(this))
@@ -123,6 +128,7 @@ void LspManager::startServer(Server &s, const QString &rootPath)
     s.progress.clear();
     s.state.progress.clear();
     s.client = new LspClient(exe, args, rootPath, options, this);
+    s.client->setApplyEditHandler(m_applyEdit);
     const QString id = s.spec->id;
     connect(s.client, &LspClient::ready, this, [this, id] { onServerReady(id); });
     connect(s.client, &LspClient::stopped, this, [this, id](bool crashed) { onServerStopped(id, crashed); });
@@ -341,6 +347,8 @@ void LspManager::track(Document *doc)
     const LspServerSpec *spec = LspServers::forFile(doc->filePath());
     if (!spec)
         return;
+    if (JarSource::isLibraryPath(doc->filePath()) && JarSource::uriForPath(doc->filePath()).isEmpty())
+        return; // unpacked in an earlier session: the server cannot map it back to its jar
     Tracked t;
     t.path = doc->filePath();
     t.uri = uriFor(t.path);
@@ -516,7 +524,7 @@ void addLocation(QVector<LspLocation> &out, const QJsonObject &o)
     const QJsonObject range = o.value(link ? QStringLiteral("targetSelectionRange") : QStringLiteral("range")).toObject();
     const QJsonObject start = range.value(QStringLiteral("start")).toObject();
     LspLocation loc;
-    loc.path = QUrl(uri).toLocalFile();
+    loc.path = JarSource::isJarUri(uri) ? JarSource::extract(uri) : QUrl(uri).toLocalFile();
     loc.line = start.value(QStringLiteral("line")).toInt();
     loc.column = start.value(QStringLiteral("character")).toInt();
     if (!loc.path.isEmpty())
@@ -561,6 +569,9 @@ LspCompletionItem parseCompletionItem(const QJsonObject &o)
     }
     for (const QJsonValue &v : o.value(QStringLiteral("additionalTextEdits")).toArray())
         it.additionalEdits << parseEdit(v.toObject());
+    const QJsonObject command = o.value(QStringLiteral("command")).toObject();
+    it.command = command.value(QStringLiteral("command")).toString();
+    it.commandArgs = command.value(QStringLiteral("arguments")).toArray();
     return it;
 }
 } // namespace
@@ -600,6 +611,136 @@ void LspManager::completion(Document *doc, int line, int column, int triggerKind
                                     }
                                     done(out, incomplete);
                                 });
+}
+
+QHash<QString, QVector<LspTextEdit>> LspManager::editsOf(const QJsonObject &edit, bool *ok)
+{
+    QHash<QString, QVector<LspTextEdit>> out;
+    *ok = true;
+    auto add = [&out](const QString &uri, const QJsonArray &edits) {
+        const QString path = QUrl(uri).toLocalFile();
+        if (path.isEmpty())
+            return false;
+        for (const QJsonValue &e : edits)
+            out[path] << parseEdit(e.toObject());
+        return true;
+    };
+    const QJsonObject changes = edit.value(QStringLiteral("changes")).toObject();
+    for (auto it = changes.begin(); it != changes.end(); ++it)
+        *ok = add(it.key(), it.value().toArray()) && *ok;
+    for (const QJsonValue &v : edit.value(QStringLiteral("documentChanges")).toArray()) {
+        const QJsonObject o = v.toObject();
+        if (o.contains(QStringLiteral("kind"))) { // create / rename / delete file: not supported
+            *ok = false;
+            continue;
+        }
+        *ok = add(o.value(QStringLiteral("textDocument")).toObject().value(QStringLiteral("uri")).toString(), o.value(QStringLiteral("edits")).toArray()) && *ok;
+    }
+    return out;
+}
+
+bool LspManager::supportsCommand(Document *doc, const QString &command) const
+{
+    const auto it = m_tracked.constFind(doc);
+    if (it == m_tracked.constEnd() || command.isEmpty())
+        return false;
+    const LspClient *client = m_servers.value(it->serverId).client;
+    if (!client || !client->isRunning())
+        return false;
+    const QJsonArray commands =
+        client->serverCapabilities().value(QStringLiteral("executeCommandProvider")).toObject().value(QStringLiteral("commands")).toArray();
+    return commands.contains(command);
+}
+
+// The server computes the text of a Kotlin completion (and its import) when the command runs, relative to the
+// session of the request that produced the item. The popup filters locally, so the document has usually moved
+// on since: ask again at the current position, pick the same item and run its command, so server and editor agree.
+void LspManager::runCompletionCommand(Document *doc, const LspCompletionItem &item, int line, int column, std::function<void(bool)> done)
+{
+    QString uri;
+    LspClient *c = supportsCommand(doc, item.command) ? readyClientFor(doc, &uri) : nullptr;
+    if (!c) {
+        done(false);
+        return;
+    }
+    QJsonObject params = positionParams(uri, line, column);
+    params.insert(QStringLiteral("context"), QJsonObject{{QStringLiteral("triggerKind"), 1}});
+    QPointer<LspClient> guard(c);
+    c->request(QStringLiteral("textDocument/completion"), params, [guard, item, done](const QJsonValue &result, const QJsonObject &error) {
+        if (!guard || !error.isEmpty())
+            return done(false);
+        const QJsonArray items = result.isArray() ? result.toArray() : result.toObject().value(QStringLiteral("items")).toArray();
+        for (const QJsonValue &v : items) {
+            const LspCompletionItem fresh = parseCompletionItem(v.toObject());
+            if (fresh.label != item.label || fresh.signature != item.signature || fresh.command.isEmpty())
+                continue;
+            guard->request(QStringLiteral("workspace/executeCommand"),
+                           QJsonObject{{QStringLiteral("command"), fresh.command}, {QStringLiteral("arguments"), fresh.commandArgs}},
+                           [done](const QJsonValue &, const QJsonObject &err) { done(err.isEmpty()); });
+            return;
+        }
+        done(false);
+    });
+}
+
+void LspManager::codeActions(Document *doc, int startLine, int startColumn, int endLine, int endColumn,
+                             std::function<void(const QVector<LspCodeAction> &)> done)
+{
+    QString uri;
+    LspClient *c = readyClientFor(doc, &uri);
+    if (!c) {
+        done({});
+        return;
+    }
+    QJsonArray diagnostics;
+    for (const LspDiagnostic &d : m_diagnostics.value(doc->filePath())) {
+        const bool before = d.endLine < startLine || (d.endLine == startLine && d.endColumn < startColumn);
+        const bool after = d.startLine > endLine || (d.startLine == endLine && d.startColumn > endColumn);
+        if (!before && !after && !d.raw.isEmpty())
+            diagnostics.append(d.raw);
+    }
+    const QJsonObject range{{QStringLiteral("start"), QJsonObject{{QStringLiteral("line"), startLine}, {QStringLiteral("character"), startColumn}}},
+                            {QStringLiteral("end"), QJsonObject{{QStringLiteral("line"), endLine}, {QStringLiteral("character"), endColumn}}}};
+    c->request(QStringLiteral("textDocument/codeAction"),
+               QJsonObject{{QStringLiteral("textDocument"), QJsonObject{{QStringLiteral("uri"), uri}}},
+                           {QStringLiteral("range"), range},
+                           {QStringLiteral("context"), QJsonObject{{QStringLiteral("diagnostics"), diagnostics}}}},
+               [done](const QJsonValue &result, const QJsonObject &error) {
+                   QVector<LspCodeAction> out;
+                   if (error.isEmpty())
+                       for (const QJsonValue &v : result.toArray()) {
+                           const QJsonObject o = v.toObject();
+                           // A bare Command has `command` as a string; a CodeAction has a title and optional edit/command.
+                           if (o.value(QStringLiteral("title")).toString().isEmpty() || o.value(QStringLiteral("disabled")).isObject())
+                               continue;
+                           out.append({o.value(QStringLiteral("title")).toString(), o.value(QStringLiteral("kind")).toString(), o});
+                       }
+                   done(out);
+               });
+}
+
+void LspManager::runCodeAction(Document *doc, const LspCodeAction &action, std::function<void(bool)> done)
+{
+    QString uri;
+    LspClient *c = readyClientFor(doc, &uri); // also flushes pending edits
+    if (!c) {
+        done(false);
+        return;
+    }
+    bool ok = true;
+    const QJsonObject edit = action.json.value(QStringLiteral("edit")).toObject();
+    if (!edit.isEmpty())
+        ok = m_applyEdit && m_applyEdit(edit);
+    const QJsonValue command = action.json.value(QStringLiteral("command"));
+    // CodeAction.command is a Command object; a bare Command (the whole action) carries a string.
+    const QJsonObject cmd = command.isObject() ? command.toObject() : QJsonObject();
+    if (cmd.isEmpty()) {
+        done(ok);
+        return;
+    }
+    c->request(QStringLiteral("workspace/executeCommand"),
+               QJsonObject{{QStringLiteral("command"), cmd.value(QStringLiteral("command"))}, {QStringLiteral("arguments"), cmd.value(QStringLiteral("arguments"))}},
+               [done, ok](const QJsonValue &, const QJsonObject &err) { done(ok && err.isEmpty()); });
 }
 
 void LspManager::hover(Document *doc, int line, int column, std::function<void(const QString &)> done)
@@ -704,6 +845,7 @@ void LspManager::setDiagnosticsFor(const QString &path, const QJsonArray &items)
         diag.message = d.value(QStringLiteral("message")).toString();
         diag.source = d.value(QStringLiteral("source")).toString();
         diag.code = d.value(QStringLiteral("code")).toVariant().toString();
+        diag.raw = d;
         list.append(diag);
     }
     if (list.isEmpty())

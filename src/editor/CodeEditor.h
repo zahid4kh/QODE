@@ -79,6 +79,12 @@ public:
     void triggerCompletion();
     void showCompletions(const QVector<LspCompletionItem> &items, bool incomplete, int token);
     bool completionVisible() const;
+    // Called when an item carrying a server command is accepted. Returns true when it took the item over; it then calls
+    // done(false) if it could not finish, and the editor inserts the item's text itself.
+    using CompletionCommandRunner = std::function<bool(const LspCompletionItem &item, int line, int column, std::function<void(bool done)> finished)>;
+    void setCompletionCommandRunner(CompletionCommandRunner runner) { m_commandRunner = std::move(runner); }
+    // Applies server text edits (0-based line / UTF-16 column, positions as of the text the server saw) as one undo step.
+    bool applyTextEdits(const QVector<LspTextEdit> &edits);
 
     // --- Bookmarks ----------------------------------------------------------
     // 0-based, sorted lines. They follow the text while it is edited; setBookmarks() does not emit.
@@ -115,6 +121,8 @@ signals:
     void definitionRequested(int line, int column); // Ctrl+click on an identifier
     // triggerKind: 1 invoked / typing, 2 trigger character, 3 the previous list was incomplete (LSP numbering)
     void completionRequested(int line, int column, int triggerKind, const QString &triggerChar, int token);
+    // Alt+Enter: quick fixes / actions for the selection (or the caret when it is empty); 0-based line / UTF-16 column.
+    void codeActionsRequested(int startLine, int startColumn, int endLine, int endColumn);
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
@@ -139,6 +147,7 @@ private:
     void scheduleCompletion(int kind, const QString &triggerChar);
     void requestCompletion(int kind, const QString &triggerChar);
     void acceptCompletion();
+    void insertCompletion(const LspCompletionItem &item, int anchor, int cur);
     void hideCompletion();
     QString completionPrefix() const; // text from the anchor to the caret, empty when there is no anchor
     bool inStringOrComment(int position) const;
@@ -194,6 +203,7 @@ private:
     QVector<LspDiagnostic> m_diagnostics;
     void updateLink(bool ctrlDown);
     std::function<bool()> m_canGoToDefinition;
+    CompletionCommandRunner m_commandRunner;
     QPair<int, int> m_link{-1, -1}; // identifier under the mouse while Ctrl is held
     int m_hoverPos = -1;       // document position of the pending hover request
     QPoint m_hoverGlobal;      // where its tooltip goes

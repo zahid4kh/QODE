@@ -73,6 +73,21 @@ public:
     void completion(Document *doc, int line, int column, int triggerKind, const QString &triggerChar,
                     std::function<void(const QVector<LspCompletionItem> &, bool incomplete)> done);
 
+    // The per-file text edits of a WorkspaceEdit (`changes` or `documentChanges`); *ok is false when it holds something
+    // that cannot be applied as text edits (file create / rename / delete, non-file URIs).
+    static QHash<QString, QVector<LspTextEdit>> editsOf(const QJsonObject &edit, bool *ok);
+    // True when the server of this document lists `command` among its executeCommandProvider commands.
+    bool supportsCommand(Document *doc, const QString &command) const;
+    // Accepts a completion item that carries a server command (Kotlin: adds the import, inserts the text). The server's
+    // edits arrive through the apply-edit handler; done(false) means nothing happened and the caller should insert locally.
+    void runCompletionCommand(Document *doc, const LspCompletionItem &item, int line, int column, std::function<void(bool)> done);
+    // Quick fixes / refactorings for the range (Alt+Enter); diagnostics inside it are passed along.
+    void codeActions(Document *doc, int startLine, int startColumn, int endLine, int endColumn,
+                     std::function<void(const QVector<LspCodeAction> &)> done);
+    void runCodeAction(Document *doc, const LspCodeAction &action, std::function<void(bool)> done);
+    // Applies a WorkspaceEdit the server sends (workspace/applyEdit) or a code action carries; returns whether it went through.
+    void setApplyEditHandler(std::function<bool(const QJsonObject &edit)> handler) { m_applyEdit = std::move(handler); }
+
     QVector<LspDiagnostic> diagnostics(const QString &path) const { return m_diagnostics.value(path); }
     int diagnosticCount(int severity) const;
 
@@ -117,6 +132,7 @@ private:
     QHash<Document *, Tracked> m_tracked;
     QHash<QString, QVector<LspDiagnostic>> m_diagnostics;
     QTimer *m_changeTimer;
+    std::function<bool(const QJsonObject &)> m_applyEdit;
     QPointer<LspClient> m_completionClient; // the request in flight, so a newer one can cancel it
     int m_completionId = -1;
 };

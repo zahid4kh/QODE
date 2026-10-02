@@ -8,6 +8,7 @@
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
 
+#include <QPointer>
 #include <QApplication>
 #include <QHelpEvent>
 #include <QToolTip>
@@ -1425,6 +1426,13 @@ void CodeEditor::keyPressEvent(QKeyEvent *event)
             triggerCompletion();
             return;
         }
+        if ((event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) && (event->modifiers() & ~Qt::KeypadModifier) == Qt::AltModifier) {
+            hideCompletion();
+            const QTextCursor c = textCursor();
+            const QTextBlock a = document()->findBlock(c.selectionStart()), b = document()->findBlock(c.selectionEnd());
+            emit codeActionsRequested(a.blockNumber(), c.selectionStart() - a.position(), b.blockNumber(), c.selectionEnd() - b.position());
+            return;
+        }
     }
     const int revision = document()->revision();
     handleKey(event);
@@ -2173,6 +2181,52 @@ void CodeEditor::acceptCompletion()
     const int anchor = m_completionAnchor;
     hideCompletion();
 
+    if (!item.command.isEmpty() && m_commandRunner) {
+        const QTextCursor c = textCursor();
+        const int revision = document()->revision();
+        QPointer<CodeEditor> guard(this);
+        const bool taken = m_commandRunner(item, c.blockNumber(), c.positionInBlock(), [guard, item, anchor, cur, revision](bool done) {
+            if (!done && guard && guard->document()->revision() == revision)
+                guard->insertCompletion(item, anchor, cur);
+        });
+        if (taken)
+            return;
+    }
+    insertCompletion(item, anchor, cur);
+}
+
+bool CodeEditor::applyTextEdits(const QVector<LspTextEdit> &list)
+{
+    if (isReadOnly())
+        return false;
+    QTextDocument *doc = document();
+    auto position = [doc](int line, int column) {
+        const QTextBlock b = doc->findBlockByNumber(line);
+        if (!b.isValid())
+            return doc->characterCount() - 1;
+        return b.position() + qMin(column, b.length() - 1);
+    };
+    struct Edit {
+        int start, end;
+        QString text;
+    };
+    QVector<Edit> edits;
+    for (const LspTextEdit &e : list)
+        edits.append({position(e.startLine, e.startColumn), position(e.endLine, e.endColumn), e.text});
+    std::stable_sort(edits.begin(), edits.end(), [](const Edit &a, const Edit &b) { return a.start > b.start; });
+    QTextCursor c(doc);
+    c.beginEditBlock();
+    for (const Edit &e : std::as_const(edits)) {
+        c.setPosition(e.start);
+        c.setPosition(e.end, QTextCursor::KeepAnchor);
+        c.insertText(e.text);
+    }
+    c.endEditBlock();
+    return true;
+}
+
+void CodeEditor::insertCompletion(const LspCompletionItem &item, int anchor, int cur)
+{
     QTextDocument *doc = document();
     auto position = [doc](int line, int column) {
         const QTextBlock b = doc->findBlockByNumber(line);

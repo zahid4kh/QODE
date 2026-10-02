@@ -1,6 +1,7 @@
 #include "DevServerBar.h"
 
 #include "DevServer.h"
+#include "EnvDialog.h"
 #include "ServerDialogs.h"
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
@@ -46,7 +47,9 @@ DevServerBar::DevServerBar(QWidget *parent)
     m_toggle = button(QString());
     m_restart = button(tr("Restart the dev server"));
     m_log = button(tr("Show the dev server log"));
-    m_config = button(tr("Dev server settings (package manager, script, port)"));
+    m_env = button(tr("Environment variables (.env files)"));
+    m_config = button(tr("Dev server settings (folder, package manager, script, port)"));
+    Icons::bind(m_env, QStringLiteral(":/new-icons/key.svg"));
     Icons::bind(m_restart, QStringLiteral(":/new-icons/refresh-cw.svg"));
     Icons::bind(m_log, QStringLiteral(":/new-icons/scroll-text.svg"));
     Icons::bind(m_config, QStringLiteral(":/new-icons/cog.svg"));
@@ -54,6 +57,7 @@ DevServerBar::DevServerBar(QWidget *parent)
     connect(m_toggle, &QToolButton::clicked, this, &DevServerBar::toggle);
     connect(m_restart, &QToolButton::clicked, this, &DevServerBar::restart);
     connect(m_log, &QToolButton::clicked, this, &DevServerBar::showLog);
+    connect(m_env, &QToolButton::clicked, this, &DevServerBar::editEnv);
     connect(m_config, &QToolButton::clicked, this, &DevServerBar::configure);
     connect(m_text, &QLabel::linkActivated, this, [](const QString &url) { QDesktopServices::openUrl(QUrl(url)); });
     connect(m_server, &DevServer::stateChanged, this, [this] {
@@ -75,21 +79,69 @@ void DevServerBar::setProjectRoot(const QString &root)
         m_server->stop();
     m_root = root;
     redetect();
+    if (!m_project.valid && !root.isEmpty() && !SettingsManager::instance().webServer().value(QStringLiteral("declined")).toBool()) {
+        const QStringList nested = WebProject::findNested(root);
+        if (!nested.isEmpty())
+            emit nestedProjectsFound(nested);
+    }
+}
+
+QString DevServerBar::configuredDir() const
+{
+    const QString rel = SettingsManager::instance().webServer().value(QStringLiteral("dir")).toString();
+    return !rel.isEmpty() && QFileInfo(m_root + QLatin1Char('/') + rel).isDir() ? rel : QString();
+}
+
+QString DevServerBar::workDir() const
+{
+    const QString rel = configuredDir();
+    return rel.isEmpty() ? m_root : m_root + QLatin1Char('/') + rel;
+}
+
+void DevServerBar::useFolder(const QString &relative)
+{
+    QJsonObject cfg = SettingsManager::instance().webServer();
+    cfg.insert(QStringLiteral("dir"), relative);
+    cfg.remove(QStringLiteral("declined"));
+    SettingsManager::instance().setWebServer(cfg);
+    redetect();
+    start();
+}
+
+void DevServerBar::dontAskAboutNested()
+{
+    QJsonObject cfg = SettingsManager::instance().webServer();
+    cfg.insert(QStringLiteral("declined"), true);
+    SettingsManager::instance().setWebServer(cfg);
+}
+
+void DevServerBar::editEnv()
+{
+    if (m_root.isEmpty())
+        return;
+    EnvDialog dlg(workDir(), m_server && m_server->isActive(), window());
+    connect(&dlg, &EnvDialog::openFileRequested, this, &DevServerBar::openFileRequested);
+    connect(&dlg, &EnvDialog::saved, this, [this](bool restartServer) {
+        if (restartServer)
+            restart();
+    });
+    dlg.exec();
 }
 
 void DevServerBar::redetect()
 {
     const bool was = m_project.valid;
-    m_project = WebProject::detect(m_root);
+    m_project = WebProject::detect(workDir());
     // The root folder catches a package.json or lockfile appearing; the files catch edits (editors may replace them).
     const QStringList watched = m_watcher->files() + m_watcher->directories();
     if (!watched.isEmpty())
         m_watcher->removePaths(watched);
     if (!m_root.isEmpty()) {
-        m_watcher->addPath(m_root);
+        const QString dir = workDir();
+        m_watcher->addPath(dir);
         for (const char *f : {"package.json", "bun.lock", "bun.lockb", "pnpm-lock.yaml", "yarn.lock", "package-lock.json"})
-            if (QFileInfo::exists(m_root + QLatin1Char('/') + QLatin1String(f)))
-                m_watcher->addPath(m_root + QLatin1Char('/') + QLatin1String(f));
+            if (QFileInfo::exists(dir + QLatin1Char('/') + QLatin1String(f)))
+                m_watcher->addPath(dir + QLatin1Char('/') + QLatin1String(f));
     }
     refresh();
     if (was != m_project.valid)
@@ -106,7 +158,7 @@ DevServerBar::Effective DevServerBar::effective() const
     e.script = cfg.value(QStringLiteral("script")).toString();
     if (e.script.isEmpty())
         e.script = m_project.scripts.value(0);
-    e.port = cfg.value(QStringLiteral("port")).toInt();
+    e.port = m_project.fixedPort(e.script) ? 0 : cfg.value(QStringLiteral("port")).toInt(); // a pinned script keeps its port
     e.command = cfg.value(QStringLiteral("command")).toString().trimmed();
     if (e.command.isEmpty())
         e.command = m_project.command(e.manager, e.script, e.port);
@@ -122,7 +174,7 @@ void DevServerBar::start()
     if (!m_server || !m_project.valid)
         return;
     const Effective e = effective();
-    m_server->start(e.command, m_root, e.port);
+    m_server->start(e.command, workDir(), e.port);
 }
 
 void DevServerBar::stop()
@@ -170,13 +222,16 @@ void DevServerBar::configure()
 {
     if (!m_project.valid)
         return;
-    ServerConfigDialog dlg(m_project, SettingsManager::instance().webServer(), window());
+    ServerConfigDialog dlg(m_root, SettingsManager::instance().webServer(), window());
     if (dlg.exec() != QDialog::Accepted)
         return;
-    SettingsManager::instance().setWebServer(dlg.config());
-    refresh();
+    QJsonObject cfg = dlg.config();
+    if (SettingsManager::instance().webServer().value(QStringLiteral("declined")).toBool())
+        cfg.insert(QStringLiteral("declined"), true);
+    SettingsManager::instance().setWebServer(cfg);
+    redetect(); // the folder may have changed
     if (m_server->isActive())
-        restart(); // apply the new port / command right away
+        restart(); // apply the new folder / port / command right away
 }
 
 void DevServerBar::refresh()

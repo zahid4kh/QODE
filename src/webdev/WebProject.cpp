@@ -1,9 +1,12 @@
 #include "WebProject.h"
 
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
+#include <QSet>
 
 namespace {
 
@@ -35,11 +38,12 @@ const Framework kFrameworks[] = {
 
 } // namespace
 
-WebProject WebProject::detect(const QString &root)
+WebProject WebProject::detect(const QString &folder)
 {
     WebProject w;
-    QFile f(root + QStringLiteral("/package.json"));
-    if (root.isEmpty() || !f.open(QIODevice::ReadOnly))
+    const QString dir = folder.endsWith(QLatin1Char('/')) ? folder : folder + QLatin1Char('/');
+    QFile f(dir + QStringLiteral("package.json"));
+    if (folder.isEmpty() || !f.open(QIODevice::ReadOnly))
         return w;
     const QJsonObject pkg = QJsonDocument::fromJson(f.readAll()).object();
     const QJsonObject scripts = pkg.value(QStringLiteral("scripts")).toObject();
@@ -50,9 +54,15 @@ WebProject WebProject::detect(const QString &root)
     if (w.scripts.isEmpty())
         return w;
     w.valid = true;
+    // A script that already names its port ("--port 4000", "-p 4000", "PORT=4000 ...") keeps it.
+    static const QRegularExpression pinned(QStringLiteral(R"((?:(?:^|\s)(?:--port|-p)(?:=|\s+)|\bPORT=)(\d{2,5})\b)"));
+    for (auto it = scripts.begin(); it != scripts.end(); ++it) {
+        const QRegularExpressionMatch m = pinned.match(it.value().toString());
+        if (m.hasMatch())
+            w.scriptPorts.insert(it.key(), m.captured(1).toInt());
+    }
 
     // Package manager: the lockfile tells which one installed the dependencies; "packageManager" (corepack) is the fallback.
-    const QString dir = root + QLatin1Char('/');
     auto has = [&dir](const char *file) { return QFileInfo::exists(dir + QLatin1String(file)); };
     if (has("bun.lock") || has("bun.lockb"))
         w.packageManager = QStringLiteral("bun");
@@ -76,13 +86,68 @@ WebProject WebProject::detect(const QString &root)
             w.portFlag = fw.flag ? QLatin1String(fw.flag) : QString();
             break;
         }
+
+    // A port written into the config or .env is only reported; the framework keeps using it.
+    static const QRegularExpression inConfig(QStringLiteral(R"(\bport\s*:\s*(\d{2,5})\b)"));
+    static const QRegularExpression inEnv(QStringLiteral(R"(^\s*(?:export\s+)?PORT\s*=\s*['"]?(\d{2,5}))"),
+                                          QRegularExpression::MultilineOption);
+    for (const char *name : {"vite.config.ts", "vite.config.js", "vite.config.mjs", "vite.config.mts", "nuxt.config.ts", "nuxt.config.js",
+                             "astro.config.mjs", "astro.config.ts", "svelte.config.js", "webpack.config.js", "angular.json"}) {
+        QFile cf(dir + QLatin1String(name));
+        if (!cf.open(QIODevice::ReadOnly))
+            continue;
+        const QRegularExpressionMatch m = inConfig.match(QString::fromUtf8(cf.read(200000)));
+        if (m.hasMatch()) {
+            w.configPort = m.captured(1).toInt();
+            w.configPortSource = QLatin1String(name);
+            break;
+        }
+    }
+    if (!w.configPort)
+        for (const char *name : {".env.local", ".env.development", ".env"}) {
+            QFile ef(dir + QLatin1String(name));
+            if (!ef.open(QIODevice::ReadOnly))
+                continue;
+            const QRegularExpressionMatch m = inEnv.match(QString::fromUtf8(ef.readAll()));
+            if (m.hasMatch()) {
+                w.configPort = m.captured(1).toInt();
+                w.configPortSource = QLatin1String(name);
+                break;
+            }
+        }
     return w;
+}
+
+QStringList WebProject::findNested(const QString &root)
+{
+    static const QSet<QString> skip = {QStringLiteral("node_modules"), QStringLiteral("dist"),   QStringLiteral("build"),
+                                       QStringLiteral("out"),          QStringLiteral("target"), QStringLiteral("vendor"),
+                                       QStringLiteral("venv"),         QStringLiteral("__pycache__")};
+    auto children = [&](const QString &rel) {
+        QStringList out;
+        const QStringList names = QDir(rel.isEmpty() ? root : root + QLatin1Char('/') + rel)
+                                      .entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+        for (const QString &n : names)
+            if (!n.startsWith(QLatin1Char('.')) && !skip.contains(n))
+                out << (rel.isEmpty() ? n : rel + QLatin1Char('/') + n);
+        return out;
+    };
+    QStringList level1 = children(QString()), found, level2;
+    for (const QString &rel : std::as_const(level1))
+        if (detect(root + QLatin1Char('/') + rel + QLatin1Char('/')).valid)
+            found << rel;
+        else
+            level2 << children(rel);
+    for (const QString &rel : std::as_const(level2))
+        if (found.size() < 12 && detect(root + QLatin1Char('/') + rel + QLatin1Char('/')).valid)
+            found << rel;
+    return found;
 }
 
 QString WebProject::command(const QString &manager, const QString &script, int port) const
 {
     QString cmd = manager == QLatin1String("npm") ? QStringLiteral("npm run ") + script : manager + QLatin1Char(' ') + script;
-    if (port > 0 && !portFlag.isEmpty()) {
+    if (port > 0 && !portFlag.isEmpty() && !fixedPort(script)) {
         // npm needs "--" to pass flags on to the script; the others forward them.
         cmd += (manager == QLatin1String("npm") ? QStringLiteral(" -- ") : QStringLiteral(" ")) + portFlag + QLatin1Char(' ') +
                QString::number(port);

@@ -28,11 +28,20 @@ public:
     void restart();
     void toggle();
     void configure();
+    void editEnv();
+    // The folder the server runs in: the project root, or the nested web project (e.g. docs/) picked for it.
+    QString workDir() const;
+    // Uses a nested web project (relative folder) and starts its server.
+    void useFolder(const QString &relative);
+    void dontAskAboutNested();
     void showLog();
     void shutdown(); // blocks briefly until the server is gone (app closing)
 
 signals:
     void availabilityChanged(bool available);
+    // The project root is no server project itself but these folders are (asked once per project open).
+    void nestedProjectsFound(const QStringList &relativeDirs);
+    void openFileRequested(const QString &path);
     void stateChanged();
 
 private:
@@ -43,6 +52,7 @@ private:
     };
     Effective effective() const;
     void refresh();
+    QString configuredDir() const;
     void redetect(); // package.json or the lockfile changed
     void repaintIcons();
 
@@ -52,6 +62,6 @@ private:
     QFileSystemWatcher *m_watcher;
     QTimer *m_redetect;
     QLabel *m_dot, *m_text;
-    QToolButton *m_toggle, *m_restart, *m_log, *m_config;
+    QToolButton *m_toggle, *m_restart, *m_log, *m_env, *m_config;
     ServerLogDialog *m_logDialog = nullptr;
 };

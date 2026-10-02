@@ -57,7 +57,9 @@
 #include <QKeySequence>
 #include <QLabel>
 #include <QMenuBar>
+#include <QInputDialog>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QPainter>
 #include <QPixmap>
 #include <QProcess>
@@ -752,7 +754,41 @@ void MainWindow::createToolBar()
         updateActions();
     });
     connect(m_serverBar, &DevServerBar::stateChanged, this, &MainWindow::updateActions);
+    connect(m_serverBar, &DevServerBar::openFileRequested, this, [this](const QString &path) { m_editors->openFile(path); });
+    connect(m_serverBar, &DevServerBar::nestedProjectsFound, this, [this](const QStringList &dirs) {
+        // After the project finished opening, so the question does not hold up restoring the session.
+        QTimer::singleShot(0, this, [this, dirs] { askNestedWebProject(dirs); });
+    });
     updateRunToolbar();
+}
+
+void MainWindow::askNestedWebProject(const QStringList &dirs)
+{
+    if (!m_projects->hasProject() || dirs.isEmpty())
+        return;
+    QString dir = dirs.first();
+    if (dirs.size() > 1) {
+        bool ok = false;
+        dir = QInputDialog::getItem(this, tr("Web Projects Detected"),
+                                    tr("Detected %1 web projects inside this project. Which one should QODE run?").arg(dirs.size()), dirs, 0,
+                                    false, &ok);
+        if (!ok)
+            return;
+    } else {
+        QMessageBox box(QMessageBox::Question, tr("Web Project Detected"),
+                        tr("Detected a web project at <b>%1</b>.<br>Do you want to run its dev server?").arg(dir.toHtmlEscaped()), {}, this);
+        box.setInformativeText(tr("QODE will run it from that folder; the server controls then appear in the toolbar."));
+        QPushButton *run = box.addButton(tr("Run Server"), QMessageBox::AcceptRole);
+        box.addButton(tr("Not Now"), QMessageBox::RejectRole);
+        QPushButton *never = box.addButton(tr("Don't Ask Again"), QMessageBox::DestructiveRole);
+        box.setDefaultButton(run);
+        box.exec();
+        if (box.clickedButton() == never)
+            m_serverBar->dontAskAboutNested();
+        if (box.clickedButton() != run)
+            return;
+    }
+    m_serverBar->useFolder(dir);
 }
 
 void MainWindow::updateRunToolbar()

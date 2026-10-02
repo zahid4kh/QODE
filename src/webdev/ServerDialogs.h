@@ -17,14 +17,17 @@ class ServerConfigDialog : public QDialog
 {
     Q_OBJECT
 public:
-    ServerConfigDialog(const WebProject &project, const QJsonObject &config, QWidget *parent = nullptr);
+    ServerConfigDialog(const QString &root, const QJsonObject &config, QWidget *parent = nullptr);
     QJsonObject config() const;
 
 private:
     void updatePreview();
+    void loadFolder(const QString &rel, const QJsonObject &config);
 
+    QString m_root;
     WebProject m_project;
-    QComboBox *m_manager, *m_script;
+    QComboBox *m_folder, *m_manager, *m_script;
+    QLabel *m_info, *m_portNote;
     QSpinBox *m_port;
     QLineEdit *m_command;
     QLabel *m_preview;

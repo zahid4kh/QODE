@@ -26,6 +26,7 @@ SOURCES += \
     src/webdev/DevServer.cpp \
     src/webdev/DevServerBar.cpp \
     src/webdev/ServerDialogs.cpp \
+    src/webdev/EnvDialog.cpp \
     src/main.cpp \
     src/app/Application.cpp \
     src/app/InstanceRegistry.cpp \
@@ -97,6 +98,7 @@ HEADERS += \
     src/webdev/DevServer.h \
     src/webdev/DevServerBar.h \
     src/webdev/ServerDialogs.h \
+    src/webdev/EnvDialog.h \
     src/app/Application.h \
     src/app/InstanceRegistry.h \
     src/settings/SettingsManager.h \

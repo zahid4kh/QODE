@@ -82,6 +82,7 @@ private:
     void runCurrentFile();
     void configureRun();
     void updateRunToolbar();
+    void askNestedWebProject(const QStringList &dirs);
     void about();
     void showCommandPalette();
     void showGoToSymbol();

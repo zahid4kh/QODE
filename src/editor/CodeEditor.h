@@ -74,6 +74,13 @@ public:
     void showHover(const QString &markdown);
     const QVector<LspDiagnostic> &diagnostics() const { return m_diagnostics; }
 
+    // --- Unused imports ---------------------------------------------------------------------------
+    // Lines (0-based) of imports the language server says nothing uses: drawn gray, and hovering one offers to remove
+    // them all (removeUnusedImportsRequested). The marks follow edits until the next list arrives.
+    void setUnusedImports(const QVector<int> &lines);
+    QVector<int> unusedImportLines() const;
+    void removeLines(const QVector<int> &lines); // whole lines, one undo step
+
     // --- Completion -------------------------------------------------------------------------------
     // Typing an identifier or '.', '->', '::' (while a server serves the file) or Ctrl+Space emits completionRequested();
     // the answer goes to showCompletions() with the same token (older answers are dropped). Without a server,
@@ -110,6 +117,8 @@ public:
     void foldAll();
     void unfoldAll();
     void toggleFoldAt(int blockNumber);
+    void setImportsFolded(bool folded); // folds/unfolds the first import list
+    bool foldIconAt(const QPoint &gutterPos) const;
     bool hasFolds() const { return m_foldedCount > 0; }
     void setGutterHover(bool on);
 
@@ -119,11 +128,13 @@ signals:
     void overwriteModeToggled();
     void blameCommitRequested(const QString &hash);
     void bookmarksChanged();
+    void importsFoldedChanged(bool folded); // the user folded/unfolded the import list
     void hoverRequested(int line, int column); // mouse rests on an identifier (0-based line / UTF-16 column)
     void definitionRequested(int line, int column); // Ctrl+click on an identifier
     // triggerKind: 1 invoked / typing, 2 trigger character, 3 the previous list was incomplete (LSP numbering)
     void completionRequested(int line, int column, int triggerKind, const QString &triggerChar, int token);
     // Alt+Enter: quick fixes / actions for the selection (or the caret when it is empty); 0-based line / UTF-16 column.
+    void removeUnusedImportsRequested();
     void codeActionsRequested(int startLine, int startColumn, int endLine, int endColumn);
 
 protected:
@@ -206,6 +217,8 @@ private:
     void updateLink(bool ctrlDown);
     std::function<bool()> m_canGoToDefinition;
     CompletionCommandRunner m_commandRunner;
+    QList<QTextCursor> m_unusedImports; // each selects the text of one import line
+    int importRunEnd(const QTextBlock &header) const; // last block of the import list starting at `header`, or -1
     QPair<int, int> m_link{-1, -1}; // identifier under the mouse while Ctrl is held
     int m_hoverPos = -1;       // document position of the pending hover request
     QPointer<HoverPopup> m_hoverPopup; // the language server's hover text; stays until clicked away

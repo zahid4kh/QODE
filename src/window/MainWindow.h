@@ -11,6 +11,7 @@
 class CodeEditor;
 class DiffDialog;
 class Document;
+class QTimer;
 class GitPanel;
 class MediaPanel;
 class MarkdownPreview;
@@ -107,6 +108,7 @@ private:
     void goToDefinition(CodeEditor *editor, int line, int column);
     void showCodeActions(Document *doc, CodeEditor *editor, int startLine, int startColumn, int endLine, int endColumn);
     bool applyWorkspaceEdit(const QJsonObject &edit);
+    void removeUnusedImports(CodeEditor *editor);
 
     // Git
     void createGitActions();
@@ -127,6 +129,8 @@ private:
     GitRepository *m_git;
     LspManager *m_lsp;
     QMenu *m_lspMenu;
+    QTimer *m_importTimer = nullptr; // recomputes the unused imports once diagnostics settle
+    QString m_importPath;
     QToolButton *m_lspButton;
     bool m_lspHintShown = false;
     GitPanel *m_gitPanel;

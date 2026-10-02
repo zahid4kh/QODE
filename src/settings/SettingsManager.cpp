@@ -182,6 +182,24 @@ void SettingsManager::setBookmarks(const QHash<QString, QList<int>> &bookmarks)
     saveProject();
 }
 
+bool SettingsManager::importsFolded(const QString &path) const
+{
+    return m_data.value(QStringLiteral("importFolds")).toObject().value(path).toBool();
+}
+
+void SettingsManager::setImportsFolded(const QString &path, bool folded)
+{
+    QJsonObject o = m_data.value(QStringLiteral("importFolds")).toObject();
+    if (o.value(path).toBool() == folded)
+        return;
+    if (folded)
+        o.insert(path, true);
+    else
+        o.remove(path);
+    m_data.insert(QStringLiteral("importFolds"), o);
+    saveProject();
+}
+
 bool SettingsManager::blameInline() const
 {
     return m_settings.value(QStringLiteral("git/blameInline"), true).toBool();

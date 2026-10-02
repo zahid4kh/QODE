@@ -76,6 +76,8 @@ public:
     // The per-file text edits of a WorkspaceEdit (`changes` or `documentChanges`); *ok is false when it holds something
     // that cannot be applied as text edits (file create / rename / delete, non-file URIs).
     static QHash<QString, QVector<LspTextEdit>> editsOf(const QJsonObject &edit, bool *ok);
+    // 0-based lines of imports that organize-imports would remove (Kotlin); empty when unknown or none.
+    void unusedImports(Document *doc, std::function<void(const QVector<int> &)> done);
     // True when the server of this document lists `command` among its executeCommandProvider commands.
     bool supportsCommand(Document *doc, const QString &command) const;
     // Accepts a completion item that carries a server command (Kotlin: adds the import, inserts the text). The server's
@@ -132,7 +134,10 @@ private:
     QHash<Document *, Tracked> m_tracked;
     QHash<QString, QVector<LspDiagnostic>> m_diagnostics;
     QTimer *m_changeTimer;
+    bool handleApplyEdit(const QJsonObject &edit);
     std::function<bool(const QJsonObject &)> m_applyEdit;
+    bool m_capturing = false; // unusedImports() is running: the next workspace/applyEdit is recorded, not applied
+    QJsonObject m_captured;
     QPointer<LspClient> m_completionClient; // the request in flight, so a newer one can cancel it
     int m_completionId = -1;
 };

@@ -8,10 +8,12 @@
 #include <QScreen>
 #include <QTextBrowser>
 #include <QTextDocument>
+#include <QUrl>
 #include <QVBoxLayout>
 
 namespace {
-constexpr int kMaxWidth = 620;
+constexpr int kMaxWidth = 760;
+constexpr int kMinWidth = 420;
 constexpr int kMaxHeight = 380;
 }
 
@@ -25,7 +27,12 @@ HoverPopup::HoverPopup(QWidget *editor)
     lay->addWidget(m_view);
     m_view->setFrameShape(QFrame::NoFrame);
     m_view->setOpenLinks(false);
-    m_view->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+    connect(m_view, &QTextBrowser::anchorClicked, this, [this](const QUrl &url) {
+        const QString href = url.toString();
+        close();
+        emit linkActivated(href);
+    });
+    m_view->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard | Qt::LinksAccessibleByMouse);
     m_view->viewport()->setCursor(Qt::IBeamCursor);
 }
 
@@ -46,12 +53,13 @@ void HoverPopup::showHtml(const QString &html, const QPoint &global)
     m_border = t.border;
     m_view->setStyleSheet(QStringLiteral("QTextBrowser { background: transparent; color: %1; border: none; selection-background-color: %2; }")
                               .arg(t.editorFg.name(), t.selection.name()));
+    m_view->document()->setDefaultStyleSheet(QStringLiteral("a { color: %1; }").arg(t.accent.name()));
     m_view->setHtml(html);
 
     QTextDocument *doc = m_view->document();
     doc->setDocumentMargin(0);
     doc->setTextWidth(kMaxWidth);
-    const int idealWidth = qMin(kMaxWidth, int(doc->idealWidth()) + 2);
+    const int idealWidth = qBound(kMinWidth, int(doc->idealWidth()) + 2, kMaxWidth);
     doc->setTextWidth(idealWidth);
     const int docHeight = int(doc->size().height()) + 2;
     const int h = qMin(kMaxHeight, docHeight);

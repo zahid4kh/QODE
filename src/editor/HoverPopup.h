@@ -16,6 +16,9 @@ public:
     // Shows `html` with its top-left near `global`, kept on screen.
     void showHtml(const QString &html, const QPoint &global);
 
+signals:
+    void linkActivated(const QString &href);
+
 protected:
     void paintEvent(QPaintEvent *event) override;
 

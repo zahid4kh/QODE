@@ -128,7 +128,7 @@ void LspManager::startServer(Server &s, const QString &rootPath)
     s.progress.clear();
     s.state.progress.clear();
     s.client = new LspClient(exe, args, rootPath, options, this);
-    s.client->setApplyEditHandler(m_applyEdit);
+    s.client->setApplyEditHandler([this](const QJsonObject &edit) { return handleApplyEdit(edit); });
     const QString id = s.spec->id;
     connect(s.client, &LspClient::ready, this, [this, id] { onServerReady(id); });
     connect(s.client, &LspClient::stopped, this, [this, id](bool crashed) { onServerStopped(id, crashed); });
@@ -637,6 +637,60 @@ QHash<QString, QVector<LspTextEdit>> LspManager::editsOf(const QJsonObject &edit
         *ok = add(o.value(QStringLiteral("textDocument")).toObject().value(QStringLiteral("uri")).toString(), o.value(QStringLiteral("edits")).toArray()) && *ok;
     }
     return out;
+}
+
+bool LspManager::handleApplyEdit(const QJsonObject &edit)
+{
+    if (m_capturing) { // an organize-imports probe: remember the edit, change nothing
+        m_captured = edit;
+        return false;
+    }
+    return m_applyEdit && m_applyEdit(edit);
+}
+
+// Imports the server's "organize imports" would delete. The Kotlin compiler reports no unused-import diagnostics, so
+// run the command with its edit intercepted and compare the import lines before and after.
+void LspManager::unusedImports(Document *doc, std::function<void(const QVector<int> &)> done)
+{
+    static const QString command = QStringLiteral("kotlin.organize.imports");
+    QString uri;
+    if (m_capturing || !supportsCommand(doc, command)) {
+        done({});
+        return;
+    }
+    LspClient *c = readyClientFor(doc, &uri);
+    if (!c) {
+        done({});
+        return;
+    }
+    const QStringList lines = doc->text().split(QLatin1Char('\n'));
+    const QString path = doc->filePath();
+    m_capturing = true;
+    m_captured = {};
+    QPointer<LspClient> guard(c);
+    c->request(QStringLiteral("workspace/executeCommand"),
+               QJsonObject{{QStringLiteral("command"), command}, {QStringLiteral("arguments"), QJsonArray{uri}}},
+               [this, guard, lines, path, done](const QJsonValue &, const QJsonObject &) {
+                   m_capturing = false;
+                   const QJsonObject edit = std::exchange(m_captured, QJsonObject());
+                   QVector<int> unused;
+                   bool ok = false;
+                   const QVector<LspTextEdit> edits = guard ? editsOf(edit, &ok).value(path) : QVector<LspTextEdit>();
+                   QSet<QString> kept;
+                   int first = -1, last = -1;
+                   for (const LspTextEdit &e : edits) {
+                       first = first < 0 ? e.startLine : qMin(first, e.startLine);
+                       last = qMax(last, e.endLine);
+                       for (const QString &l : e.text.split(QLatin1Char('\n')))
+                           kept.insert(l.trimmed());
+                   }
+                   for (int i = qMax(first, 0); first >= 0 && i < last && i < lines.size(); ++i) {
+                       const QString t = lines.at(i).trimmed();
+                       if (t.startsWith(QLatin1String("import ")) && !kept.contains(t))
+                           unused.append(i);
+                   }
+                   done(unused);
+               });
 }
 
 bool LspManager::supportsCommand(Document *doc, const QString &command) const

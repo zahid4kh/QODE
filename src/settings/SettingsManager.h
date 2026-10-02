@@ -50,6 +50,8 @@ public:
     // Bookmarked lines (0-based) per absolute file path (current project).
     QHash<QString, QList<int>> bookmarks() const;
     void setBookmarks(const QHash<QString, QList<int>> &bookmarks);
+    bool importsFolded(const QString &path) const;
+    void setImportsFolded(const QString &path, bool folded);
     bool blameInline() const;
     void setBlameInline(bool on);
     bool blameGutter() const;

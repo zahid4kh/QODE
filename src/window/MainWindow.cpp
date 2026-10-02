@@ -17,6 +17,7 @@
 #include "git/GitPanel.h"
 #include "git/GitRepository.h"
 #include "git/PatchDialog.h"
+#include "dialogs/UnusedImportsDialog.h"
 #include "lsp/JarSource.h"
 #include "lsp/LspInstaller.h"
 #include "lsp/LspManager.h"
@@ -232,6 +233,14 @@ MainWindow::MainWindow(QWidget *parent)
             return;
         if (!doc->filePath().isEmpty())
             ed->setBookmarks(m_bookmarks.value(doc->filePath()));
+        if (!doc->filePath().isEmpty()) {
+            if (SettingsManager::instance().importsFolded(doc->filePath()))
+                ed->setImportsFolded(true);
+            connect(ed, &CodeEditor::importsFoldedChanged, this, [doc](bool folded) {
+                if (!doc->isUntitled())
+                    SettingsManager::instance().setImportsFolded(doc->filePath(), folded);
+            });
+        }
         connect(ed, &CodeEditor::hoverRequested, this, [this, doc, ed](int line, int column) {
             QPointer<CodeEditor> guard(ed);
             m_lsp->hover(doc, line, column, [guard](const QString &text) {
@@ -257,6 +266,7 @@ MainWindow::MainWindow(QWidget *parent)
             m_lsp->runCompletionCommand(doc, item, line, column, std::move(finished));
             return true;
         });
+        connect(ed, &CodeEditor::removeUnusedImportsRequested, this, [this, ed] { removeUnusedImports(ed); });
         connect(ed, &CodeEditor::codeActionsRequested, this, [this, doc, ed](int sl, int sc, int el, int ec) { showCodeActions(doc, ed, sl, sc, el, ec); });
         connect(ed, &CodeEditor::definitionRequested, this, [this, ed](int line, int column) { goToDefinition(ed, line, column); });
         connect(ed, &CodeEditor::bookmarksChanged, this, [this, doc, ed] {
@@ -276,8 +286,25 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_lsp, &LspManager::statusChanged, this, &MainWindow::updateLspStatus);
     connect(m_lsp, &LspManager::diagnosticsChanged, this, [this](const QString &path) {
         if (Document *d = m_editors->documentForPath(path))
-            if (CodeEditor *ed = m_editors->editorFor(d))
+            if (CodeEditor *ed = m_editors->editorFor(d)) {
                 ed->setDiagnostics(m_lsp->diagnostics(path));
+                m_importPath = path;
+                m_importTimer->start(); // settles after the diagnostics stop changing
+            }
+    });
+    m_importTimer = new QTimer(this);
+    m_importTimer->setSingleShot(true);
+    m_importTimer->setInterval(1200);
+    connect(m_importTimer, &QTimer::timeout, this, [this] {
+        Document *d = m_editors->documentForPath(m_importPath);
+        CodeEditor *ed = d ? m_editors->editorFor(d) : nullptr;
+        if (!ed || !(d->text().startsWith(QLatin1String("import ")) || d->text().contains(QLatin1String("\nimport "))) || !m_lsp->isServed(d))
+            return;
+        QPointer<CodeEditor> guard(ed);
+        m_lsp->unusedImports(d, [guard](const QVector<int> &lines) {
+            if (guard)
+                guard->setUnusedImports(lines);
+        });
     });
     updateLspStatus();
 
@@ -1029,6 +1056,24 @@ void MainWindow::goToDefinition(CodeEditor *editor, int line, int column)
         }
         menu.exec(QCursor::pos());
     });
+}
+
+// Hover link on a gray import: let the user choose which unused imports go.
+void MainWindow::removeUnusedImports(CodeEditor *editor)
+{
+    const QVector<int> lines = editor->unusedImportLines();
+    if (lines.isEmpty())
+        return;
+    QStringList texts;
+    for (const int n : lines)
+        texts << editor->document()->findBlockByNumber(n).text();
+    QString name = tr("this file");
+    for (Document *d : m_editors->documents())
+        if (m_editors->editorFor(d) == editor)
+            name = d->fileName();
+    UnusedImportsDialog dlg(name, lines, texts, this);
+    if (dlg.exec() == QDialog::Accepted)
+        editor->removeLines(dlg.selectedLines());
 }
 
 // Alt+Enter: the server's quick fixes ("Import → java.io.File") and refactorings for the caret / selection.

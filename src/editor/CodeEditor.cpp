@@ -49,6 +49,11 @@ protected:
         if (event->button() == Qt::LeftButton)
             m_editor->gutterClicked(event->pos());
     }
+    void mouseMoveEvent(QMouseEvent *event) override
+    {
+        setCursor(m_editor->foldIconAt(event->pos()) ? Qt::PointingHandCursor : Qt::ArrowCursor);
+        QWidget::mouseMoveEvent(event);
+    }
     void enterEvent(QEnterEvent *event) override
     {
         m_editor->setGutterHover(true);
@@ -83,6 +88,7 @@ QString relativeTime(qint64 secs)
     return n(d / (86400 * 365), "%n yr ago");
 }
 constexpr int kFoldWidth = 16;
+bool isImportLine(const QTextBlock &b) { return b.text().startsWith(QLatin1String("import ")); }
 
 // Per-block fold flag (a QTextBlock owns its user data).
 struct FoldData : QTextBlockUserData {
@@ -389,7 +395,7 @@ void CodeEditor::lineNumberAreaPaintEvent(QPaintEvent *event)
                 }
             }
             const bool folded = isFolded(block);
-            if (folded || (m_gutterHover && isFoldable(block))) {
+            if (folded || ((m_gutterHover || isImportLine(block)) && isFoldable(block))) {
                 const QColor c = folded || number == current ? m_gutterActive : m_gutterFg;
                 painter.drawPixmap(m_lineArea->width() - kFoldWidth + 1, top + (fontMetrics().height() - 12) / 2,
                                    Icons::pixmap(folded ? QStringLiteral(":/new-icons/chevron-right.svg")
@@ -463,6 +469,15 @@ void CodeEditor::refreshSelections()
         sel.cursor.setPosition(r.first);
         sel.cursor.setPosition(r.second, QTextCursor::KeepAnchor);
         extra.append(sel);
+    }
+    if (!m_unusedImports.isEmpty()) {
+        const QColor muted = Theme::byName(SettingsManager::instance().theme()).textMuted;
+        for (const QTextCursor &cur : std::as_const(m_unusedImports)) {
+            QTextEdit::ExtraSelection sel;
+            sel.format.setForeground(muted);
+            sel.cursor = cur;
+            extra.append(sel);
+        }
     }
     if (m_link.first >= 0) {
         QTextEdit::ExtraSelection sel;
@@ -545,6 +560,19 @@ bool CodeEditor::viewportEvent(QEvent *event)
         }
         m_hoverDiagnostics = lines.isEmpty() ? QString() : QStringLiteral("<div style='white-space:pre'>") + lines.join(QStringLiteral("<hr>")) + QStringLiteral("</div>");
         m_hoverPos = -1;
+        if (m_hoverDiagnostics.isEmpty() && !m_unusedImports.isEmpty() && at.positionInBlock() < at.block().text().size() &&
+            unusedImportLines().contains(at.blockNumber())) {
+            QToolTip::hideText();
+            if (m_hoverPopup)
+                m_hoverPopup->close();
+            m_hoverPopup = new HoverPopup(this);
+            connect(m_hoverPopup, &HoverPopup::linkActivated, this, &CodeEditor::removeUnusedImportsRequested);
+            const int n = unusedImportLines().size();
+            m_hoverPopup->showHtml(tr("<b>Unused import</b><br>Nothing in this file uses it. "
+                                      "<a href='remove'>Remove unused imports…</a> (%n in this file)", nullptr, n),
+                                   help->globalPos());
+            return true;
+        }
         // Only ask the server about words, and only when the mouse is over the text of the line.
         const QString text = at.block().text();
         const int col = at.positionInBlock();
@@ -564,6 +592,59 @@ bool CodeEditor::viewportEvent(QEvent *event)
         QToolTip::hideText();
     }
     return QPlainTextEdit::viewportEvent(event);
+}
+
+void CodeEditor::setUnusedImports(const QVector<int> &lines)
+{
+    QList<QTextCursor> cursors;
+    for (const int n : lines) {
+        const QTextBlock b = document()->findBlockByNumber(n);
+        if (!b.isValid() || !b.text().trimmed().startsWith(QLatin1String("import ")))
+            continue;
+        QTextCursor c(b);
+        c.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+        cursors.append(c);
+    }
+    const bool changed = cursors.size() != m_unusedImports.size() || !cursors.isEmpty() || !m_unusedImports.isEmpty();
+    m_unusedImports = cursors;
+    if (changed)
+        refreshSelections();
+}
+
+QVector<int> CodeEditor::unusedImportLines() const
+{
+    QVector<int> out;
+    for (const QTextCursor &c : m_unusedImports) {
+        const QTextBlock b = document()->findBlock(c.selectionStart());
+        if (b.isValid() && b.text().trimmed().startsWith(QLatin1String("import ")) && !out.contains(b.blockNumber()))
+            out.append(b.blockNumber());
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+void CodeEditor::removeLines(const QVector<int> &lines)
+{
+    if (isReadOnly() || lines.isEmpty())
+        return;
+    QVector<int> sorted = lines;
+    std::sort(sorted.begin(), sorted.end(), std::greater<int>());
+    QTextCursor c(document());
+    c.beginEditBlock();
+    for (const int n : std::as_const(sorted)) {
+        const QTextBlock b = document()->findBlockByNumber(n);
+        if (!b.isValid())
+            continue;
+        c.setPosition(b.position());
+        if (b.next().isValid()) {
+            c.setPosition(b.next().position(), QTextCursor::KeepAnchor);
+        } else { // last line of the file: take the newline before it instead
+            c.setPosition(qMax(0, b.position() - 1));
+            c.setPosition(b.position() + b.length() - 1, QTextCursor::KeepAnchor);
+        }
+        c.removeSelectedText();
+    }
+    c.endEditBlock();
 }
 
 void CodeEditor::showHover(const QString &markdown)
@@ -638,10 +719,36 @@ int CodeEditor::unmatchedOpener(const QTextBlock &block) const
     return stack.isEmpty() ? -1 : block.position() + stack.last();
 }
 
+// The import list is one fold: `header` is its first `import` line and the region runs to the last import of the
+// run (blank lines between imports are part of it). Needs at least two imports.
+int CodeEditor::importRunEnd(const QTextBlock &header) const
+{
+    if (!isImportLine(header))
+        return -1;
+    int blanks = 0;
+    for (QTextBlock p = header.previous(); p.isValid() && blanks < 50; p = p.previous(), ++blanks) {
+        if (isImportLine(p))
+            return -1; // not the first import
+        if (!p.text().trimmed().isEmpty())
+            break;
+    }
+    int last = -1;
+    int n = 0;
+    for (QTextBlock b = header.next(); b.isValid() && n < 5000; b = b.next(), ++n) {
+        if (isImportLine(b))
+            last = b.blockNumber();
+        else if (!b.text().trimmed().isEmpty())
+            break;
+    }
+    return last;
+}
+
 bool CodeEditor::isFoldable(const QTextBlock &block) const
 {
     if (!block.isValid() || !block.next().isValid())
         return false;
+    if (importRunEnd(block) >= 0)
+        return true;
     const QString text = block.text();
     if (text.trimmed().isEmpty())
         return false;
@@ -670,6 +777,8 @@ bool CodeEditor::isFoldable(const QTextBlock &block) const
 int CodeEditor::foldEnd(const QTextBlock &header) const
 {
     const int first = header.blockNumber();
+    if (const int imports = importRunEnd(header); imports >= 0)
+        return imports;
     const int opener = unmatchedOpener(header);
     if (opener >= 0) {
         const int match = findMatchingBracket(opener);
@@ -767,6 +876,8 @@ void CodeEditor::toggleFoldAt(int blockNumber)
     if (fold && !isFoldable(b))
         return;
     setFolded(b, fold);
+    if (isImportLine(b) && importRunEnd(b) >= 0)
+        emit importsFoldedChanged(fold);
     if (fold) {
         // Keep the caret out of the region that is about to disappear.
         const int end = foldEnd(b);
@@ -778,6 +889,16 @@ void CodeEditor::toggleFoldAt(int blockNumber)
         }
     }
     applyFolds();
+}
+
+void CodeEditor::setImportsFolded(bool folded)
+{
+    for (QTextBlock b = document()->begin(); b.isValid(); b = b.next())
+        if (isImportLine(b)) {
+            if (importRunEnd(b) >= 0 && isFolded(b) != folded)
+                toggleFoldAt(b.blockNumber());
+            return;
+        }
 }
 
 void CodeEditor::foldCurrent()
@@ -1558,6 +1679,11 @@ void CodeEditor::mouseMoveEvent(QMouseEvent *event)
 {
     QPlainTextEdit::mouseMoveEvent(event);
     updateLink(event->modifiers() == Qt::ControlModifier);
+    for (const auto &pill : std::as_const(m_foldPills))
+        if (pill.first.contains(event->pos())) {
+            viewport()->setCursor(Qt::PointingHandCursor);
+            break;
+        }
 }
 
 void CodeEditor::keyReleaseEvent(QKeyEvent *event)
@@ -1833,6 +1959,14 @@ void CodeEditor::paintBlameAnnotation()
     c.setAlpha(200);
     p.setPen(c);
     p.drawText(QRect(x, r.top(), avail, r.height()), Qt::AlignVCenter | Qt::AlignLeft, QFontMetrics(f).elidedText(text, Qt::ElideRight, avail));
+}
+
+bool CodeEditor::foldIconAt(const QPoint &pos) const
+{
+    if (pos.x() < m_lineArea->width() - kFoldWidth)
+        return false;
+    const QTextBlock b = cursorForPosition(QPoint(0, pos.y())).block();
+    return b.isValid() && (isFolded(b) || isFoldable(b));
 }
 
 void CodeEditor::gutterClicked(const QPoint &pos)

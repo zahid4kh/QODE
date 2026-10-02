@@ -55,6 +55,7 @@ SOURCES += \
     src/dialogs/NewProjectDialog.cpp \
     src/dialogs/NewFileDialog.cpp \
     src/dialogs/UnsavedChangesDialog.cpp \
+    src/dialogs/UnusedImportsDialog.cpp \
     src/dialogs/RunConfigDialog.cpp \
     src/dialogs/CompilerFlagsDialog.cpp \
     src/dialogs/LspInstallDialog.cpp \
@@ -119,6 +120,7 @@ HEADERS += \
     src/dialogs/NewProjectDialog.h \
     src/dialogs/NewFileDialog.h \
     src/dialogs/UnsavedChangesDialog.h \
+    src/dialogs/UnusedImportsDialog.h \
     src/dialogs/RunConfigDialog.h \
     src/dialogs/CompilerFlagsDialog.h \
     src/dialogs/LspInstallDialog.h \

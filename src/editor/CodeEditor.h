@@ -9,6 +9,7 @@
 #include <QPlainTextEdit>
 #include <QVector>
 
+class CompletionPopup;
 class MiniMap;
 class QTextBlock;
 class QTimer;
@@ -71,6 +72,14 @@ public:
     void showHover(const QString &markdown);
     const QVector<LspDiagnostic> &diagnostics() const { return m_diagnostics; }
 
+    // --- Completion -------------------------------------------------------------------------------
+    // Typing an identifier or '.', '->', '::' (while a server serves the file) or Ctrl+Space emits completionRequested();
+    // the answer goes to showCompletions() with the same token (older answers are dropped). Without a server,
+    // Ctrl+Space offers the words of the document.
+    void triggerCompletion();
+    void showCompletions(const QVector<LspCompletionItem> &items, bool incomplete, int token);
+    bool completionVisible() const;
+
     // --- Bookmarks ----------------------------------------------------------
     // 0-based, sorted lines. They follow the text while it is edited; setBookmarks() does not emit.
     const QList<int> &bookmarks() const { return m_bookmarks; }
@@ -104,6 +113,8 @@ signals:
     void bookmarksChanged();
     void hoverRequested(int line, int column); // mouse rests on an identifier (0-based line / UTF-16 column)
     void definitionRequested(int line, int column); // Ctrl+click on an identifier
+    // triggerKind: 1 invoked / typing, 2 trigger character, 3 the previous list was incomplete (LSP numbering)
+    void completionRequested(int line, int column, int triggerKind, const QString &triggerChar, int token);
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
@@ -120,6 +131,17 @@ protected:
     void insertFromMimeData(const QMimeData *source) override;
 
 private:
+    void handleKey(QKeyEvent *event);
+    bool autoPair(QKeyEvent *event);   // typed bracket/quote: insert its partner, type over a closer, wrap a selection
+    bool eraseEmptyPair();             // Backspace between "()" / "\"\"" removes both
+    bool completionKey(QKeyEvent *event); // true when the popup consumed the key
+    void completionTyped(QKeyEvent *event, bool edited);
+    void scheduleCompletion(int kind, const QString &triggerChar);
+    void requestCompletion(int kind, const QString &triggerChar);
+    void acceptCompletion();
+    void hideCompletion();
+    QString completionPrefix() const; // text from the anchor to the caret, empty when there is no anchor
+    bool inStringOrComment(int position) const;
     void updateLineNumberAreaWidth();
     void updateLineNumberArea(const QRect &rect, int dy);
     void refreshSelections();
@@ -203,4 +225,12 @@ private:
     QHash<int, int> m_hunkAtLine; // line -> hunk index (added/modified lines)
     QHash<int, int> m_deletedAt;  // line above which lines were removed -> hunk index
     QTimer *m_diffTimer;
+
+    CompletionPopup *m_completion = nullptr;
+    QTimer *m_completionTimer = nullptr;
+    int m_completionToken = 0;
+    int m_completionAnchor = -1; // document position where the typed prefix starts
+    bool m_completionIncomplete = false;
+    int m_pendingKind = 1;
+    QString m_pendingTrigger;
 };

@@ -65,6 +65,11 @@ public:
     // Where the symbol under (line, column) is defined; empty when unknown.
     void definition(Document *doc, int line, int column, std::function<void(const QVector<LspLocation> &)> done);
 
+    // Completion candidates at (line, column). triggerKind: 1 invoked, 2 trigger character, 3 list was incomplete.
+    // A newer request cancels the previous one (whose callback then never runs).
+    void completion(Document *doc, int line, int column, int triggerKind, const QString &triggerChar,
+                    std::function<void(const QVector<LspCompletionItem> &, bool incomplete)> done);
+
     QVector<LspDiagnostic> diagnostics(const QString &path) const { return m_diagnostics.value(path); }
     int diagnosticCount(int severity) const;
 
@@ -106,4 +111,6 @@ private:
     QHash<Document *, Tracked> m_tracked;
     QHash<QString, QVector<LspDiagnostic>> m_diagnostics;
     QTimer *m_changeTimer;
+    QPointer<LspClient> m_completionClient; // the request in flight, so a newer one can cancel it
+    int m_completionId = -1;
 };

@@ -499,7 +499,85 @@ void addLocation(QVector<LspLocation> &out, const QJsonObject &o)
     if (!loc.path.isEmpty())
         out << loc;
 }
+
+LspTextEdit parseEdit(const QJsonObject &o, const QString &rangeKey = QStringLiteral("range"))
+{
+    const QJsonObject range = o.value(rangeKey).toObject();
+    const QJsonObject a = range.value(QStringLiteral("start")).toObject();
+    const QJsonObject b = range.value(QStringLiteral("end")).toObject();
+    LspTextEdit e;
+    e.startLine = a.value(QStringLiteral("line")).toInt();
+    e.startColumn = a.value(QStringLiteral("character")).toInt();
+    e.endLine = b.value(QStringLiteral("line")).toInt();
+    e.endColumn = b.value(QStringLiteral("character")).toInt();
+    e.text = o.value(QStringLiteral("newText")).toString();
+    return e;
+}
+
+LspCompletionItem parseCompletionItem(const QJsonObject &o)
+{
+    LspCompletionItem it;
+    it.label = o.value(QStringLiteral("label")).toString();
+    it.kind = o.value(QStringLiteral("kind")).toInt();
+    it.detail = o.value(QStringLiteral("detail")).toString();
+    const QJsonObject details = o.value(QStringLiteral("labelDetails")).toObject();
+    it.signature = details.value(QStringLiteral("detail")).toString();
+    if (it.detail.isEmpty())
+        it.detail = details.value(QStringLiteral("description")).toString();
+    it.insertText = o.value(QStringLiteral("insertText")).toString();
+    it.filterText = o.value(QStringLiteral("filterText")).toString();
+    it.sortText = o.value(QStringLiteral("sortText")).toString();
+    it.snippet = o.value(QStringLiteral("insertTextFormat")).toInt() == 2;
+    it.deprecated = o.value(QStringLiteral("deprecated")).toBool() ||
+                    o.value(QStringLiteral("tags")).toArray().contains(1);
+    const QJsonObject te = o.value(QStringLiteral("textEdit")).toObject();
+    if (!te.isEmpty()) {
+        // TextEdit { range, newText } or InsertReplaceEdit { insert, replace, newText }
+        it.edit = parseEdit(te, te.contains(QStringLiteral("replace")) ? QStringLiteral("replace") : QStringLiteral("range"));
+        it.hasEdit = true;
+    }
+    for (const QJsonValue &v : o.value(QStringLiteral("additionalTextEdits")).toArray())
+        it.additionalEdits << parseEdit(v.toObject());
+    return it;
+}
 } // namespace
+
+void LspManager::completion(Document *doc, int line, int column, int triggerKind, const QString &triggerChar,
+                            std::function<void(const QVector<LspCompletionItem> &, bool)> done)
+{
+    QString uri;
+    LspClient *c = readyClientFor(doc, &uri);
+    if (!c) {
+        done({}, false);
+        return;
+    }
+    if (m_completionClient && m_completionId >= 0)
+        m_completionClient->cancel(m_completionId);
+    QJsonObject context{{QStringLiteral("triggerKind"), triggerKind}};
+    if (triggerKind == 2 && !triggerChar.isEmpty())
+        context.insert(QStringLiteral("triggerCharacter"), triggerChar);
+    QJsonObject params = positionParams(uri, line, column);
+    params.insert(QStringLiteral("context"), context);
+    m_completionClient = c;
+    m_completionId = c->request(QStringLiteral("textDocument/completion"), params,
+                                [done](const QJsonValue &result, const QJsonObject &error) {
+                                    QVector<LspCompletionItem> out;
+                                    bool incomplete = false;
+                                    if (error.isEmpty()) {
+                                        QJsonArray items;
+                                        if (result.isArray()) {
+                                            items = result.toArray();
+                                        } else if (result.isObject()) {
+                                            incomplete = result.toObject().value(QStringLiteral("isIncomplete")).toBool();
+                                            items = result.toObject().value(QStringLiteral("items")).toArray();
+                                        }
+                                        out.reserve(items.size());
+                                        for (const QJsonValue &v : items)
+                                            out << parseCompletionItem(v.toObject());
+                                    }
+                                    done(out, incomplete);
+                                });
+}
 
 void LspManager::hover(Document *doc, int line, int column, std::function<void(const QString &)> done)
 {

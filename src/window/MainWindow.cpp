@@ -235,6 +235,14 @@ MainWindow::MainWindow(QWidget *parent)
                     guard->showHover(text);
             });
         });
+        connect(ed, &CodeEditor::completionRequested, this,
+                [this, doc, ed](int line, int column, int kind, const QString &trigger, int token) {
+                    QPointer<CodeEditor> guard(ed);
+                    m_lsp->completion(doc, line, column, kind, trigger, [guard, token](const QVector<LspCompletionItem> &items, bool incomplete) {
+                        if (guard)
+                            guard->showCompletions(items, incomplete, token);
+                    });
+                });
         ed->setDefinitionAvailable([this, doc] { return m_lsp->isServed(doc); });
         connect(ed, &CodeEditor::definitionRequested, this, [this, ed](int line, int column) { goToDefinition(ed, line, column); });
         connect(ed, &CodeEditor::bookmarksChanged, this, [this, doc, ed] {

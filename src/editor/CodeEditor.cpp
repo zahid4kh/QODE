@@ -1,6 +1,7 @@
 #include "CodeEditor.h"
 
 #include "Breadcrumbs.h"
+#include "CompletionPopup.h"
 #include "MiniMap.h"
 #include "SyntaxHighlighter.h"
 #include "settings/Icons.h"
@@ -26,6 +27,8 @@
 #include <QScrollBar>
 #include <QTextBlock>
 #include <QTextDocument>
+#include <QRegularExpression>
+#include <QSet>
 #include <QTimer>
 #include <QUrl>
 
@@ -1299,6 +1302,99 @@ void CodeEditor::indentSelection(bool outdent)
     c.endEditBlock();
 }
 
+namespace {
+QChar closerFor(QChar open)
+{
+    switch (open.unicode()) {
+    case '(': return QLatin1Char(')');
+    case '[': return QLatin1Char(']');
+    case '{': return QLatin1Char('}');
+    case '"': return QLatin1Char('"');
+    case '\'': return QLatin1Char('\'');
+    case '`': return QLatin1Char('`');
+    default: return QChar();
+    }
+}
+bool isIdentChar(QChar c) { return c.isLetterOrNumber() || c == QLatin1Char('_'); }
+bool isQuote(QChar c) { return c == QLatin1Char('"') || c == QLatin1Char('\'') || c == QLatin1Char('`'); }
+bool isCloser(QChar c) { return c == QLatin1Char(')') || c == QLatin1Char(']') || c == QLatin1Char('}'); }
+}
+
+bool CodeEditor::autoPair(QKeyEvent *event)
+{
+    const Qt::KeyboardModifiers mods = event->modifiers() & ~(Qt::KeypadModifier | Qt::ShiftModifier);
+    const QString text = event->text();
+    if (mods != Qt::NoModifier || text.size() != 1 || overwriteMode())
+        return false;
+    const QChar ch = text[0];
+    const QChar close = closerFor(ch);
+    if (close.isNull() && !isCloser(ch))
+        return false;
+
+    QTextCursor c = textCursor();
+    QTextDocument *doc = document();
+    const int pos = c.position();
+    const QChar next = c.hasSelection() ? QChar() : doc->characterAt(pos); // '\0' at the end of the document
+    const QChar prev = pos > 0 ? doc->characterAt(pos - 1) : QChar();
+
+    if (c.hasSelection()) { // wrap the selection and keep it selected
+        if (close.isNull())
+            return false;
+        const int s = c.selectionStart(), e = c.selectionEnd();
+        c.beginEditBlock();
+        c.setPosition(e);
+        c.insertText(QString(close));
+        c.setPosition(s);
+        c.insertText(QString(ch));
+        c.setPosition(s + 1);
+        c.setPosition(e + 1, QTextCursor::KeepAnchor);
+        c.endEditBlock();
+        setTextCursor(c);
+        return true;
+    }
+    // Typing the closer that is already there just steps over it.
+    if ((isCloser(ch) || isQuote(ch)) && next == ch) {
+        c.movePosition(QTextCursor::Right);
+        setTextCursor(c);
+        return true;
+    }
+    if (close.isNull())
+        return false;
+    // Pair only where it is welcome: not right before a word, not inside strings/comments, and not an
+    // apostrophe after a letter (don't) or a Rust lifetime.
+    if (isIdentChar(next) || (next == ch))
+        return false;
+    if (isQuote(ch) && (inStringOrComment(pos) || isIdentChar(prev)))
+        return false;
+    if (ch == QLatin1Char('\'') && m_language.compare(QLatin1String("rust"), Qt::CaseInsensitive) == 0)
+        return false;
+    if (inStringOrComment(pos))
+        return false;
+    c.beginEditBlock();
+    c.insertText(QString(ch) + QString(close));
+    c.movePosition(QTextCursor::Left);
+    c.endEditBlock();
+    setTextCursor(c);
+    return true;
+}
+
+bool CodeEditor::eraseEmptyPair()
+{
+    QTextCursor c = textCursor();
+    if (c.hasSelection() || c.position() == 0)
+        return false;
+    const QChar prev = document()->characterAt(c.position() - 1);
+    const QChar next = document()->characterAt(c.position());
+    if (closerFor(prev).isNull() || closerFor(prev) != next)
+        return false;
+    c.beginEditBlock();
+    c.deleteChar();
+    c.deletePreviousChar();
+    c.endEditBlock();
+    setTextCursor(c);
+    return true;
+}
+
 void CodeEditor::handleBackspaceInIndent(QKeyEvent *event)
 {
     QTextCursor c = textCursor();
@@ -1322,6 +1418,22 @@ void CodeEditor::handleBackspaceInIndent(QKeyEvent *event)
 
 void CodeEditor::keyPressEvent(QKeyEvent *event)
 {
+    if (!isReadOnly()) {
+        if (m_completion && m_completion->isVisible() && completionKey(event))
+            return;
+        if (event->key() == Qt::Key_Space && (event->modifiers() & ~Qt::KeypadModifier) == Qt::ControlModifier) {
+            triggerCompletion();
+            return;
+        }
+    }
+    const int revision = document()->revision();
+    handleKey(event);
+    if (!isReadOnly())
+        completionTyped(event, document()->revision() != revision);
+}
+
+void CodeEditor::handleKey(QKeyEvent *event)
+{
     if (event->key() == Qt::Key_Control)
         updateLink(true);
     if (isReadOnly()) {
@@ -1329,6 +1441,8 @@ void CodeEditor::keyPressEvent(QKeyEvent *event)
         return;
     }
     const Qt::KeyboardModifiers mods = event->modifiers() & ~Qt::KeypadModifier;
+    if (autoPair(event))
+        return;
 
     switch (event->key()) {
     case Qt::Key_Return:
@@ -1366,6 +1480,8 @@ void CodeEditor::keyPressEvent(QKeyEvent *event)
         return;
     case Qt::Key_Backspace:
         if (mods == Qt::NoModifier) {
+            if (eraseEmptyPair())
+                return;
             handleBackspaceInIndent(event);
             return;
         }
@@ -1442,6 +1558,7 @@ void CodeEditor::focusOutEvent(QFocusEvent *event)
 {
     QPlainTextEdit::focusOutEvent(event);
     updateLink(false);
+    hideCompletion();
 }
 
 void CodeEditor::leaveEvent(QEvent *event)
@@ -1452,6 +1569,7 @@ void CodeEditor::leaveEvent(QEvent *event)
 
 void CodeEditor::mousePressEvent(QMouseEvent *event)
 {
+    hideCompletion();
     if (event->button() == Qt::LeftButton && event->modifiers() == Qt::ControlModifier) {
         const QTextCursor at = cursorForPosition(event->pos());
         const QString text = at.block().text();
@@ -1817,4 +1935,282 @@ void CodeEditor::revertHunk(int hunkIndex)
     }
     c.endEditBlock();
     recomputeDiff();
+}
+
+// --- Completion -----------------------------------------------------------------------------------
+
+bool CodeEditor::completionVisible() const { return m_completion && m_completion->isVisible(); }
+
+bool CodeEditor::inStringOrComment(int position) const
+{
+    if (position <= 0)
+        return false;
+    const QTextBlock block = document()->findBlock(position - 1);
+    const QVector<bool> mask = protectedMask(block);
+    const int i = position - 1 - block.position();
+    return i >= 0 && i < mask.size() && mask[i];
+}
+
+QString CodeEditor::completionPrefix() const
+{
+    const int cur = textCursor().position();
+    if (m_completionAnchor < 0 || cur < m_completionAnchor)
+        return {};
+    QTextCursor c(document());
+    c.setPosition(m_completionAnchor);
+    c.setPosition(cur, QTextCursor::KeepAnchor);
+    return c.selectedText();
+}
+
+void CodeEditor::hideCompletion()
+{
+    if (m_completionTimer)
+        m_completionTimer->stop();
+    if (m_completion)
+        m_completion->hide();
+    ++m_completionToken; // an answer still on its way is stale now
+    m_completionAnchor = -1;
+}
+
+bool CodeEditor::completionKey(QKeyEvent *event)
+{
+    const Qt::KeyboardModifiers mods = event->modifiers() & ~Qt::KeypadModifier;
+    switch (event->key()) {
+    case Qt::Key_Up:
+    case Qt::Key_Down:
+        if (mods != Qt::NoModifier)
+            return false;
+        m_completion->moveSelection(event->key() == Qt::Key_Up ? -1 : 1);
+        return true;
+    case Qt::Key_PageUp:
+    case Qt::Key_PageDown:
+        m_completion->moveSelection(event->key() == Qt::Key_PageUp ? -8 : 8);
+        return true;
+    case Qt::Key_Tab:
+    case Qt::Key_Return:
+    case Qt::Key_Enter:
+        if (mods != Qt::NoModifier)
+            return false;
+        acceptCompletion();
+        return true;
+    case Qt::Key_Escape:
+        hideCompletion();
+        return true;
+    case Qt::Key_Left:
+    case Qt::Key_Right:
+    case Qt::Key_Home:
+    case Qt::Key_End:
+        hideCompletion();
+        return false;
+    default:
+        return false;
+    }
+}
+
+void CodeEditor::completionTyped(QKeyEvent *event, bool edited)
+{
+    const bool served = m_canGoToDefinition && m_canGoToDefinition();
+    const int cur = textCursor().position();
+    if (completionVisible() && (cur < m_completionAnchor || !edited)) { // moved away from the word
+        if (!edited && cur >= m_completionAnchor && completionPrefix().size() == cur - m_completionAnchor)
+            return;
+        hideCompletion();
+        return;
+    }
+    if (!edited)
+        return;
+
+    const bool erase = event->key() == Qt::Key_Backspace || event->key() == Qt::Key_Delete;
+    const QString text = event->text();
+    if (erase) {
+        if (!completionVisible())
+            return;
+        if (m_completion->setPrefix(completionPrefix()) == 0)
+            hideCompletion();
+        return;
+    }
+    if (text.size() != 1 || text[0].isSpace() || text[0].category() == QChar::Other_Control) {
+        hideCompletion();
+        return;
+    }
+    const QChar ch = text[0];
+    if (isIdentChar(ch)) {
+        if (completionVisible()) {
+            const QString prefix = completionPrefix();
+            if (prefix.isEmpty() || m_completion->setPrefix(prefix) == 0) {
+                hideCompletion();
+            } else if (m_completionIncomplete) { // the server cut its list short: ask again for the longer prefix
+                scheduleCompletion(3, {});
+            }
+            return;
+        }
+        if (!served || inStringOrComment(cur))
+            return;
+        QTextCursor c(document());
+        c.setPosition(cur);
+        int start = cur;
+        while (start > 0 && isIdentChar(document()->characterAt(start - 1)))
+            --start;
+        if (document()->characterAt(start).isDigit()) // a number literal, not a name
+            return;
+        scheduleCompletion(1, {});
+        return;
+    }
+    hideCompletion();
+    if (!served || inStringOrComment(cur - 1))
+        return;
+    const QChar prev = cur >= 2 ? document()->characterAt(cur - 2) : QChar();
+    if (ch == QLatin1Char('.') || (ch == QLatin1Char('>') && prev == QLatin1Char('-')) || (ch == QLatin1Char(':') && prev == QLatin1Char(':')))
+        scheduleCompletion(2, ch == QLatin1Char('>') ? QStringLiteral(">") : QString(ch));
+}
+
+void CodeEditor::scheduleCompletion(int kind, const QString &triggerChar)
+{
+    if (!m_completionTimer) {
+        m_completionTimer = new QTimer(this);
+        m_completionTimer->setSingleShot(true);
+        connect(m_completionTimer, &QTimer::timeout, this, [this] { requestCompletion(m_pendingKind, m_pendingTrigger); });
+    }
+    m_pendingKind = kind;
+    m_pendingTrigger = triggerChar;
+    m_completionTimer->start(60);
+}
+
+void CodeEditor::triggerCompletion()
+{
+    requestCompletion(1, {});
+}
+
+void CodeEditor::requestCompletion(int kind, const QString &triggerChar)
+{
+    const int cur = textCursor().position();
+    int start = cur;
+    while (start > 0 && isIdentChar(document()->characterAt(start - 1)))
+        --start;
+    m_completionAnchor = start;
+    const int token = ++m_completionToken;
+    const bool served = m_canGoToDefinition && m_canGoToDefinition();
+    if (served) {
+        const QTextCursor c = textCursor();
+        emit completionRequested(c.blockNumber(), c.positionInBlock(), kind, triggerChar, token);
+        return;
+    }
+    // No server: offer the words that already appear in the document.
+    QSet<QString> seen;
+    QVector<LspCompletionItem> items;
+    static const QRegularExpression word(QStringLiteral("[A-Za-z_][A-Za-z0-9_]{2,}"));
+    const QString all = toPlainText();
+    for (auto it = word.globalMatch(all); it.hasNext();) {
+        const QRegularExpressionMatch m = it.next();
+        if (m.capturedStart() == start || seen.contains(m.captured()))
+            continue;
+        seen.insert(m.captured());
+        LspCompletionItem item;
+        item.label = m.captured();
+        item.kind = 1;
+        items.append(item);
+        if (items.size() >= 5000)
+            break;
+    }
+    showCompletions(items, false, token);
+}
+
+void CodeEditor::showCompletions(const QVector<LspCompletionItem> &items, bool incomplete, int token)
+{
+    if (token != m_completionToken || m_completionAnchor < 0 || !hasFocus())
+        return;
+    const int cur = textCursor().position();
+    const QString prefix = completionPrefix();
+    bool wordOnly = cur >= m_completionAnchor;
+    for (const QChar c : prefix)
+        wordOnly = wordOnly && isIdentChar(c);
+    if (!wordOnly || items.isEmpty()) {
+        hideCompletion();
+        return;
+    }
+    if (!m_completion) {
+        m_completion = new CompletionPopup(this);
+        m_completion->setFont(font());
+        connect(m_completion, &CompletionPopup::accepted, this, &CodeEditor::acceptCompletion);
+        connect(verticalScrollBar(), &QScrollBar::valueChanged, this, &CodeEditor::hideCompletion);
+    }
+    m_completionIncomplete = incomplete;
+    m_completion->setItems(items);
+    if (m_completion->setPrefix(prefix) == 0) {
+        hideCompletion();
+        return;
+    }
+    QTextCursor anchor(document());
+    anchor.setPosition(m_completionAnchor);
+    const QRect r = cursorRect(anchor);
+    m_completion->popup(viewport()->mapToGlobal(r.bottomLeft() + QPoint(0, 2)), viewport()->mapToGlobal(r.topLeft() - QPoint(0, 2)));
+}
+
+namespace {
+// "foo(${1:a}, $2)$0" -> "foo(a, )"
+QString stripSnippet(QString text)
+{
+    static const QRegularExpression placeholder(QStringLiteral("\\$\\{\\d+:([^}]*)\\}"));
+    static const QRegularExpression tabstop(QStringLiteral("\\$(\\{\\d+\\}|\\d+)"));
+    text.replace(placeholder, QStringLiteral("\\1"));
+    text.remove(tabstop);
+    text.replace(QStringLiteral("\\$"), QStringLiteral("$"));
+    return text;
+}
+}
+
+void CodeEditor::acceptCompletion()
+{
+    if (!m_completion)
+        return;
+    const LspCompletionItem *picked = m_completion->current();
+    if (!picked) {
+        hideCompletion();
+        return;
+    }
+    const LspCompletionItem item = *picked;
+    const int cur = textCursor().position();
+    const int anchor = m_completionAnchor;
+    hideCompletion();
+
+    QTextDocument *doc = document();
+    auto position = [doc](int line, int column) {
+        const QTextBlock b = doc->findBlockByNumber(line);
+        if (!b.isValid())
+            return doc->characterCount() - 1;
+        return b.position() + qMin(column, b.length() - 1);
+    };
+    struct Edit {
+        int start, end;
+        QString text;
+    };
+    QString text = item.hasEdit ? item.edit.text : (item.insertText.isEmpty() ? item.label.trimmed() : item.insertText);
+    if (item.snippet)
+        text = stripSnippet(text);
+    int start = anchor, end = cur;
+    if (item.hasEdit) {
+        start = position(item.edit.startLine, item.edit.startColumn);
+        end = qMax(position(item.edit.endLine, item.edit.endColumn), cur); // keep what was typed since the request
+    }
+    QVector<Edit> edits{{start, end, text}};
+    for (const LspTextEdit &e : item.additionalEdits)
+        edits.append({position(e.startLine, e.startColumn), position(e.endLine, e.endColumn), e.text});
+    std::stable_sort(edits.begin(), edits.end(), [](const Edit &a, const Edit &b) { return a.start > b.start; });
+
+    int shift = 0; // how much the extra edits above the insertion moved it
+    for (const Edit &e : std::as_const(edits))
+        if (e.end <= start && !(e.start == start && e.end == end))
+            shift += e.text.size() - (e.end - e.start);
+
+    QTextCursor c(doc);
+    c.beginEditBlock();
+    for (const Edit &e : std::as_const(edits)) {
+        c.setPosition(e.start);
+        c.setPosition(e.end, QTextCursor::KeepAnchor);
+        c.insertText(e.text);
+    }
+    c.endEditBlock();
+    c.setPosition(start + shift + text.size());
+    setTextCursor(c);
+    ensureCursorVisible();
 }

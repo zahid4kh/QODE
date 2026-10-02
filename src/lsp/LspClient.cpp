@@ -37,6 +37,13 @@ LspClient::LspClient(const QString &program, const QStringList &arguments, const
             {QStringLiteral("publishDiagnostics"), QJsonObject{{QStringLiteral("relatedInformation"), false}}},
             {QStringLiteral("hover"), QJsonObject{{QStringLiteral("contentFormat"), QJsonArray{QStringLiteral("markdown"), QStringLiteral("plaintext")}}}},
             {QStringLiteral("definition"), QJsonObject{{QStringLiteral("linkSupport"), true}}},
+            {QStringLiteral("completion"),
+             QJsonObject{{QStringLiteral("contextSupport"), true},
+                         {QStringLiteral("completionItem"),
+                          QJsonObject{{QStringLiteral("snippetSupport"), false},
+                                      {QStringLiteral("deprecatedSupport"), true},
+                                      {QStringLiteral("labelDetailsSupport"), true},
+                                      {QStringLiteral("documentationFormat"), QJsonArray{QStringLiteral("plaintext")}}}}}},
         };
         QJsonObject params{
             {QStringLiteral("processId"), int(QCoreApplication::applicationPid())},

@@ -20,7 +20,7 @@ class QLabel;
 class QMenu;
 class QSplitter;
 class QStackedWidget;
-class QTabBar;
+class SideSections;
 class BranchButton;
 class QToolButton;
 class TerminalPanel;
@@ -110,9 +110,7 @@ private:
     SearchPanel *m_searchPanel;
     TasksPanel *m_tasks;
     QHash<QString, QList<int>> m_bookmarks; // path -> 0-based lines (persisted)
-    QWidget *m_side;
-    QTabBar *m_sideTabs;
-    QStackedWidget *m_sideStack;
+    SideSections *m_side;
     ProjectExplorer *m_explorer;
     EditorManager *m_editors;
     TerminalPanel *m_terminal;

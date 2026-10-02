@@ -69,6 +69,7 @@ SOURCES += \
     src/terminal/Terminal.cpp \
     src/terminal/TerminalPanel.cpp \
     src/window/Island.cpp \
+    src/window/SideSections.cpp \
     src/window/MainWindow.cpp
 
 HEADERS += \
@@ -121,6 +122,7 @@ HEADERS += \
     src/terminal/Terminal.h \
     src/terminal/TerminalPanel.h \
     src/window/Island.h \
+    src/window/SideSections.h \
     src/window/MainWindow.h
 
 RESOURCES += resources/qode.qrc

@@ -265,6 +265,23 @@ void SettingsManager::setWindowState(const QByteArray &s)
     m_settings.setValue(QStringLiteral("window/state"), s);
 }
 
+QList<bool> SettingsManager::sideSections() const
+{
+    const QStringList raw = m_settings.value(QStringLiteral("window/sideSections"), QStringList{QStringLiteral("1"), QStringLiteral("0"), QStringLiteral("0"), QStringLiteral("0")}).toStringList();
+    QList<bool> out;
+    for (const QString &r : raw)
+        out.append(r == QLatin1String("1"));
+    return out;
+}
+
+void SettingsManager::setSideSections(const QList<bool> &expanded)
+{
+    QStringList raw;
+    for (bool b : expanded)
+        raw << (b ? QStringLiteral("1") : QStringLiteral("0"));
+    m_settings.setValue(QStringLiteral("window/sideSections"), raw);
+}
+
 int SettingsManager::explorerWidth() const
 {
     return m_settings.value(QStringLiteral("window/explorerWidth"), 250).toInt();

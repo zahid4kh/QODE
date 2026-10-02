@@ -2,6 +2,7 @@
 #include "MainWindow.h"
 
 #include "Island.h"
+#include "SideSections.h"
 #include "dialogs/NewProjectDialog.h"
 #include "dialogs/RunConfigDialog.h"
 #include "media/MarkdownPreview.h"
@@ -79,29 +80,20 @@ MainWindow::MainWindow(QWidget *parent)
     m_tasks = new TasksPanel(this);
     m_editors = new EditorManager(this);
 
-    // Left side: Explorer / Source Control switcher
-    m_side = new QWidget(this);
-    m_sideTabs = new QTabBar(m_side);
-    m_sideTabs->addTab(tr("Explorer"));
-    m_sideTabs->addTab(tr("Source Control"));
-    m_sideTabs->addTab(tr("Search"));
-    m_sideTabs->addTab(tr("Tasks"));
-    m_sideTabs->setObjectName(QStringLiteral("sideTabs"));
-    m_sideTabs->setExpanding(true);
-    m_sideTabs->setDrawBase(false);
-    m_sideTabs->setUsesScrollButtons(false);
-    m_sideTabs->setElideMode(Qt::ElideNone);
-    m_sideStack = new QStackedWidget(m_side);
-    m_sideStack->addWidget(m_explorer);
-    m_sideStack->addWidget(m_gitPanel);
-    m_sideStack->addWidget(m_searchPanel);
-    m_sideStack->addWidget(m_tasks);
-    auto *sideLayout = new QVBoxLayout(m_side);
-    sideLayout->setContentsMargins(0, 0, 0, 0);
-    sideLayout->setSpacing(0);
-    sideLayout->addWidget(m_sideTabs);
-    sideLayout->addWidget(m_sideStack, 1);
-    connect(m_sideTabs, &QTabBar::currentChanged, m_sideStack, &QStackedWidget::setCurrentIndex);
+    // Left side: collapsible Explorer / Source Control / Search / Tasks sections
+    m_side = new SideSections(this);
+    auto hideTitle = [](QWidget *w) { // the section header replaces the panel's own heading
+        for (QLabel *l : w->findChildren<QLabel *>(QStringLiteral("panelTitle"), Qt::FindDirectChildrenOnly))
+            l->hide();
+    };
+    for (QWidget *w : {static_cast<QWidget *>(m_explorer), static_cast<QWidget *>(m_searchPanel), static_cast<QWidget *>(m_tasks)})
+        hideTitle(w);
+    m_side->addSection(tr("Explorer"), m_explorer);
+    m_side->addSection(tr("Source Control"), m_gitPanel);
+    m_side->addSection(tr("Search"), m_searchPanel);
+    m_side->addSection(tr("Tasks"), m_tasks);
+    m_side->setExpandedStates(SettingsManager::instance().sideSections());
+    connect(m_side, &SideSections::expansionChanged, this, [this] { SettingsManager::instance().setSideSections(m_side->expandedStates()); });
 
     m_terminal = new TerminalPanel(this);
     // Python projects: activate the project's virtualenv (whatever its folder is called) in fresh shells.
@@ -1195,7 +1187,7 @@ void MainWindow::showTasks(bool bookmarks)
 {
     if (!m_explorerAct->isChecked())
         m_explorerAct->setChecked(true);
-    m_sideTabs->setCurrentIndex(3);
+    m_side->setExpanded(3, true);
     if (bookmarks)
         m_tasks->showBookmarks();
     else
@@ -1274,7 +1266,7 @@ void MainWindow::showSearch()
 {
     if (!m_explorerAct->isChecked())
         m_explorerAct->setChecked(true);
-    m_sideTabs->setCurrentIndex(2);
+    m_side->setExpanded(2, true);
     QString prefill;
     if (CodeEditor *e = m_editors->currentEditor()) {
         const QString sel = e->textCursor().selectedText();
@@ -1626,7 +1618,7 @@ void MainWindow::onGitStatusChanged()
         m_gitStatusWidget->hide();
     }
     const int n = m_git->isRepo() ? m_git->changes().size() : 0;
-    m_sideTabs->setTabText(1, n > 0 ? tr("Source Control (%1)").arg(n) : tr("Source Control"));
+    m_side->setTitle(1, n > 0 ? tr("Source Control (%1)").arg(n) : tr("Source Control"));
 
     // Committed text changed (new commit, other branch, other repository) => re-read every open file's base.
     if (m_git->headOid() != m_lastHead || m_git->root() != m_lastRoot) {
@@ -1673,7 +1665,7 @@ void MainWindow::showSourceControl()
 {
     if (!m_explorerAct->isChecked())
         m_explorerAct->setChecked(true);
-    m_sideTabs->setCurrentIndex(1);
+    m_side->setExpanded(1, true);
 }
 
 void MainWindow::showDiff(const QString &path, GitDiffMode mode)

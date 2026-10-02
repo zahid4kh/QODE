@@ -121,6 +121,7 @@ private:
     void removeDocument(Document *doc);
     void updateTabTitle(Document *doc);
     void onActiveTabChanged();
+    void updateGroupMarkers(); // accent bar on the active group, dimming on the rest
     bool saveDocument(Document *doc);
     bool saveDocumentAs(Document *doc);
     bool maybeSave(Document *doc);

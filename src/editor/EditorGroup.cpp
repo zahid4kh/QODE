@@ -158,6 +158,34 @@ private:
     Zone m_zone = Center;
 };
 
+// Paints over the group without taking mouse events.
+class EditorGroup::Marker : public QWidget
+{
+public:
+    explicit Marker(QWidget *parent)
+        : QWidget(parent)
+    {
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        connect(&SettingsManager::instance(), &SettingsManager::themeChanged, this, qOverload<>(&QWidget::update));
+        hide();
+    }
+    bool active = false;
+
+protected:
+    void paintEvent(QPaintEvent *) override
+    {
+        const Theme t = Theme::byName(SettingsManager::instance().theme());
+        QPainter p(this);
+        if (active) {
+            p.fillRect(QRect(0, 0, width(), 3), t.accent);
+        } else {
+            QColor dim = t.frame;
+            dim.setAlpha(t.dark ? 90 : 70);
+            p.fillRect(rect(), dim);
+        }
+    }
+};
+
 EditorGroup::EditorGroup(QWidget *parent)
     : QWidget(parent)
 {
@@ -177,7 +205,25 @@ EditorGroup::EditorGroup(QWidget *parent)
     lay->setSpacing(0);
     lay->addWidget(m_tabs);
 
+    m_marker = new Marker(this);
     m_overlay = new Overlay(this);
+}
+
+void EditorGroup::setActiveMarker(bool multipleGroups, bool active)
+{
+    m_marker->active = active;
+    m_marker->setGeometry(rect());
+    m_marker->setVisible(multipleGroups);
+    m_marker->raise();
+    m_marker->update();
+    if (m_overlay->isVisible())
+        m_overlay->raise();
+}
+
+void EditorGroup::resizeEvent(QResizeEvent *e)
+{
+    QWidget::resizeEvent(e);
+    m_marker->setGeometry(rect());
 }
 
 void EditorGroup::setDragActive(bool active)

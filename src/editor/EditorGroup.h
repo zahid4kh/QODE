@@ -19,7 +19,13 @@ public:
     // While a tab is being dragged an overlay covers the group, showing where the tab would land.
     void setDragActive(bool active);
 
+    // With several groups, the active one gets an accent bar along its top and the others are dimmed.
+    void setActiveMarker(bool multipleGroups, bool active);
+
     static QString mimeType();
+
+protected:
+    void resizeEvent(QResizeEvent *e) override;
 
 signals:
     void tabDragStarted(int index);
@@ -28,6 +34,8 @@ signals:
 
 private:
     class Overlay;
+    class Marker;
     QTabWidget *m_tabs;
+    Marker *m_marker;
     Overlay *m_overlay;
 };

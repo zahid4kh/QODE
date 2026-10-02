@@ -475,8 +475,16 @@ void EditorManager::onActiveTabChanged()
         autoSaveDocument(m_lastDoc);
     m_lastDoc = e.doc;
     m_find->setEditor(e.editor);
+    updateGroupMarkers();
     emit currentChanged();
     emit cursorInfoChanged();
+}
+
+void EditorManager::updateGroupMarkers()
+{
+    const QList<EditorGroup *> all = groups();
+    for (EditorGroup *g : all)
+        g->setActiveMarker(all.size() > 1, g == m_active);
 }
 
 void EditorManager::removeDocument(Document *doc)
@@ -639,6 +647,7 @@ void EditorManager::removeGroupIfEmpty(EditorGroup *g)
         m_active = rest.value(qMin(pos, int(rest.size()) - 1));
         onActiveTabChanged();
     }
+    updateGroupMarkers();
 }
 
 // The root splitter never holds just another splitter: its contents are lifted into it.

@@ -84,6 +84,9 @@ public:
     int terminalHeight() const;
     void setTerminalHeight(int h);
 
+    bool sideBarVisible() const;
+    void setSideBarVisible(bool v);
+
     bool terminalVisible() const;
     void setTerminalVisible(bool v);
 

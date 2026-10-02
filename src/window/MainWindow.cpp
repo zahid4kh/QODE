@@ -285,7 +285,8 @@ void MainWindow::createActions()
     m_projNewFolderAct = make(tr("New Folder…"), {}, QStringLiteral(":/new-icons/folder-plus.svg"));
     m_openProjectFolderAct = make(tr("Open Project Folder…"));
 
-    m_explorerAct = make(tr("Project Explorer"), QKeySequence(C | K::Key_B));
+    m_explorerAct = make(tr("Toggle Sidebar"), QKeySequence(C | K::Key_B), QStringLiteral(":/new-icons/panel-left.svg"));
+    m_explorerAct->setToolTip(tr("Show or hide the left panel (Ctrl+B)"));
     m_explorerAct->setCheckable(true);
     m_explorerAct->setChecked(true);
     m_terminalAct = make(tr("Terminal"), QKeySequence(C | K::Key_J), QStringLiteral(":/new-icons/terminal.svg"));
@@ -428,7 +429,23 @@ void MainWindow::createActions()
     connect(m_projNewFileAct, &QAction::triggered, this, [this] { m_explorer->createFileIn(m_explorer->currentDirectory()); });
     connect(m_projNewFolderAct, &QAction::triggered, this, [this] { m_explorer->createFolderIn(m_explorer->currentDirectory()); });
 
-    connect(m_explorerAct, &QAction::toggled, this, [this](bool on) { m_side->parentWidget()->setVisible(on); });
+    connect(m_explorerAct, &QAction::toggled, this, [this](bool on) {
+        QWidget *island = m_side->parentWidget();
+        if (!on) {
+            if (island->isVisible())
+                m_sideWidth = island->width(); // remembered so the panel comes back the same size
+            island->hide();
+            m_editors->focusEditor();
+            return;
+        }
+        island->show();
+        const int total = m_hsplit->width();
+        const int w = qBound(150, m_sideWidth, qMax(150, total / 2));
+        QList<int> sizes = m_hsplit->sizes();
+        sizes[0] = w;
+        sizes[1] = qMax(200, total - w - (sizes.size() > 2 ? sizes[2] : 0));
+        m_hsplit->setSizes(sizes);
+    });
     connect(m_terminalAct, &QAction::triggered, this, &MainWindow::toggleTerminal);
     connect(m_runAct, &QAction::triggered, this, &MainWindow::runCurrentFile);
     connect(m_runConfigAct, &QAction::triggered, this, &MainWindow::configureRun);
@@ -600,6 +617,8 @@ void MainWindow::createToolBar()
     tb->setObjectName(QStringLiteral("mainToolBar"));
     tb->setMovable(false);
     tb->setIconSize(QSize(16, 16));
+    tb->addAction(m_explorerAct);
+    tb->addSeparator();
     tb->addAction(m_openProjectAct);
     tb->addAction(m_closeProjectAct);
     tb->addAction(m_newFileAct);
@@ -671,7 +690,10 @@ void MainWindow::restoreSettings()
     resize(1200, 760);
     if (!s.windowGeometry().isEmpty())
         restoreGeometry(s.windowGeometry());
-    m_hsplit->setSizes({s.explorerWidth(), qMax(400, width() - s.explorerWidth())});
+    m_sideWidth = s.explorerWidth();
+    m_hsplit->setSizes({m_sideWidth, qMax(400, width() - m_sideWidth)});
+    if (!s.sideBarVisible())
+        m_explorerAct->setChecked(false);
     m_terminalHeight = s.terminalHeight();
 }
 
@@ -1431,7 +1453,9 @@ void MainWindow::closeEvent(QCloseEvent *event)
     auto &s = SettingsManager::instance();
     s.setWindowGeometry(saveGeometry());
     if (m_side->isVisible())
-        s.setExplorerWidth(m_hsplit->sizes().value(0));
+        m_sideWidth = m_hsplit->sizes().value(0);
+    s.setExplorerWidth(m_sideWidth);
+    s.setSideBarVisible(m_explorerAct->isChecked());
     if (m_terminal->isVisible())
         m_terminalHeight = m_vsplit->sizes().value(1, m_terminalHeight);
     s.setTerminalHeight(m_terminalHeight);

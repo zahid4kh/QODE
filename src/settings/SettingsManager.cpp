@@ -302,6 +302,16 @@ void SettingsManager::setTerminalHeight(int h)
     m_settings.setValue(QStringLiteral("window/terminalHeight"), h);
 }
 
+bool SettingsManager::sideBarVisible() const
+{
+    return m_settings.value(QStringLiteral("window/sideBarVisible"), true).toBool();
+}
+
+void SettingsManager::setSideBarVisible(bool v)
+{
+    m_settings.setValue(QStringLiteral("window/sideBarVisible"), v);
+}
+
 bool SettingsManager::terminalVisible() const
 {
     return m_settings.value(QStringLiteral("window/terminalVisible"), false).toBool();

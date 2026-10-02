@@ -122,6 +122,7 @@ private:
     QMetaObject::Connection m_previewConn;
     QTimer *m_previewTimer;
     int m_mediaWidth = 420;
+    int m_sideWidth = 250;
     QSplitter *m_vsplit;
     int m_terminalHeight = 240;
 

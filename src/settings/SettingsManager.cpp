@@ -312,6 +312,19 @@ void SettingsManager::setSideBarVisible(bool v)
     m_settings.setValue(QStringLiteral("window/sideBarVisible"), v);
 }
 
+QJsonObject SettingsManager::projectLayout() const
+{
+    return m_data.value(QStringLiteral("layout")).toObject();
+}
+
+void SettingsManager::setProjectLayout(const QJsonObject &layout)
+{
+    if (m_projectRoot.isEmpty())
+        return;
+    m_data.insert(QStringLiteral("layout"), layout);
+    saveProject();
+}
+
 bool SettingsManager::terminalVisible() const
 {
     return m_settings.value(QStringLiteral("window/terminalVisible"), false).toBool();

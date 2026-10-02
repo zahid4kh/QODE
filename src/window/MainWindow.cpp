@@ -57,6 +57,8 @@
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QTabBar>
 #include <QTextBlock>
 #include <QTextDocument>
@@ -346,6 +348,8 @@ void MainWindow::createActions()
 
     m_nextTabAct = make(tr("Next Tab"), QKeySequence(C | K::Key_Tab));
     m_prevTabAct = make(tr("Previous Tab"), QKeySequence(C | S | K::Key_Backtab));
+    m_splitRightAct = make(tr("Split Editor Right"), QKeySequence(C | K::Key_Backslash));
+    m_splitDownAct = make(tr("Split Editor Down"), QKeySequence(C | Qt::ALT | K::Key_Backslash));
     m_aboutAct = make(tr("About QODE"));
     m_paletteAct = make(tr("Command Palette…"), QKeySequence(C | S | K::Key_P), QStringLiteral(":/new-icons/search.svg"));
     m_quickOpenAct = make(tr("Go to File…"), QKeySequence(C | K::Key_P), QStringLiteral(":/new-icons/file-input.svg"));
@@ -459,6 +463,8 @@ void MainWindow::createActions()
     connect(m_indentGuidesAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setIndentGuides(on); });
     connect(m_darkThemeAct, &QAction::triggered, this, [] { SettingsManager::instance().setTheme(QStringLiteral("dark")); });
     connect(m_lightThemeAct, &QAction::triggered, this, [] { SettingsManager::instance().setTheme(QStringLiteral("light")); });
+    connect(m_splitRightAct, &QAction::triggered, this, [this] { m_editors->splitCurrent(Qt::Horizontal); });
+    connect(m_splitDownAct, &QAction::triggered, this, [this] { m_editors->splitCurrent(Qt::Vertical); });
     connect(m_nextTabAct, &QAction::triggered, m_editors, &EditorManager::nextTab);
     connect(m_prevTabAct, &QAction::triggered, m_editors, &EditorManager::previousTab);
     connect(m_aboutAct, &QAction::triggered, this, &MainWindow::about);
@@ -582,6 +588,9 @@ void MainWindow::createMenus()
     view->addSeparator();
     view->addAction(m_runAct);
     view->addAction(m_runConfigAct);
+    view->addSeparator();
+    view->addAction(m_splitRightAct);
+    view->addAction(m_splitDownAct);
     view->addSeparator();
     view->addAction(m_wordWrapAct);
     view->addAction(m_previewAct);
@@ -726,6 +735,66 @@ void MainWindow::saveSession()
     s.setLastProject(m_projects->hasProject() ? m_projects->root() : QString());
     s.setOpenFiles(m_editors->openFilePaths());
     s.setActiveFile(m_editors->currentDocument() ? m_editors->currentDocument()->filePath() : QString());
+    if (m_projects->hasProject())
+        s.setProjectLayout(currentLayout());
+}
+
+// What "layout" means for a project: panel visibility and sizes plus how the editors are split.
+QJsonObject MainWindow::currentLayout() const
+{
+    const bool sideShown = m_explorerAct->isChecked();
+    const int sideWidth = sideShown && m_side->isVisible() ? m_hsplit->sizes().value(0) : m_sideWidth;
+    const bool termShown = m_terminal->isVisible();
+    const int termHeight = termShown ? m_vsplit->sizes().value(1, m_terminalHeight) : m_terminalHeight;
+    QJsonArray sections;
+    for (bool b : m_side->expandedStates())
+        sections.append(b);
+    QJsonObject o;
+    o.insert(QStringLiteral("sideVisible"), sideShown);
+    o.insert(QStringLiteral("sideWidth"), sideWidth);
+    o.insert(QStringLiteral("sideSections"), sections);
+    o.insert(QStringLiteral("terminalVisible"), termShown);
+    o.insert(QStringLiteral("terminalHeight"), termHeight);
+    o.insert(QStringLiteral("editors"), m_editors->layoutState());
+    return o;
+}
+
+void MainWindow::applyLayout(const QJsonObject &o)
+{
+    if (o.isEmpty())
+        return; // a project without a saved layout keeps whatever the window looks like
+    m_sideWidth = o.value(QStringLiteral("sideWidth")).toInt(m_sideWidth);
+    m_terminalHeight = o.value(QStringLiteral("terminalHeight")).toInt(m_terminalHeight);
+    QList<bool> sections;
+    for (const QJsonValue &v : o.value(QStringLiteral("sideSections")).toArray())
+        sections << v.toBool();
+    if (!sections.isEmpty())
+        m_side->setExpandedStates(sections);
+
+    const bool sideShown = o.value(QStringLiteral("sideVisible")).toBool(true);
+    if (m_explorerAct->isChecked() != sideShown) {
+        const int w = m_sideWidth;
+        m_explorerAct->setChecked(sideShown);
+        m_sideWidth = w; // hiding records the current width, which is not the one to keep
+    } else if (sideShown) {
+        QList<int> sizes = m_hsplit->sizes();
+        const int total = sizes.value(0) + sizes.value(1);
+        sizes[0] = qBound(150, m_sideWidth, qMax(150, m_hsplit->width() / 2));
+        sizes[1] = qMax(200, total - sizes[0]);
+        m_hsplit->setSizes(sizes);
+    }
+
+    const bool termShown = o.value(QStringLiteral("terminalVisible")).toBool(false);
+    if (termShown && !m_terminal->isVisible()) {
+        showTerminal();
+        m_terminal->ensureStarted();
+    } else if (!termShown && m_terminal->isVisible()) {
+        toggleTerminal();
+    } else if (termShown) {
+        const int total = m_vsplit->height();
+        const int h = qBound(80, m_terminalHeight, qMax(80, total - 100));
+        m_vsplit->setSizes({total - h, h});
+    }
 }
 
 void MainWindow::restoreSession()
@@ -843,6 +912,8 @@ void MainWindow::onProjectOpened(const Project &p)
     for (const QString &f : s.openFiles())
         if (QFileInfo(f).isFile())
             m_editors->openFile(f);
+    m_editors->restoreLayout(s.projectLayout().value(QStringLiteral("editors")).toObject());
+    applyLayout(s.projectLayout());
     const QString active = s.activeFile();
     if (!active.isEmpty() && QFileInfo(active).isFile())
         m_editors->openFile(active);

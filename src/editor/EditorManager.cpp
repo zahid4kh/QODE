@@ -3,6 +3,7 @@
 
 #include "CodeEditor.h"
 #include "Breadcrumbs.h"
+#include "EditorGroup.h"
 #include "Document.h"
 #include "WelcomePage.h"
 #include "explorer/FileIcons.h"
@@ -16,6 +17,11 @@
 #include <QApplication>
 #include <QGuiApplication>
 #include <QDir>
+#include <QDrag>
+#include <QJsonArray>
+#include <QMenu>
+#include <QMimeData>
+#include <QSplitter>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFileSystemWatcher>
@@ -30,6 +36,7 @@
 #include <QTextCursor>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <functional>
 
 namespace {
 constexpr qint64 kLargeFileBytes = 20 * 1024 * 1024;
@@ -80,14 +87,11 @@ public:
 EditorManager::EditorManager(QWidget *parent)
     : QWidget(parent)
 {
-    m_tabs = new QTabWidget(this);
-    m_tabs->setDocumentMode(true);
-    m_tabs->setTabsClosable(true);
-    m_tabs->setMovable(true);
-    m_tabs->tabBar()->setExpanding(false);
-    m_tabs->tabBar()->setElideMode(Qt::ElideRight);
-    m_tabs->tabBar()->setUsesScrollButtons(true);
-    m_tabs->tabBar()->installEventFilter(this);
+    m_root = new QSplitter(Qt::Horizontal, this);
+    m_root->setChildrenCollapsible(false);
+    m_root->setHandleWidth(4);
+    m_active = createGroup();
+    m_root->addWidget(m_active);
 
     m_find = new FindBar(this);
 
@@ -95,7 +99,7 @@ EditorManager::EditorManager(QWidget *parent)
     auto *editorLayout = new QVBoxLayout(editorPage);
     editorLayout->setContentsMargins(0, 0, 0, 0);
     editorLayout->setSpacing(0);
-    editorLayout->addWidget(m_tabs);
+    editorLayout->addWidget(m_root);
 
     m_welcome = new WelcomePage(this);
     connect(m_welcome, &WelcomePage::newProjectRequested, this, &EditorManager::newProjectRequested);
@@ -137,50 +141,79 @@ EditorManager::EditorManager(QWidget *parent)
         for (Document *d : documents())
             updateTabTitle(d);
     });
-    connect(m_tabs, &QTabWidget::tabCloseRequested, this, &EditorManager::onTabCloseRequested);
-    connect(m_tabs, &QTabWidget::currentChanged, this, &EditorManager::onCurrentTabChanged);
+    // Typing in a group makes it the one new files open in.
+    connect(qApp, &QApplication::focusChanged, this, [this](QWidget *, QWidget *now) {
+        for (QWidget *w = now; w; w = w->parentWidget()) {
+            if (auto *g = qobject_cast<EditorGroup *>(w)) {
+                if (g != m_active && g->parentWidget() && m_root->isAncestorOf(g))
+                    setActiveGroup(g);
+                return;
+            }
+        }
+    });
     updateStack();
 }
 
 // --- Lookup helpers ----------------------------------------------------------
 
-int EditorManager::indexOf(Document *doc) const
+QList<EditorGroup *> EditorManager::groups() const
 {
-    for (int i = 0; i < m_tabs->count(); ++i)
-        if (entryAt(i).doc == doc)
-            return i;
-    return -1;
+    QList<EditorGroup *> out;
+    std::function<void(QWidget *)> walk = [&](QWidget *w) {
+        if (auto *g = qobject_cast<EditorGroup *>(w))
+            out << g;
+        else if (auto *sp = qobject_cast<QSplitter *>(w))
+            for (int i = 0; i < sp->count(); ++i)
+                walk(sp->widget(i));
+    };
+    walk(m_root);
+    return out;
 }
 
-EditorManager::Entry EditorManager::entryAt(int index) const
+int EditorManager::groupCount() const
 {
-    auto *pane = static_cast<EditorPane *>(m_tabs->widget(index));
+    return groups().size();
+}
+
+EditorManager::Entry EditorManager::entryIn(EditorGroup *group, int index) const
+{
+    auto *pane = group ? static_cast<EditorPane *>(group->tabs()->widget(index)) : nullptr;
     CodeEditor *ed = pane ? pane->editor : nullptr;
     return {ed ? m_docForEditor.value(ed) : nullptr, ed};
 }
 
+EditorManager::Loc EditorManager::locate(Document *doc) const
+{
+    for (EditorGroup *g : groups())
+        for (int i = 0; i < g->tabs()->count(); ++i)
+            if (entryIn(g, i).doc == doc)
+                return {g, i};
+    return {};
+}
+
 Document *EditorManager::currentDocument() const
 {
-    return entryAt(m_tabs->currentIndex()).doc;
+    return entryIn(m_active, m_active->tabs()->currentIndex()).doc;
 }
 
 CodeEditor *EditorManager::currentEditor() const
 {
-    auto *pane = static_cast<EditorPane *>(m_tabs->currentWidget());
+    auto *pane = static_cast<EditorPane *>(m_active->tabs()->currentWidget());
     return pane ? pane->editor : nullptr;
 }
 
 CodeEditor *EditorManager::editorFor(Document *doc) const
 {
-    const int i = indexOf(doc);
-    return i < 0 ? nullptr : entryAt(i).editor;
+    const Loc l = locate(doc);
+    return l.group ? entryIn(l.group, l.index).editor : nullptr;
 }
 
 QList<Document *> EditorManager::documents() const
 {
     QList<Document *> out;
-    for (int i = 0; i < m_tabs->count(); ++i)
-        out << entryAt(i).doc;
+    for (EditorGroup *g : groups())
+        for (int i = 0; i < g->tabs()->count(); ++i)
+            out << entryIn(g, i).doc;
     return out;
 }
 
@@ -210,12 +243,15 @@ void EditorManager::syncFileClaims()
 
 int EditorManager::count() const
 {
-    return m_tabs->count();
+    int n = 0;
+    for (EditorGroup *g : groups())
+        n += g->tabs()->count();
+    return n;
 }
 
 void EditorManager::updateStack()
 {
-    m_stack->setCurrentIndex(m_tabs->count() == 0 ? 0 : 1);
+    m_stack->setCurrentIndex(count() == 0 ? 0 : 1);
 }
 
 // --- Opening -----------------------------------------------------------------
@@ -233,7 +269,7 @@ bool EditorManager::openFile(const QString &pathIn)
     // Already open? Activate the existing tab.
     for (Document *d : documents()) {
         if (d->filePath() == path) {
-            m_tabs->setCurrentIndex(indexOf(d));
+            activate(d);
             focusEditor();
             return true;
         }
@@ -320,7 +356,7 @@ void EditorManager::newUntitled()
 EditorManager::Entry EditorManager::addDocument(Document *doc)
 {
     auto *editor = new CodeEditor;
-    auto *pane = new EditorPane(editor, m_tabs);
+    auto *pane = new EditorPane(editor, m_active->tabs());
     editor->attachDocument(doc->textDocument());
     editor->setIndentAfterColon(doc->languageName() == QLatin1String("Python"));
     editor->setLanguage(doc->languageName());
@@ -367,12 +403,12 @@ EditorManager::Entry EditorManager::addDocument(Document *doc)
                 openFile(p);
     });
 
-    const int idx = m_tabs->addTab(pane, doc->fileName());
-    m_tabs->setCurrentIndex(idx);
+    const int idx = m_active->tabs()->addTab(pane, doc->fileName());
+    m_active->tabs()->setCurrentIndex(idx);
     updateTabTitle(doc);
     updateCrumbs(doc);
     updateStack();
-    emit countChanged(m_tabs->count());
+    emit countChanged(count());
     syncFileClaims();
     emit documentAdded(doc);
     return {doc, editor};
@@ -385,10 +421,10 @@ bool EditorManager::isPreviewable(const Document *doc)
 
 void EditorManager::updateCrumbs(Document *doc)
 {
-    const int i = indexOf(doc);
-    if (i < 0)
+    const Loc l = locate(doc);
+    if (!l.group)
         return;
-    auto *pane = static_cast<EditorPane *>(m_tabs->widget(i));
+    auto *pane = static_cast<EditorPane *>(l.group->tabs()->widget(l.index));
     const bool show = SettingsManager::instance().showBreadcrumbs();
     pane->crumbs->setVisible(show);
     pane->crumbs->setPreviewAvailable(isPreviewable(doc));
@@ -416,19 +452,25 @@ void EditorManager::setProjectRoot(const QString &root)
     updateAllCrumbs();
 }
 
-void EditorManager::updateTabTitle(Document *doc)
+namespace {
+void applyTabTitle(QTabWidget *tabs, int i, Document *doc)
 {
-    const int i = indexOf(doc);
-    if (i < 0)
-        return;
-    m_tabs->setTabText(i, doc->fileName() + (doc->isModified() ? QStringLiteral(" *") : QString()));
-    m_tabs->setTabIcon(i, FileIcons::forFile(doc->fileName()));
-    m_tabs->setTabToolTip(i, doc->isUntitled() ? tr("Untitled") : doc->filePath());
+    tabs->setTabText(i, doc->fileName() + (doc->isModified() ? QStringLiteral(" *") : QString()));
+    tabs->setTabIcon(i, FileIcons::forFile(doc->fileName()));
+    tabs->setTabToolTip(i, doc->isUntitled() ? QObject::tr("Untitled") : doc->filePath());
+}
 }
 
-void EditorManager::onCurrentTabChanged(int index)
+void EditorManager::updateTabTitle(Document *doc)
 {
-    const Entry e = entryAt(index);
+    const Loc l = locate(doc);
+    if (l.group)
+        applyTabTitle(l.group->tabs(), l.index, doc);
+}
+
+void EditorManager::onActiveTabChanged()
+{
+    const Entry e = entryIn(m_active, m_active->tabs()->currentIndex());
     if (SettingsManager::instance().autoSaveMode() == SettingsManager::AutoSaveOnFocusChange && m_lastDoc && m_lastDoc != e.doc)
         autoSaveDocument(m_lastDoc);
     m_lastDoc = e.doc;
@@ -437,27 +479,366 @@ void EditorManager::onCurrentTabChanged(int index)
     emit cursorInfoChanged();
 }
 
-void EditorManager::removeAt(int index)
+void EditorManager::removeDocument(Document *doc)
 {
-    const Entry e = entryAt(index);
-    if (!e.doc)
+    const Loc l = locate(doc);
+    if (!l.group)
         return;
-    if (!e.doc->isUntitled())
-        unwatch(e.doc->filePath());
-    QWidget *pane = m_tabs->widget(index);
-    m_tabs->removeTab(index);
+    const Entry e = entryIn(l.group, l.index);
+    if (!doc->isUntitled())
+        unwatch(doc->filePath());
+    QWidget *pane = l.group->tabs()->widget(l.index);
+    l.group->tabs()->removeTab(l.index);
     m_docForEditor.remove(e.editor);
     // Delete the view (the pane owns it) before the document it displays.
     delete pane;
-    delete e.doc;
+    delete doc;
+    removeGroupIfEmpty(l.group);
     syncFileClaims();
     updateStack();
-    emit countChanged(m_tabs->count());
-    if (m_tabs->count() == 0) {
+    emit countChanged(count());
+    if (count() == 0) {
         m_find->setEditor(nullptr);
         emit currentChanged();
         emit cursorInfoChanged();
     }
+}
+
+// --- Groups / splitting ---------------------------------------------------------
+
+EditorGroup *EditorManager::createGroup()
+{
+    auto *g = new EditorGroup;
+    QTabWidget *tabs = g->tabs();
+    tabs->tabBar()->installEventFilter(this);
+    connect(tabs, &QTabWidget::tabCloseRequested, this, [this, g](int i) { closeDocument(entryIn(g, i).doc); });
+    connect(tabs, &QTabWidget::currentChanged, this, [this, g] {
+        if (g == m_active)
+            onActiveTabChanged();
+    });
+    connect(tabs, &QTabWidget::tabBarClicked, this, [this, g] { setActiveGroup(g); });
+    connect(g, &EditorGroup::tabDragStarted, this, [this, g](int i) { startTabDrag(g, i); });
+    connect(g, &EditorGroup::tabContextMenuRequested, this, [this, g](int i, const QPoint &p) { showTabMenu(g, i, p); });
+    connect(g, &EditorGroup::tabDropped, this, [this, g](EditorGroup::Zone z) {
+        if (m_dragDoc)
+            moveDocument(m_dragDoc, g, z);
+    });
+    return g;
+}
+
+void EditorManager::setActiveGroup(EditorGroup *group)
+{
+    if (!group || group == m_active)
+        return;
+    m_active = group;
+    onActiveTabChanged();
+}
+
+// Brings a document's tab to the front of its group and makes that group the active one.
+void EditorManager::activate(Document *doc)
+{
+    const Loc l = locate(doc);
+    if (!l.group)
+        return;
+    l.group->tabs()->setCurrentIndex(l.index);
+    setActiveGroup(l.group);
+}
+
+namespace {
+// Moves the tab holding `pane` into `dest` without touching the document or view.
+void movePane(QTabWidget *from, QWidget *pane, QTabWidget *to, Document *doc)
+{
+    from->removeTab(from->indexOf(pane));
+    const int idx = to->addTab(pane, QString());
+    applyTabTitle(to, idx, doc);
+    to->setCurrentIndex(idx);
+}
+
+void setupSplitter(QSplitter *sp)
+{
+    sp->setChildrenCollapsible(false);
+    sp->setHandleWidth(4);
+}
+}
+
+void EditorManager::moveDocument(Document *doc, EditorGroup *target, EditorGroup::Zone zone)
+{
+    const Loc src = locate(doc);
+    if (!src.group || !target)
+        return;
+    EditorGroup *dest = target;
+    if (zone == EditorGroup::Center) {
+        if (src.group == target)
+            return;
+    } else {
+        if (src.group == target && target->tabs()->count() == 1)
+            return; // nothing would be left behind
+        const Qt::Orientation o = zone == EditorGroup::Left || zone == EditorGroup::Right ? Qt::Horizontal : Qt::Vertical;
+        const bool after = zone == EditorGroup::Right || zone == EditorGroup::Bottom;
+        dest = createGroup();
+        auto *parent = qobject_cast<QSplitter *>(target->parentWidget());
+        const int idx = parent->indexOf(target);
+        const int extent = o == Qt::Horizontal ? target->width() : target->height();
+        if (parent->count() == 1) {
+            parent->setOrientation(o);
+            parent->insertWidget(after ? idx + 1 : idx, dest);
+            parent->setSizes({extent / 2, extent - extent / 2});
+        } else if (parent->orientation() == o) {
+            QList<int> sizes = parent->sizes();
+            const int total = sizes.value(idx);
+            parent->insertWidget(after ? idx + 1 : idx, dest);
+            sizes.insert(after ? idx + 1 : idx, total / 2);
+            sizes[after ? idx : idx + 1] = total - total / 2;
+            parent->setSizes(sizes);
+        } else {
+            auto *sub = new QSplitter(o);
+            setupSplitter(sub);
+            const QList<int> sizes = parent->sizes();
+            parent->replaceWidget(idx, sub);
+            sub->addWidget(target);
+            sub->insertWidget(after ? 1 : 0, dest);
+            sub->show();
+            target->show();
+            sub->setSizes({extent / 2, extent - extent / 2});
+            parent->setSizes(sizes);
+        }
+        dest->show();
+    }
+    movePane(src.group->tabs(), src.group->tabs()->widget(src.index), dest->tabs(), doc);
+    removeGroupIfEmpty(src.group);
+    setActiveGroup(dest);
+    onActiveTabChanged();
+    focusEditor();
+}
+
+void EditorManager::removeGroupIfEmpty(EditorGroup *g)
+{
+    if (g->tabs()->count() > 0 || groups().size() <= 1)
+        return;
+    const int pos = groups().indexOf(g);
+    auto *parent = qobject_cast<QSplitter *>(g->parentWidget());
+    g->hide();
+    g->setParent(nullptr);
+    g->deleteLater();
+    // A splitter left with one child is replaced by that child.
+    while (parent && parent != m_root && parent->count() == 1) {
+        auto *grand = qobject_cast<QSplitter *>(parent->parentWidget());
+        QWidget *only = parent->widget(0);
+        const QList<int> sizes = grand->sizes();
+        grand->replaceWidget(grand->indexOf(parent), only);
+        only->show();
+        parent->hide();
+        parent->setParent(nullptr);
+        parent->deleteLater();
+        grand->setSizes(sizes);
+        parent = grand;
+    }
+    normalizeRoot();
+    if (g == m_active) {
+        const QList<EditorGroup *> rest = groups();
+        m_active = rest.value(qMin(pos, int(rest.size()) - 1));
+        onActiveTabChanged();
+    }
+}
+
+// The root splitter never holds just another splitter: its contents are lifted into it.
+void EditorManager::normalizeRoot()
+{
+    while (m_root->count() == 1) {
+        auto *sub = qobject_cast<QSplitter *>(m_root->widget(0));
+        if (!sub)
+            break;
+        const QList<int> sizes = sub->sizes();
+        QList<QWidget *> kids;
+        for (int i = 0; i < sub->count(); ++i)
+            kids << sub->widget(i);
+        m_root->setOrientation(sub->orientation());
+        for (QWidget *k : kids)
+            m_root->addWidget(k);
+        sub->hide();
+        sub->setParent(nullptr);
+        sub->deleteLater();
+        m_root->setSizes(sizes);
+    }
+}
+
+void EditorManager::startTabDrag(EditorGroup *group, int index)
+{
+    Document *doc = entryIn(group, index).doc;
+    if (!doc)
+        return;
+    m_dragDoc = doc;
+    for (EditorGroup *g : groups())
+        g->setDragActive(true);
+    auto *drag = new QDrag(this);
+    auto *mime = new QMimeData;
+    mime->setData(EditorGroup::mimeType(), QByteArray("tab"));
+    drag->setMimeData(mime);
+    QTabBar *bar = group->tabs()->tabBar();
+    drag->setPixmap(bar->grab(bar->tabRect(index)));
+    drag->exec(Qt::MoveAction);
+    for (EditorGroup *g : groups())
+        g->setDragActive(false);
+    m_dragDoc = nullptr;
+}
+
+void EditorManager::showTabMenu(EditorGroup *group, int index, const QPoint &globalPos)
+{
+    QPointer<Document> doc = entryIn(group, index).doc;
+    if (!doc)
+        return;
+    QMenu menu(this);
+    menu.addAction(tr("Close"), this, [this, doc] {
+        if (doc)
+            closeDocument(doc);
+    });
+    menu.addSeparator();
+    const bool canSplit = group->tabs()->count() > 1;
+    auto splitTo = [this, doc, group](EditorGroup::Zone z) {
+        return [this, doc, group, z] {
+            if (doc)
+                moveDocument(doc, group, z);
+        };
+    };
+    menu.addAction(tr("Split Right"), this, splitTo(EditorGroup::Right))->setEnabled(canSplit);
+    menu.addAction(tr("Split Down"), this, splitTo(EditorGroup::Bottom))->setEnabled(canSplit);
+    const QList<EditorGroup *> all = groups();
+    if (all.size() > 1) {
+        EditorGroup *other = all.at((all.indexOf(group) + 1) % all.size());
+        menu.addAction(tr("Move to Next Group"), this, [this, doc, other] {
+            if (doc)
+                moveDocument(doc, other, EditorGroup::Center);
+        });
+    }
+    menu.exec(globalPos);
+}
+
+void EditorManager::splitCurrent(Qt::Orientation orientation)
+{
+    Document *doc = currentDocument();
+    if (!doc)
+        return;
+    if (m_active->tabs()->count() < 2) {
+        emit statusMessage(tr("Open another file first: the split needs a second file to show."));
+        return;
+    }
+    moveDocument(doc, m_active, orientation == Qt::Horizontal ? EditorGroup::Right : EditorGroup::Bottom);
+}
+
+// --- Layout persistence -----------------------------------------------------------
+
+QJsonObject EditorManager::layoutState() const
+{
+    std::function<QJsonObject(QWidget *)> node = [&](QWidget *w) {
+        QJsonObject o;
+        if (auto *g = qobject_cast<EditorGroup *>(w)) {
+            QJsonArray tabs;
+            QString active;
+            for (int i = 0; i < g->tabs()->count(); ++i) {
+                Document *d = entryIn(g, i).doc;
+                if (!d || d->isUntitled())
+                    continue;
+                tabs.append(d->filePath());
+                if (i == g->tabs()->currentIndex())
+                    active = d->filePath();
+            }
+            o.insert(QStringLiteral("tabs"), tabs);
+            o.insert(QStringLiteral("active"), active);
+        } else if (auto *sp = qobject_cast<QSplitter *>(w)) {
+            QJsonArray kids, sizes;
+            for (int i = 0; i < sp->count(); ++i) {
+                kids.append(node(sp->widget(i)));
+                sizes.append(sp->sizes().value(i));
+            }
+            o.insert(QStringLiteral("orientation"), sp->orientation() == Qt::Horizontal ? QStringLiteral("h") : QStringLiteral("v"));
+            o.insert(QStringLiteral("children"), kids);
+            o.insert(QStringLiteral("sizes"), sizes);
+        }
+        return o;
+    };
+    QJsonObject root = node(m_root);
+    root.insert(QStringLiteral("activeGroup"), int(groups().indexOf(m_active)));
+    return root;
+}
+
+QWidget *EditorManager::buildLayout(const QJsonObject &node, QHash<QString, Document *> &docs)
+{
+    if (node.contains(QStringLiteral("tabs"))) {
+        QList<Document *> list;
+        for (const QJsonValue &v : node.value(QStringLiteral("tabs")).toArray()) {
+            const auto it = docs.find(v.toString());
+            if (it != docs.end()) {
+                list << it.value();
+                docs.erase(it);
+            }
+        }
+        if (list.isEmpty())
+            return nullptr;
+        EditorGroup *g = createGroup();
+        const QString active = node.value(QStringLiteral("active")).toString();
+        for (Document *d : list) {
+            const Loc src = locate(d);
+            movePane(src.group->tabs(), src.group->tabs()->widget(src.index), g->tabs(), d);
+        }
+        for (int i = 0; i < g->tabs()->count(); ++i)
+            if (entryIn(g, i).doc && entryIn(g, i).doc->filePath() == active)
+                g->tabs()->setCurrentIndex(i);
+        return g;
+    }
+    QList<QWidget *> kids;
+    const QJsonArray children = node.value(QStringLiteral("children")).toArray();
+    for (const QJsonValue &c : children)
+        if (QWidget *w = buildLayout(c.toObject(), docs))
+            kids << w;
+    if (kids.isEmpty())
+        return nullptr;
+    if (kids.size() == 1)
+        return kids.first();
+    auto *sp = new QSplitter(node.value(QStringLiteral("orientation")).toString() == QLatin1String("v") ? Qt::Vertical : Qt::Horizontal);
+    setupSplitter(sp);
+    for (QWidget *k : kids)
+        sp->addWidget(k);
+    const QJsonArray sizes = node.value(QStringLiteral("sizes")).toArray();
+    if (sizes.size() == kids.size()) {
+        QList<int> sz;
+        for (const QJsonValue &v : sizes)
+            sz << qMax(1, v.toInt());
+        sp->setSizes(sz);
+    }
+    return sp;
+}
+
+void EditorManager::restoreLayout(const QJsonObject &state)
+{
+    if (state.isEmpty() || groups().size() != 1)
+        return;
+    QHash<QString, Document *> docs;
+    for (Document *d : documents())
+        if (!d->isUntitled())
+            docs.insert(d->filePath(), d);
+    QWidget *built = buildLayout(state, docs);
+    if (!built)
+        return;
+    EditorGroup *old = groups().first();
+    m_root->addWidget(built);
+    built->show();
+    EditorGroup *first = nullptr;
+    for (EditorGroup *g : groups())
+        if (g != old && !first)
+            first = g;
+    // Files that are open but were not part of the saved layout go to the first group.
+    for (Document *d : documents())
+        if (locate(d).group == old && first) {
+            const Loc src = locate(d);
+            movePane(src.group->tabs(), src.group->tabs()->widget(src.index), first->tabs(), d);
+        }
+    m_active = first ? first : old;
+    removeGroupIfEmpty(old);
+    normalizeRoot();
+    const QList<EditorGroup *> gs = groups();
+    EditorGroup *wanted = gs.value(state.value(QStringLiteral("activeGroup")).toInt(), gs.first());
+    m_active = wanted ? wanted : gs.first();
+    onActiveTabChanged();
 }
 
 // --- Saving ------------------------------------------------------------------
@@ -672,13 +1053,12 @@ bool EditorManager::maybeSave(Document *doc)
 
 bool EditorManager::closeDocument(Document *doc)
 {
-    const int i = indexOf(doc);
-    if (i < 0)
+    if (!locate(doc).group)
         return true;
-    m_tabs->setCurrentIndex(i);
+    activate(doc);
     if (!maybeSave(doc))
         return false;
-    removeAt(i);
+    removeDocument(doc);
     return true;
 }
 
@@ -686,11 +1066,6 @@ bool EditorManager::closeCurrent()
 {
     Document *d = currentDocument();
     return d ? closeDocument(d) : false;
-}
-
-void EditorManager::onTabCloseRequested(int index)
-{
-    closeDocument(entryAt(index).doc);
 }
 
 bool EditorManager::confirmDiscardOrSaveAll()
@@ -715,19 +1090,17 @@ bool EditorManager::closeAll()
 {
     if (!confirmDiscardOrSaveAll())
         return false;
-    while (m_tabs->count() > 0)
-        removeAt(m_tabs->count() - 1);
+    for (Document *d : documents())
+        removeDocument(d);
     return true;
 }
 
 void EditorManager::closeDocumentsUnder(const QString &path)
 {
     const QString prefix = path + QLatin1Char('/');
-    for (int i = m_tabs->count() - 1; i >= 0; --i) {
-        Document *d = entryAt(i).doc;
-        if (d && !d->isUntitled() && (d->filePath() == path || d->filePath().startsWith(prefix)))
-            removeAt(i);
-    }
+    for (Document *d : documents())
+        if (!d->isUntitled() && (d->filePath() == path || d->filePath().startsWith(prefix)))
+            removeDocument(d);
 }
 
 void EditorManager::pathRenamed(const QString &oldPath, const QString &newPath)
@@ -753,14 +1126,16 @@ void EditorManager::pathRenamed(const QString &oldPath, const QString &newPath)
 
 void EditorManager::nextTab()
 {
-    if (m_tabs->count() > 1)
-        m_tabs->setCurrentIndex((m_tabs->currentIndex() + 1) % m_tabs->count());
+    QTabWidget *t = m_active->tabs();
+    if (t->count() > 1)
+        t->setCurrentIndex((t->currentIndex() + 1) % t->count());
 }
 
 void EditorManager::previousTab()
 {
-    if (m_tabs->count() > 1)
-        m_tabs->setCurrentIndex((m_tabs->currentIndex() + m_tabs->count() - 1) % m_tabs->count());
+    QTabWidget *t = m_active->tabs();
+    if (t->count() > 1)
+        t->setCurrentIndex((t->currentIndex() + t->count() - 1) % t->count());
 }
 
 void EditorManager::showFind()
@@ -784,13 +1159,17 @@ void EditorManager::focusEditor()
 bool EditorManager::eventFilter(QObject *obj, QEvent *event)
 {
     // Middle-click on a tab closes it.
-    if (obj == m_tabs->tabBar() && event->type() == QEvent::MouseButtonRelease) {
+    if (event->type() == QEvent::MouseButtonRelease) {
         auto *me = static_cast<QMouseEvent *>(event);
         if (me->button() == Qt::MiddleButton) {
-            const int i = m_tabs->tabBar()->tabAt(me->position().toPoint());
-            if (i >= 0) {
-                onTabCloseRequested(i);
-                return true;
+            for (EditorGroup *g : groups()) {
+                if (obj != g->tabs()->tabBar())
+                    continue;
+                const int i = g->tabs()->tabBar()->tabAt(me->position().toPoint());
+                if (i >= 0) {
+                    closeDocument(entryIn(g, i).doc);
+                    return true;
+                }
             }
         }
     }
@@ -850,7 +1229,7 @@ void EditorManager::processPendingChanges()
             continue; // our own save
 
         m_prompting = true;
-        m_tabs->setCurrentIndex(indexOf(doc));
+        activate(doc);
         QMessageBox box(QMessageBox::Question, tr("File changed"), QString(), QMessageBox::NoButton, this);
         QString text = tr("The file \"%1\" has been modified outside QODE.").arg(doc->fileName());
         if (doc->isModified())

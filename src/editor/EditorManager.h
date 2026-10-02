@@ -1,6 +1,9 @@
 #pragma once
 
+#include "EditorGroup.h"
+
 #include <QHash>
+#include <QJsonObject>
 #include <QPointer>
 #include <QWidget>
 
@@ -9,6 +12,7 @@ class Document;
 class WelcomePage;
 class FindBar;
 class QFileSystemWatcher;
+class QSplitter;
 class QStackedWidget;
 class QTabWidget;
 class QTimer;
@@ -60,6 +64,12 @@ public:
     void showReplace();
     void focusEditor();
 
+    // Split editor: the current file moves into a new group beside / below its own.
+    void splitCurrent(Qt::Orientation orientation);
+    int groupCount() const;
+    QJsonObject layoutState() const;              // groups, their tabs and splitter sizes
+    void restoreLayout(const QJsonObject &state); // after the files are open
+
 signals:
     void statusMessage(const QString &text); // auto save / format results for the status bar
     void currentChanged();       // active document/editor changed
@@ -90,14 +100,27 @@ private:
         Document *doc;
         CodeEditor *editor;
     };
+    struct Loc {
+        EditorGroup *group = nullptr;
+        int index = -1;
+    };
 
-    int indexOf(Document *doc) const;
-    Entry entryAt(int index) const;
+    QList<EditorGroup *> groups() const; // in on-screen order
+    Loc locate(Document *doc) const;
+    Entry entryIn(EditorGroup *group, int index) const;
+    EditorGroup *createGroup();
+    void setActiveGroup(EditorGroup *group);
+    void activate(Document *doc);
+    void moveDocument(Document *doc, EditorGroup *target, EditorGroup::Zone zone);
+    void removeGroupIfEmpty(EditorGroup *group);
+    void normalizeRoot();
+    void startTabDrag(EditorGroup *group, int index);
+    void showTabMenu(EditorGroup *group, int index, const QPoint &globalPos);
+    QWidget *buildLayout(const QJsonObject &node, QHash<QString, Document *> &docs);
     Entry addDocument(Document *doc);
-    void removeAt(int index);
+    void removeDocument(Document *doc);
     void updateTabTitle(Document *doc);
-    void onTabCloseRequested(int index);
-    void onCurrentTabChanged(int index);
+    void onActiveTabChanged();
     bool saveDocument(Document *doc);
     bool saveDocumentAs(Document *doc);
     bool maybeSave(Document *doc);
@@ -117,7 +140,9 @@ private:
 
     WelcomePage *m_welcome;
     QStackedWidget *m_stack;
-    QTabWidget *m_tabs;
+    QSplitter *m_root; // tree of splitters; the leaves are EditorGroups
+    EditorGroup *m_active;
+    QPointer<Document> m_dragDoc;
     FindBar *m_find;
     QFileSystemWatcher *m_watcher;
     QTimer *m_changeTimer;

@@ -61,6 +61,7 @@ SOURCES += \
     src/editor/CodeEditor.cpp \
     src/editor/MiniMap.cpp \
     src/editor/FindBar.cpp \
+    src/editor/EditorGroup.cpp \
     src/editor/EditorManager.cpp \
     src/editor/WelcomePage.cpp \
     src/terminal/TerminalScreen.cpp \
@@ -114,6 +115,7 @@ HEADERS += \
     src/editor/CodeEditor.h \
     src/editor/MiniMap.h \
     src/editor/FindBar.h \
+    src/editor/EditorGroup.h \
     src/editor/EditorManager.h \
     src/editor/WelcomePage.h \
     src/terminal/TerminalScreen.h \

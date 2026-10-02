@@ -87,6 +87,11 @@ public:
     bool sideBarVisible() const;
     void setSideBarVisible(bool v);
 
+    // Window layout of the open project (sidebar, terminal, sections, editor splits); empty when
+    // the project has none saved yet or no project is open.
+    QJsonObject projectLayout() const;
+    void setProjectLayout(const QJsonObject &layout);
+
     bool terminalVisible() const;
     void setTerminalVisible(bool v);
 

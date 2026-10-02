@@ -1,3 +1,11 @@
+qode (0.2.0) unstable; urgency=low
+
+  * Web development: HTML, CSS, JavaScript, TypeScript and JSON language servers with managed install.
+  * Dev server controls (npm, pnpm, yarn, bun), nested web projects, pinned ports and a .env editor.
+  * Explorer order: folders, dot folders, dot files, files; option to hide dot files.
+
+ -- Zahid Khalilov <halilzahid@gmail.com>  Fri, 02 Oct 2026 23:46:57 +0200
+
 qode (0.1.0) unstable; urgency=low
 
   * Initial Debian package of QODE.

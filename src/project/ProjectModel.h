@@ -18,12 +18,19 @@ public:
     QString projectRoot() const { return m_root; }
     void setGitRepository(GitRepository *repo) { m_git = repo; } // adds git status to tooltips
 
+    // Dot files and folders are hidden unless shown; .env* files are always visible.
+    void setShowHidden(bool on);
+    bool showHidden() const { return m_showHidden; }
+
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
 
 protected:
     bool filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const override;
+    // Order: folders, dot folders, dot files, files; each group alphabetical (natural, case-insensitive).
+    bool lessThan(const QModelIndex &left, const QModelIndex &right) const override;
 
 private:
     QString m_root;
     GitRepository *m_git = nullptr;
+    bool m_showHidden = true;
 };

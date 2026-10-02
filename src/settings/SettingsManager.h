@@ -44,6 +44,8 @@ public:
     bool showBreadcrumbs() const;
     void setShowBreadcrumbs(bool on);
 
+    bool showHiddenFiles() const; // explorer: dot files and folders
+    void setShowHiddenFiles(bool on);
     bool showMinimap() const;
     void setShowMinimap(bool on);
 

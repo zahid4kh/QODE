@@ -3,6 +3,7 @@
 #include "explorer/FileIcons.h"
 #include "git/GitRepository.h"
 
+#include <QCollator>
 #include <QDir>
 #include <QFileInfo>
 #include <QFileSystemModel>
@@ -15,6 +16,14 @@ ProjectModel::ProjectModel(QObject *parent)
 void ProjectModel::setProjectRoot(const QString &root)
 {
     m_root = root;
+    invalidateFilter();
+}
+
+void ProjectModel::setShowHidden(bool on)
+{
+    if (m_showHidden == on)
+        return;
+    m_showHidden = on;
     invalidateFilter();
 }
 
@@ -55,5 +64,29 @@ bool ProjectModel::filterAcceptsRow(int sourceRow, const QModelIndex &sourcePare
     // Top level (children of the project's parent directory): only the project itself.
     if (fs->filePath(sourceParent) == QFileInfo(m_root).absolutePath() && !path.isEmpty())
         return path == m_root;
-    return fs->fileName(idx) != QLatin1String(".git");
+    const QString name = fs->fileName(idx);
+    if (name == QLatin1String(".git"))
+        return false;
+    if (!m_showHidden && name.startsWith(QLatin1Char('.')) && !name.startsWith(QLatin1String(".env")))
+        return false;
+    return true;
+}
+
+bool ProjectModel::lessThan(const QModelIndex &left, const QModelIndex &right) const
+{
+    auto *fs = qobject_cast<QFileSystemModel *>(sourceModel());
+    if (!fs)
+        return QSortFilterProxyModel::lessThan(left, right);
+    auto group = [fs](const QModelIndex &i) {
+        const bool dot = fs->fileName(i).startsWith(QLatin1Char('.'));
+        const bool dir = fs->isDir(i);
+        return dir ? (dot ? 1 : 0) : (dot ? 2 : 3);
+    };
+    const int gl = group(left), gr = group(right);
+    if (gl != gr)
+        return gl < gr;
+    QCollator collator;
+    collator.setNumericMode(true);
+    collator.setCaseSensitivity(Qt::CaseInsensitive);
+    return collator.compare(fs->fileName(left), fs->fileName(right)) < 0;
 }

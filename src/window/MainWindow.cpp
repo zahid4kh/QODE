@@ -418,6 +418,9 @@ void MainWindow::createActions()
     m_minimapAct = make(tr("Minimap"));
     m_minimapAct->setCheckable(true);
     m_minimapAct->setChecked(SettingsManager::instance().showMinimap());
+    m_hiddenFilesAct = make(tr("Show Hidden Files in Explorer"));
+    m_hiddenFilesAct->setCheckable(true);
+    m_hiddenFilesAct->setChecked(SettingsManager::instance().showHiddenFiles());
     m_blameInlineAct = make(tr("Inline Blame on Current Line"));
     m_blameInlineAct->setCheckable(true);
     m_blameInlineAct->setChecked(SettingsManager::instance().blameInline());
@@ -554,6 +557,11 @@ void MainWindow::createActions()
     connect(m_fullscreenAct, &QAction::triggered, this, [this] { setWindowState(windowState() ^ Qt::WindowFullScreen); });
     connect(m_wordWrapAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setWordWrap(on); });
     connect(m_breadcrumbsAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setShowBreadcrumbs(on); });
+    m_explorer->setShowHidden(m_hiddenFilesAct->isChecked());
+    connect(m_hiddenFilesAct, &QAction::toggled, this, [this](bool on) {
+        SettingsManager::instance().setShowHiddenFiles(on);
+        m_explorer->setShowHidden(on);
+    });
     connect(m_minimapAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setShowMinimap(on); });
     connect(m_blameInlineAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setBlameInline(on); });
     connect(m_blameGutterAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setBlameGutter(on); });
@@ -705,6 +713,7 @@ void MainWindow::createMenus()
     view->addAction(m_indentGuidesAct);
     view->addAction(m_stickyAct);
     view->addAction(m_minimapAct);
+    view->addAction(m_hiddenFilesAct);
     view->addAction(m_breadcrumbsAct);
     QMenu *theme = view->addMenu(tr("Theme"));
     theme->addAction(m_darkThemeAct);

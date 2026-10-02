@@ -19,6 +19,7 @@ public:
 
     void setProjectRoot(const QString &root); // empty => no project
     void setGitRepository(GitRepository *repo); // enables status colours/badges and Git context actions
+    void setShowHidden(bool on); // dot files/folders (except .env*)
     QString projectRoot() const { return m_root; }
 
     // Directory that "New File"/"New Folder" should target by default.

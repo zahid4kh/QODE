@@ -143,6 +143,16 @@ void SettingsManager::setShowBreadcrumbs(bool on)
     emit editorSettingsChanged();
 }
 
+bool SettingsManager::showHiddenFiles() const
+{
+    return m_settings.value(QStringLiteral("explorer/showHidden"), true).toBool();
+}
+
+void SettingsManager::setShowHiddenFiles(bool on)
+{
+    m_settings.setValue(QStringLiteral("explorer/showHidden"), on);
+}
+
 bool SettingsManager::showMinimap() const
 {
     return m_settings.value(QStringLiteral("editor/minimap"), true).toBool();

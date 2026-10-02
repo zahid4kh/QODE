@@ -73,6 +73,11 @@ ProjectExplorer::ProjectExplorer(QWidget *parent)
     connect(m_tree, &QTreeView::customContextMenuRequested, this, &ProjectExplorer::showContextMenu);
 }
 
+void ProjectExplorer::setShowHidden(bool on)
+{
+    m_proxy->setShowHidden(on);
+}
+
 void ProjectExplorer::setGitRepository(GitRepository *repo)
 {
     m_git = repo;

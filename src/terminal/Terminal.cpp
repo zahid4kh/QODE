@@ -61,6 +61,7 @@ Terminal::Terminal(QWidget *parent)
 
     connect(m_view, &TerminalView::input, m_shell, &ShellProcess::write);
     connect(m_view, &TerminalView::sizeChanged, m_shell, &ShellProcess::resize);
+    connect(m_view, &TerminalView::focusGained, this, &Terminal::focused);
     connect(m_view, &TerminalView::returnPressedWhileInactive, this, &Terminal::restart);
     connect(m_shell, &ShellProcess::output, m_view->screen(), &TerminalScreen::feed);
     connect(m_shell, &ShellProcess::finished, this, &Terminal::onFinished);
@@ -70,7 +71,7 @@ Terminal::Terminal(QWidget *parent)
     m_pendingTimer->setSingleShot(true);
     connect(m_pendingTimer, &QTimer::timeout, this, &Terminal::flushPendingCommand);
     connect(m_shell, &ShellProcess::output, this, [this] {
-        if (m_awaitingPrompt)
+        if (m_booting)
             m_pendingTimer->start(250);
     });
     connect(clearBtn, &QToolButton::clicked, this, &Terminal::clear);
@@ -116,17 +117,22 @@ void Terminal::startShell()
 {
     TerminalScreen *s = m_view->screen();
     s->reset();
+    m_pendingTimer->stop();
+    m_pendingCommand.clear();
+    m_booting = false;
+    m_expectedExit = false;
     QString err;
     m_view->setShellActive(true);
     if (!m_shell->start(m_cwd, s->cols(), s->rows(), &err)) {
         m_view->setShellActive(false);
         s->feed(QStringLiteral("\x1b[31mUnable to start shell: %1\x1b[0m\r\n").arg(err).toUtf8());
-    } else if (m_startupProvider) {
-        m_pendingCommand = m_startupProvider(QFileInfo(m_shell->shell()).fileName());
-        if (!m_pendingCommand.isEmpty()) {
-            m_awaitingPrompt = true;
-            m_pendingTimer->start(1500);
-        }
+    } else {
+        // Until the shell's startup output goes quiet it is not ready for input: anything typed (or Ctrl+C) now
+        // would be lost or would kill it, so commands wait in m_pendingCommand.
+        m_booting = true;
+        m_pendingTimer->start(1500); // fallback if the shell prints nothing
+        if (m_startupProvider)
+            m_pendingCommand = m_startupProvider(QFileInfo(m_shell->shell()).fileName());
     }
     updateHeader();
 }
@@ -134,14 +140,24 @@ void Terminal::startShell()
 void Terminal::onFinished(int exitCode)
 {
     m_view->setShellActive(false);
+    m_pendingTimer->stop();
+    m_pendingCommand.clear();
+    m_booting = false;
+    if (m_expectedExit) { // stop() / restart(): no goodbye message, the caller decides what happens next
+        m_expectedExit = false;
+        updateHeader();
+        return;
+    }
     m_view->screen()->feed(QStringLiteral("\r\n\x1b[2m[Process exited with code %1 — press Enter to restart]\x1b[0m\r\n")
                                .arg(exitCode).toUtf8());
     updateHeader();
+    emit shellExited();
 }
 
 void Terminal::stop()
 {
     if (m_shell->isRunning()) {
+        m_expectedExit = true;
         // Detach the output so the goodbye message isn't printed into a new session.
         m_shell->terminate();
     }
@@ -150,6 +166,7 @@ void Terminal::stop()
 void Terminal::restart()
 {
     if (m_shell->isRunning()) {
+        m_expectedExit = true;
         m_shell->terminate();
         // Wait for the old shell to go away before spawning the replacement.
         auto *conn = new QMetaObject::Connection;
@@ -170,24 +187,21 @@ void Terminal::runCommand(const QString &command)
     if (!m_shell->isRunning())
         return;
     m_view->scrollToBottom();
-    if (m_awaitingPrompt) { // a startup command is still queued: run after it
-        m_pendingCommand += QLatin1Char('\r') + command;
+    if (m_booting) { // a fresh shell (or its startup command) is still coming up: run after it
+        if (!m_pendingCommand.isEmpty())
+            m_pendingCommand += QLatin1Char('\r');
+        m_pendingCommand += command;
         return;
     }
+    Q_UNUSED(wasRunning)
     m_pendingCommand = command;
-    if (wasRunning) {
-        m_awaitingPrompt = false;
-        m_shell->write(QByteArray("\x03")); // Ctrl+C: stop a previous run / discard a half-typed line
-        m_pendingTimer->start(150);
-    } else {
-        m_awaitingPrompt = true;
-        m_pendingTimer->start(1500); // fallback if the shell prints nothing
-    }
+    m_shell->write(QByteArray("\x03")); // Ctrl+C: stop a previous run / discard a half-typed line
+    m_pendingTimer->start(150);
 }
 
 void Terminal::flushPendingCommand()
 {
-    m_awaitingPrompt = false;
+    m_booting = false;
     if (m_pendingCommand.isEmpty() || !m_shell->isRunning())
         return;
     m_shell->write(m_pendingCommand.toUtf8() + '\r'); // '\r' inside it separates queued commands

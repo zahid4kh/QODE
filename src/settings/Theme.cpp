@@ -138,6 +138,10 @@ QTabBar { background: %1; qproperty-drawBase: 0; }
 QTabBar::tab { background: %1; color: %7; padding: 5px 10px; border: none; border-right: 1px solid %3; min-width: 60px; }
 QTabBar::tab:selected { background: %8; color: %2; border-top: 2px solid %9; }
 QTabBar::tab:hover:!selected { background: %4; }
+QTabBar#terminalTabs { background: transparent; }
+QTabBar#terminalTabs::tab { background: transparent; color: %7; padding: 4px 8px; border: none; border-bottom: 2px solid transparent; min-width: 0; }
+QTabBar#terminalTabs::tab:selected { background: transparent; color: %2; border-top: none; border-bottom: 2px solid %9; }
+QTabBar#terminalTabs::tab:hover:!selected { background: %4; }
 QTabBar::close-button { image: url(%14); subcontrol-position: right; border-radius: 2px; }
 QTabBar::close-button:hover { background: %6; }
 QLineEdit, QSpinBox, QComboBox { background: %8; color: %2; border: 1px solid %3; border-radius: 3px; padding: 3px 5px; selection-background-color: %6; }

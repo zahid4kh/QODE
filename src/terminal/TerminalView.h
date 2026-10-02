@@ -23,6 +23,7 @@ public:
 signals:
     void input(const QByteArray &data); // bytes to send to the shell
     void sizeChanged(int cols, int rows);
+    void focusGained();
     void returnPressedWhileInactive();  // user hit Enter with no shell running
 
 public:

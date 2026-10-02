@@ -338,6 +338,7 @@ void TerminalView::focusInEvent(QFocusEvent *e)
 {
     m_focused = true;
     QAbstractScrollArea::focusInEvent(e);
+    emit focusGained();
     viewport()->update();
 }
 

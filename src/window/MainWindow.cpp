@@ -116,14 +116,28 @@ MainWindow::MainWindow(QWidget *parent)
         return PythonEnv::activationCommand(m_projects->project().root, shell);
     });
 
+    connect(m_terminal, &TerminalPanel::tabsChanged, this, [](const QStringList &names) { SettingsManager::instance().setTerminalTabs(names); });
+
     m_vsplit = new QSplitter(Qt::Vertical, this);
     m_vsplit->setChildrenCollapsible(false);
     m_vsplit->setHandleWidth(8);
-    m_vsplit->addWidget(new Island(m_editors));
+    auto *editorIsland = new Island(m_editors);
+    editorIsland->setMinimumHeight(60); // otherwise the editor's own minimum stops the terminal from growing tall
+    m_vsplit->addWidget(editorIsland);
     m_vsplit->addWidget(new Island(m_terminal));
     m_vsplit->setStretchFactor(0, 1);
     m_vsplit->setStretchFactor(1, 0);
     m_vsplit->widget(1)->hide(); // hidden until Ctrl+J
+    connect(m_terminal, &TerminalPanel::maximizeToggled, this, [this](bool maximized) {
+        const int total = m_vsplit->height();
+        if (maximized) {
+            m_terminalHeight = m_vsplit->sizes().value(1, m_terminalHeight);
+            m_vsplit->setSizes({60, qMax(80, total - 60)});
+        } else {
+            const int h = qBound(80, m_terminalHeight, qMax(80, total - 100));
+            m_vsplit->setSizes({total - h, h});
+        }
+    });
 
     m_hsplit = new QSplitter(Qt::Horizontal, this);
     m_hsplit->setChildrenCollapsible(false);
@@ -1366,6 +1380,7 @@ void MainWindow::onProjectOpened(const Project &p)
     m_git->setWorkDirectory(p.root);
     // The shell always starts in the project root.
     m_terminal->setWorkingDirectory(p.root);
+    m_terminal->setSavedTabs(SettingsManager::instance().terminalTabs());
     if (m_terminal->isRunning())
         m_terminal->restartAll();
     else if (m_terminal->isVisible())

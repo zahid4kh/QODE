@@ -38,6 +38,8 @@ public:
 
 signals:
     void hideRequested();
+    void shellExited();  // the shell ended by itself (user typed exit, crash)
+    void focused();      // the terminal view got keyboard focus
 
 private:
     void startShell();
@@ -54,5 +56,6 @@ private:
     std::function<QString(const QString &)> m_startupProvider;
     QString m_pendingCommand;
     QTimer *m_pendingTimer;
-    bool m_awaitingPrompt = false;
+    bool m_booting = false;      // shell started, startup output not yet quiet
+    bool m_expectedExit = false; // we terminated it (stop / restart)
 };

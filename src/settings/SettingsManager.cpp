@@ -182,6 +182,23 @@ void SettingsManager::setBookmarks(const QHash<QString, QList<int>> &bookmarks)
     saveProject();
 }
 
+QStringList SettingsManager::terminalTabs() const
+{
+    QStringList out;
+    for (const QJsonValue &v : m_data.value(QStringLiteral("terminalTabs")).toArray())
+        out << v.toString();
+    return out;
+}
+
+void SettingsManager::setTerminalTabs(const QStringList &names)
+{
+    QJsonArray a;
+    for (const QString &n : names)
+        a.append(n);
+    m_data.insert(QStringLiteral("terminalTabs"), a);
+    saveProject();
+}
+
 bool SettingsManager::importsFolded(const QString &path) const
 {
     return m_data.value(QStringLiteral("importFolds")).toObject().value(path).toBool();

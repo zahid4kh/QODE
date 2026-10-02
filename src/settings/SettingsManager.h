@@ -50,6 +50,9 @@ public:
     // Bookmarked lines (0-based) per absolute file path (current project).
     QHash<QString, QList<int>> bookmarks() const;
     void setBookmarks(const QHash<QString, QList<int>> &bookmarks);
+    // Terminal tabs of the project: one entry per tab, the name the user gave it or "" for the automatic one.
+    QStringList terminalTabs() const;
+    void setTerminalTabs(const QStringList &names);
     bool importsFolded(const QString &path) const;
     void setImportsFolded(const QString &path, bool folded);
     bool blameInline() const;

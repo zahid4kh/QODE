@@ -13,6 +13,9 @@ public:
     RunConfigDialog(const QString &filePath, const QString &command, QWidget *parent = nullptr);
 
     QString command() const;
+    // An explanation shown above the command (HTML), e.g. why it was prefilled.
+    void setNote(const QString &html);
+    void setProjectRoot(const QString &root);
 
     // Settings key for a file: its extension (or its whole name for files like "Makefile").
     static QString keyFor(const QString &filePath);
@@ -27,4 +30,6 @@ private:
     QString m_file;
     QLineEdit *m_command;
     QLabel *m_preview;
+    QLabel *m_note;
+    QString m_root;
 };

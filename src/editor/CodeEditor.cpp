@@ -8,6 +8,8 @@
 #include "settings/Theme.h"
 
 #include <QApplication>
+#include <QHelpEvent>
+#include <QToolTip>
 #include <QDateTime>
 #include <QPainterPath>
 #include <QFrame>
@@ -341,7 +343,10 @@ void CodeEditor::lineNumberAreaPaintEvent(QPaintEvent *event)
 
     while (block.isValid() && top <= event->rect().bottom()) {
         if (block.isVisible() && bottom >= event->rect().top()) {
-            painter.setPen(number == current ? m_gutterActive : m_gutterFg);
+            const auto diag = m_diagnosticLines.constFind(number);
+            painter.setPen(diag != m_diagnosticLines.constEnd() && diag.value() <= LspDiagnostic::Warning
+                               ? diagnosticColor(diag.value())
+                               : (number == current ? m_gutterActive : m_gutterFg));
             painter.drawText(blameWidth(), top, m_lineArea->width() - blameWidth() - 8 - kFoldWidth, fontMetrics().height(), Qt::AlignRight,
                              QString::number(number + 1));
             if (!m_bookmarks.isEmpty() && m_bookmarks.contains(number)) {
@@ -440,8 +445,133 @@ void CodeEditor::refreshSelections()
         extra.append(sel);
     }
     appendBracketSelections(extra);
+    for (int i = 0; i < m_diagnostics.size() && i < 400; ++i) {
+        const LspDiagnostic &d = m_diagnostics.at(i);
+        const QPair<int, int> r = diagnosticRange(d);
+        if (r.first < 0)
+            continue;
+        QTextEdit::ExtraSelection sel;
+        sel.format.setUnderlineStyle(QTextCharFormat::WaveUnderline);
+        sel.format.setUnderlineColor(diagnosticColor(d.severity));
+        sel.cursor = QTextCursor(document());
+        sel.cursor.setPosition(r.first);
+        sel.cursor.setPosition(r.second, QTextCursor::KeepAnchor);
+        extra.append(sel);
+    }
     setExtraSelections(extra);
     m_lineArea->update();
+}
+
+// --- Language server diagnostics ---------------------------------------------------------------
+
+QColor CodeEditor::diagnosticColor(int severity) const
+{
+    const Theme t = Theme::byName(SettingsManager::instance().theme());
+    switch (severity) {
+    case LspDiagnostic::Error: return t.gitConflict;
+    case LspDiagnostic::Warning: return t.gitModified;
+    case LspDiagnostic::Information: return t.accent;
+    default: return t.textMuted;
+    }
+}
+
+QPair<int, int> CodeEditor::diagnosticRange(const LspDiagnostic &d) const
+{
+    const QTextBlock a = document()->findBlockByNumber(d.startLine);
+    if (!a.isValid())
+        return {-1, -1};
+    const QTextBlock b = document()->findBlockByNumber(d.endLine);
+    int start = a.position() + qMin(d.startColumn, qMax(0, a.length() - 1));
+    int end = b.isValid() ? b.position() + qMin(d.endColumn, qMax(0, b.length() - 1)) : start;
+    if (end <= start) { // empty range: underline the character it points at (or the one before at line end)
+        const int last = a.position() + qMax(0, a.length() - 1);
+        if (start < last)
+            end = start + 1;
+        else if (start > a.position())
+            --start, end = start + 1;
+        else
+            return {-1, -1};
+    }
+    return {start, end};
+}
+
+void CodeEditor::setDiagnostics(const QVector<LspDiagnostic> &diagnostics)
+{
+    m_diagnostics = diagnostics;
+    m_diagnosticLines.clear();
+    for (const LspDiagnostic &d : std::as_const(m_diagnostics)) {
+        const auto it = m_diagnosticLines.constFind(d.startLine);
+        if (it == m_diagnosticLines.constEnd() || d.severity < it.value())
+            m_diagnosticLines.insert(d.startLine, d.severity);
+    }
+    refreshSelections();
+    m_lineArea->update();
+}
+
+namespace {
+bool isIdentifierChar(QChar c) { return c.isLetterOrNumber() || c == QLatin1Char('_'); }
+}
+
+bool CodeEditor::viewportEvent(QEvent *event)
+{
+    if (event->type() == QEvent::ToolTip) {
+        const auto *help = static_cast<QHelpEvent *>(event);
+        const QTextCursor at = cursorForPosition(help->pos());
+        const int pos = at.position();
+        QStringList lines;
+        for (const LspDiagnostic &d : std::as_const(m_diagnostics)) {
+            const QPair<int, int> r = diagnosticRange(d);
+            if (r.first < 0 || pos < r.first || pos > r.second)
+                continue;
+            QString text = d.message;
+            if (!d.source.isEmpty() || !d.code.isEmpty())
+                text += QStringLiteral("  [%1]").arg(d.source.isEmpty() ? d.code : (d.code.isEmpty() ? d.source : d.source + QLatin1Char(' ') + d.code));
+            lines << text.toHtmlEscaped().replace(QLatin1Char('\n'), QStringLiteral("<br>"));
+        }
+        m_hoverDiagnostics = lines.isEmpty() ? QString() : QStringLiteral("<div style='white-space:pre'>") + lines.join(QStringLiteral("<hr>")) + QStringLiteral("</div>");
+        m_hoverPos = -1;
+        // Only ask the server about words, and only when the mouse is over the text of the line.
+        const QString text = at.block().text();
+        const int col = at.positionInBlock();
+        const QRectF lineRect = blockBoundingGeometry(at.block()).translated(contentOffset());
+        const bool onWord = col < text.size() && isIdentifierChar(text.at(col)) && help->pos().y() < lineRect.bottom();
+        if (onWord) {
+            m_hoverPos = pos;
+            m_hoverGlobal = help->globalPos();
+            emit hoverRequested(at.blockNumber(), col);
+        }
+        if (!m_hoverDiagnostics.isEmpty()) {
+            QToolTip::showText(help->globalPos(), m_hoverDiagnostics, viewport());
+            return true;
+        }
+        if (onWord)
+            return true; // the server's answer may still show a tooltip
+        QToolTip::hideText();
+    }
+    return QPlainTextEdit::viewportEvent(event);
+}
+
+void CodeEditor::showHover(const QString &markdown)
+{
+    if (m_hoverPos < 0 || markdown.isEmpty() || !viewport()->underMouse())
+        return;
+    if (cursorForPosition(viewport()->mapFromGlobal(QCursor::pos())).position() != m_hoverPos)
+        return; // the mouse moved on
+    constexpr int kMaxChars = 1800;
+    QString md = markdown;
+    if (md.size() > kMaxChars)
+        md = md.left(kMaxChars) + QStringLiteral("\n\n…");
+    QTextDocument doc;
+    doc.setMarkdown(md);
+    QString html = doc.toHtml();
+    const int bodyStart = html.indexOf(QStringLiteral("<body"));
+    if (bodyStart >= 0) // keep the fonts of the tooltip, drop the page styling
+        html = QStringLiteral("<div>") + html.mid(html.indexOf(QLatin1Char('>'), bodyStart) + 1);
+    html.remove(QStringLiteral("</body></html>"));
+    html = QStringLiteral("<style>pre,code{white-space:pre-wrap}</style>") + html + QStringLiteral("</div>");
+    if (!m_hoverDiagnostics.isEmpty())
+        html = m_hoverDiagnostics + QStringLiteral("<hr>") + html;
+    QToolTip::showText(m_hoverGlobal, html, viewport());
 }
 
 // --- Code folding -------------------------------------------------------------
@@ -1261,6 +1391,15 @@ void CodeEditor::mouseDoubleClickEvent(QMouseEvent *event)
 
 void CodeEditor::mousePressEvent(QMouseEvent *event)
 {
+    if (event->button() == Qt::LeftButton && event->modifiers() == Qt::ControlModifier) {
+        const QTextCursor at = cursorForPosition(event->pos());
+        const QString text = at.block().text();
+        const int col = at.positionInBlock();
+        if (col < text.size() && isIdentifierChar(text.at(col))) {
+            emit definitionRequested(at.blockNumber(), col);
+            return;
+        }
+    }
     if (event->button() == Qt::LeftButton)
         for (const auto &row : std::as_const(m_stickyRows))
             if (row.first.contains(event->pos())) {

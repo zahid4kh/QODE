@@ -384,6 +384,34 @@ void SettingsManager::setLastDirectory(const QString &d)
     m_settings.setValue(QStringLiteral("session/lastDir"), d);
 }
 
+QString SettingsManager::lspServerPath(const QString &serverId) const
+{
+    return m_settings.value(QStringLiteral("lsp/%1Path").arg(serverId)).toString();
+}
+
+void SettingsManager::setLspServerPath(const QString &serverId, const QString &path)
+{
+    const QString key = QStringLiteral("lsp/%1Path").arg(serverId);
+    if (path.isEmpty())
+        m_settings.remove(key);
+    else
+        m_settings.setValue(key, path);
+}
+
+QString SettingsManager::lspFlagsText() const
+{
+    return m_data.value(QStringLiteral("lspFlags")).toString();
+}
+
+void SettingsManager::setLspFlagsText(const QString &text)
+{
+    if (text.trimmed().isEmpty())
+        m_data.remove(QStringLiteral("lspFlags"));
+    else
+        m_data.insert(QStringLiteral("lspFlags"), text);
+    saveProject();
+}
+
 QString SettingsManager::runCommand(const QString &key) const
 {
     return m_data.value(QStringLiteral("run")).toObject().value(key).toString();

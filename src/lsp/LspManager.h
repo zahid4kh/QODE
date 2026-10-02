@@ -1,0 +1,109 @@
+#pragma once
+
+#include "LspTypes.h"
+
+#include <QHash>
+#include <functional>
+#include <QObject>
+#include <QPointer>
+#include <QSet>
+#include <QVector>
+
+class Document;
+class LspClient;
+struct LspServerSpec;
+class QTimer;
+
+// Owns the language servers and keeps them in sync with the open documents. One server process per
+// server kind (e.g. clangd) and project; servers start lazily when the first matching file opens.
+class LspManager : public QObject
+{
+    Q_OBJECT
+public:
+    enum class Status { Idle, NotFound, Starting, Running, Crashed };
+
+    struct ServerState {
+        QString id;
+        QString name; // display name
+        Status status = Status::Idle;
+        QString path;   // resolved executable
+        QString detail; // "clangd 18.1.3", an error, ...
+        int documents = 0; // open files this server handles
+    };
+
+    explicit LspManager(QObject *parent = nullptr);
+    ~LspManager() override;
+
+    // The project folder servers are rooted at; changing it stops every server.
+    void setProjectRoot(const QString &root);
+    void shutdown(); // stop every server (blocking, brief)
+
+    void documentOpened(Document *doc);
+    void documentSaved(Document *doc);
+    void documentPathChanged(Document *doc);
+    void buildFileSaved(const QString &path); // .pro / .pri saved
+
+    QList<ServerState> servers() const;
+    QString installHelp(const QString &serverId) const;
+    QString serverPath(const QString &serverId) const; // configured override, "" = search PATH
+    void setServerPath(const QString &serverId, const QString &path);
+    void restart(const QString &serverId);
+    QStringList logOf(const QString &serverId) const;
+    bool hasCompileDatabase() const;
+    // Flags worked out from the project's own build files (a qmake .pro); `source` gets the file name. Empty
+    // when the project has a compile database or no recognised build file.
+    QStringList detectedFlags(QString *source = nullptr) const;
+    QString projectFlagsText() const;
+    void setProjectFlagsText(const QString &text); // restarts the servers that use them
+    // One flag per line, '#' comments skipped, {project} replaced.
+    static QStringList parseFlags(const QString &text, const QString &projectRoot);
+
+    // True when a running server handles this document, so hover/definition requests can be answered.
+    bool isServed(Document *doc) const;
+    // Markdown text of the symbol under (line, column), empty when there is none.
+    void hover(Document *doc, int line, int column, std::function<void(const QString &)> done);
+    // Where the symbol under (line, column) is defined; empty when unknown.
+    void definition(Document *doc, int line, int column, std::function<void(const QVector<LspLocation> &)> done);
+
+    QVector<LspDiagnostic> diagnostics(const QString &path) const { return m_diagnostics.value(path); }
+    int diagnosticCount(int severity) const;
+
+signals:
+    void statusChanged();
+    void diagnosticsChanged(const QString &path);
+
+private:
+    struct Server {
+        const LspServerSpec *spec = nullptr;
+        LspClient *client = nullptr;
+        ServerState state;
+        int restarts = 0;
+    };
+    struct Tracked {
+        QString uri, path, serverId;
+        int version = 0;
+        bool opened = false;
+        bool dirty = false;
+    };
+
+    Server *ensureServer(const LspServerSpec &spec, const QString &filePath);
+    void startServer(Server &s, const QString &rootPath);
+    void stopServer(Server &s);
+    void onServerReady(const QString &id);
+    void onServerStopped(const QString &id, bool crashed);
+    void onNotification(const QString &id, const QString &method, const QJsonValue &params);
+    void track(Document *doc);
+    void untrack(Document *doc, bool sendClose);
+    void sendOpen(Document *doc, Tracked &t);
+    void flushChanges();
+    void setStatus(Server &s, Status status, const QString &detail = {});
+    QString rootFor(const QString &filePath) const;
+    LspClient *readyClientFor(Document *doc, QString *uri);
+    void clearDiagnosticsFor(const QString &path);
+
+    QString m_root;
+    QHash<QString, Server> m_servers;
+    QHash<Document *, Tracked> m_tracked;
+    QHash<QString, QVector<LspDiagnostic>> m_diagnostics;
+    QTimer *m_changeTimer;
+};

@@ -115,6 +115,15 @@ public:
     QString runCommand(const QString &key) const; // per file type, see RunConfigDialog::keyFor
     void setRunCommand(const QString &key, const QString &command);
 
+    // Language servers: executable override per server id ("" = look on PATH).
+    QString lspServerPath(const QString &serverId) const;
+    void setLspServerPath(const QString &serverId, const QString &path);
+
+    // Compiler flags for the language server when the project has no compile database (raw text,
+    // one flag per line, # comments). Per project; stored in the project's JSON file.
+    QString lspFlagsText() const;
+    void setLspFlagsText(const QString &text);
+
     QStringList recentCommands() const; // most recent first
     void setRecentCommands(const QStringList &commands);
 

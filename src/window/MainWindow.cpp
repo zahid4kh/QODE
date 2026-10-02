@@ -3,8 +3,10 @@
 
 #include "Island.h"
 #include "SideSections.h"
+#include "dialogs/CompilerFlagsDialog.h"
 #include "dialogs/NewProjectDialog.h"
 #include "dialogs/RunConfigDialog.h"
+#include "project/QmakeProject.h"
 #include "media/MarkdownPreview.h"
 #include "tasks/TasksPanel.h"
 #include "git/BranchButton.h"
@@ -14,6 +16,7 @@
 #include "git/GitPanel.h"
 #include "git/GitRepository.h"
 #include "git/PatchDialog.h"
+#include "lsp/LspManager.h"
 #include "palette/PalettePopup.h"
 #include "editor/CodeEditor.h"
 #include "editor/Breadcrumbs.h"
@@ -136,6 +139,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_hsplit->widget(2)->hide(); // shown when an image or video is opened
     setCentralWidget(m_hsplit);
 
+    m_lsp = new LspManager(this);
     createActions();
     createMenus();
     createToolBar();
@@ -224,6 +228,14 @@ MainWindow::MainWindow(QWidget *parent)
             return;
         if (!doc->filePath().isEmpty())
             ed->setBookmarks(m_bookmarks.value(doc->filePath()));
+        connect(ed, &CodeEditor::hoverRequested, this, [this, doc, ed](int line, int column) {
+            QPointer<CodeEditor> guard(ed);
+            m_lsp->hover(doc, line, column, [guard](const QString &text) {
+                if (guard)
+                    guard->showHover(text);
+            });
+        });
+        connect(ed, &CodeEditor::definitionRequested, this, [this, ed](int line, int column) { goToDefinition(ed, line, column); });
         connect(ed, &CodeEditor::bookmarksChanged, this, [this, doc, ed] {
             if (!doc->isUntitled())
                 applyBookmarks(doc->filePath(), ed->bookmarks());
@@ -233,6 +245,18 @@ MainWindow::MainWindow(QWidget *parent)
         m_tasks->setBookmarks(m_bookmarks); // refreshes the quoted line text
         m_tasks->scheduleTodoScan();
     });
+
+    connect(m_editors, &EditorManager::documentAdded, m_lsp, &LspManager::documentOpened);
+    connect(m_editors, &EditorManager::documentSaved, m_lsp, &LspManager::documentSaved);
+    connect(m_editors, &EditorManager::documentSaved, this, [this](Document *doc) { m_lsp->buildFileSaved(doc->filePath()); });
+    connect(m_editors, &EditorManager::documentPathChanged, m_lsp, &LspManager::documentPathChanged);
+    connect(m_lsp, &LspManager::statusChanged, this, &MainWindow::updateLspStatus);
+    connect(m_lsp, &LspManager::diagnosticsChanged, this, [this](const QString &path) {
+        if (Document *d = m_editors->documentForPath(path))
+            if (CodeEditor *ed = m_editors->editorFor(d))
+                ed->setDiagnostics(m_lsp->diagnostics(path));
+    });
+    updateLspStatus();
 
     connect(m_terminal, &TerminalPanel::hideRequested, this, &MainWindow::toggleTerminal);
     connect(m_editors, &EditorManager::currentChanged, this, [this] { updateStatus(); updateActions(); updateTitle(); noteRecentFile(); });
@@ -353,6 +377,7 @@ void MainWindow::createActions()
     m_aboutAct = make(tr("About QODE"));
     m_paletteAct = make(tr("Command Palette…"), QKeySequence(C | S | K::Key_P), QStringLiteral(":/new-icons/search.svg"));
     m_quickOpenAct = make(tr("Go to File…"), QKeySequence(C | K::Key_P), QStringLiteral(":/new-icons/file-input.svg"));
+    m_gotoDefinitionAct = make(tr("Go to Definition"), QKeySequence(K::Key_F12));
     m_gotoLineAct = make(tr("Go to Line…"), QKeySequence(C | K::Key_G));
     m_bookmarkToggleAct = make(tr("Toggle Bookmark"), QKeySequence(C | K::Key_F2));
     m_bookmarkNextAct = make(tr("Next Bookmark"), QKeySequence(K::Key_F2));
@@ -470,6 +495,12 @@ void MainWindow::createActions()
     connect(m_aboutAct, &QAction::triggered, this, &MainWindow::about);
     connect(m_paletteAct, &QAction::triggered, this, &MainWindow::showCommandPalette);
     connect(m_quickOpenAct, &QAction::triggered, this, [this] { showQuickOpen(); });
+    connect(m_gotoDefinitionAct, &QAction::triggered, this, [this] {
+        if (CodeEditor *e = m_editors->currentEditor()) {
+            const QTextCursor c = e->textCursor();
+            goToDefinition(e, c.blockNumber(), c.positionInBlock());
+        }
+    });
     connect(m_gotoLineAct, &QAction::triggered, this, [this] { showQuickOpen(QStringLiteral(":")); });
     connect(m_bookmarkToggleAct, &QAction::triggered, this, [this] {
         if (CodeEditor *e = m_editors->currentEditor())
@@ -565,6 +596,7 @@ void MainWindow::createMenus()
     edit->addAction(m_replaceAct);
     edit->addAction(m_gotoLineAct);
     edit->addAction(m_gotoSymbolAct);
+    edit->addAction(m_gotoDefinitionAct);
     edit->addSeparator();
     edit->addAction(m_bookmarkToggleAct);
     edit->addAction(m_bookmarkNextAct);
@@ -615,6 +647,7 @@ void MainWindow::createMenus()
     project->addAction(m_closeProjectAct);
 
     createGitMenu(menuBar()->addMenu(tr("&Git")));
+    createLspMenu(menuBar()->addMenu(tr("&LSP")));
 
     QMenu *help = menuBar()->addMenu(tr("&Help"));
     help->addAction(m_aboutAct);
@@ -685,6 +718,13 @@ void MainWindow::createStatusBar()
     statusBar()->addWidget(m_gitStatusWidget);
     m_fileLabel = new QLabel(this);
     statusBar()->addWidget(m_fileLabel, 1);
+    m_lspButton = new QToolButton(this);
+    m_lspButton->setAutoRaise(true);
+    m_lspButton->setPopupMode(QToolButton::InstantPopup);
+    m_lspButton->setCursor(Qt::PointingHandCursor);
+    m_lspButton->setStyleSheet(QStringLiteral("QToolButton { padding: 1px 6px; } QToolButton::menu-indicator { image: none; }"));
+    m_lspButton->setMenu(m_lspMenu); // the same menu as LSP in the menu bar (created first)
+    statusBar()->addPermanentWidget(m_lspButton);
     m_langLabel = mk(90);
     m_encLabel = mk(70);
     m_eolLabel = mk(40);
@@ -809,6 +849,183 @@ void MainWindow::restoreSession()
     // The project's open files are reopened by onProjectOpened.
 }
 
+// --- Language servers ------------------------------------------------------------------------------------
+
+void MainWindow::createLspMenu(QMenu *menu)
+{
+    m_lspMenu = menu;
+    connect(menu, &QMenu::aboutToShow, this, &MainWindow::rebuildLspMenu);
+}
+
+void MainWindow::rebuildLspMenu()
+{
+    m_lspMenu->clear();
+    using Status = LspManager::Status;
+    for (const LspManager::ServerState &st : m_lsp->servers()) {
+        QString state;
+        switch (st.status) {
+        case Status::Running: state = tr("running"); break;
+        case Status::Starting: state = tr("starting…"); break;
+        case Status::NotFound: state = tr("not installed"); break;
+        case Status::Crashed: state = tr("stopped"); break;
+        default: state = st.path.isEmpty() ? tr("idle") : tr("ready"); break;
+        }
+        QAction *head = m_lspMenu->addAction(QStringLiteral("%1 — %2").arg(st.name, state));
+        head->setEnabled(false);
+        if (!st.detail.isEmpty() && st.status != Status::Running)
+            m_lspMenu->addAction(st.detail)->setEnabled(false);
+        else if (!st.path.isEmpty())
+            m_lspMenu->addAction(st.path)->setEnabled(false);
+        const QString id = st.id;
+        m_lspMenu->addSeparator();
+        if (st.status == Status::NotFound)
+            connect(m_lspMenu->addAction(tr("How to Install…")), &QAction::triggered, this, [this, id] { showLspInstallHelp(id); });
+        else
+            connect(m_lspMenu->addAction(tr("Restart Server")), &QAction::triggered, this, [this, id] { m_lsp->restart(id); });
+        connect(m_lspMenu->addAction(tr("Set Server Path…")), &QAction::triggered, this, [this, id] { chooseLspServerPath(id); });
+        if (!m_lsp->serverPath(id).isEmpty())
+            connect(m_lspMenu->addAction(tr("Auto-detect Server on PATH")), &QAction::triggered, this,
+                    [this, id] { m_lsp->setServerPath(id, {}); });
+        if (st.status == Status::Running)
+            connect(m_lspMenu->addAction(tr("Show Server Log…")), &QAction::triggered, this, [this, id] { showLspLog(id); });
+        m_lspMenu->addSeparator();
+    }
+    QString detectedFrom;
+    m_lsp->detectedFlags(&detectedFrom);
+    QAction *flags = m_lspMenu->addAction(m_lsp->hasCompileDatabase() ? tr("Project Compiler Flags…")
+                                          : !detectedFrom.isEmpty()   ? tr("Project Compiler Flags… (detected from %1)").arg(detectedFrom)
+                                                                      : tr("No compile_commands.json — edit compiler flags…"));
+    flags->setEnabled(m_projects->hasProject());
+    flags->setToolTip(m_projects->hasProject() ? tr("Flags used when the project has no compile_commands.json")
+                                               : tr("Open a project first"));
+    m_lspMenu->setToolTipsVisible(true);
+    connect(flags, &QAction::triggered, this, &MainWindow::editCompilerFlags);
+    m_lspMenu->addSeparator();
+    m_lspMenu->addAction(tr("%1 errors, %2 warnings in open files")
+                             .arg(m_lsp->diagnosticCount(LspDiagnostic::Error))
+                             .arg(m_lsp->diagnosticCount(LspDiagnostic::Warning)))
+        ->setEnabled(false);
+}
+
+void MainWindow::updateLspStatus()
+{
+    using Status = LspManager::Status;
+    const Theme t = Theme::byName(SettingsManager::instance().theme());
+    QString text = tr("LSP");
+    QColor color = t.textMuted;
+    QString tip = tr("Language servers");
+    for (const LspManager::ServerState &st : m_lsp->servers()) {
+        if (st.documents == 0)
+            continue; // nothing open that this server handles
+        const QString name = st.name.section(QLatin1Char(' '), 0, 0);
+        switch (st.status) {
+        case Status::NotFound:
+            text = tr("%1 not found").arg(name);
+            color = t.gitModified;
+            tip = tr("%1 is not installed. Click for instructions.").arg(name);
+            if (!m_lspHintShown) {
+                m_lspHintShown = true;
+                statusBar()->showMessage(tr("%1 not found — open the LSP menu to see how to install it").arg(name), 8000);
+            }
+            break;
+        case Status::Starting:
+            text = tr("%1 starting…").arg(name);
+            break;
+        case Status::Crashed:
+            text = tr("%1 stopped").arg(name);
+            color = t.gitConflict;
+            tip = st.detail;
+            break;
+        case Status::Running: {
+            text = name;
+            const int e = m_lsp->diagnosticCount(LspDiagnostic::Error), w = m_lsp->diagnosticCount(LspDiagnostic::Warning);
+            if (e)
+                text += QStringLiteral("  ✕ %1").arg(e);
+            if (w)
+                text += QStringLiteral("  ⚠ %1").arg(w);
+            color = e ? t.gitConflict : (w ? t.gitModified : t.gitAdded);
+            tip = tr("%1 — running").arg(st.detail.isEmpty() ? name : st.detail);
+            break;
+        }
+        default:
+            break;
+        }
+        break;
+    }
+    m_lspButton->setText(text);
+    m_lspButton->setToolTip(tip);
+    m_lspButton->setStyleSheet(QStringLiteral("QToolButton { padding: 1px 6px; color: %1; } QToolButton::menu-indicator { image: none; }")
+                                   .arg(color.name()));
+}
+
+// Jumps to where the symbol at (line, column) of `editor` is defined; several candidates are offered in a menu.
+void MainWindow::goToDefinition(CodeEditor *editor, int line, int column)
+{
+    Document *doc = nullptr;
+    for (Document *d : m_editors->documents())
+        if (m_editors->editorFor(d) == editor)
+            doc = d;
+    if (!doc || !m_lsp->isServed(doc)) {
+        statusBar()->showMessage(tr("Go to Definition needs a running language server for this file"), 4000);
+        return;
+    }
+    QPointer<CodeEditor> guard(editor);
+    m_lsp->definition(doc, line, column, [this, guard](const QVector<LspLocation> &locations) {
+        if (locations.isEmpty()) {
+            statusBar()->showMessage(tr("No definition found"), 3000);
+            return;
+        }
+        auto open = [this](const LspLocation &loc) { m_editors->openFileAt(loc.path, loc.line + 1, loc.column + 1); };
+        if (locations.size() == 1 || !guard) {
+            open(locations.first());
+            return;
+        }
+        QMenu menu;
+        const QString root = m_projects->project().root;
+        for (const LspLocation &loc : locations) {
+            const QString shown = root.isEmpty() ? loc.path : QDir(root).relativeFilePath(loc.path);
+            connect(menu.addAction(QStringLiteral("%1:%2").arg(shown).arg(loc.line + 1)), &QAction::triggered, this,
+                    [open, loc] { open(loc); });
+        }
+        menu.exec(QCursor::pos());
+    });
+}
+
+void MainWindow::editCompilerFlags()
+{
+    QString source;
+    const QStringList detected = m_lsp->detectedFlags(&source);
+    CompilerFlagsDialog dlg(m_lsp->projectFlagsText(), source, detected, this);
+    if (dlg.exec() == QDialog::Accepted)
+        m_lsp->setProjectFlagsText(dlg.text());
+}
+
+void MainWindow::showLspInstallHelp(const QString &serverId)
+{
+    QMessageBox box(QMessageBox::Information, tr("Language server not found"), m_lsp->installHelp(serverId), QMessageBox::Ok, this);
+    box.setTextInteractionFlags(Qt::TextSelectableByMouse);
+    box.exec();
+}
+
+void MainWindow::chooseLspServerPath(const QString &serverId)
+{
+    const QString current = m_lsp->serverPath(serverId);
+    const QString path = QFileDialog::getOpenFileName(this, tr("Select the language server executable"),
+                                                      current.isEmpty() ? QStringLiteral("/usr/bin") : current);
+    if (!path.isEmpty())
+        m_lsp->setServerPath(serverId, path);
+}
+
+void MainWindow::showLspLog(const QString &serverId)
+{
+    const QStringList lines = m_lsp->logOf(serverId);
+    QMessageBox box(QMessageBox::Information, tr("Server log"),
+                    lines.isEmpty() ? tr("The server has not written anything to its log.") : tr("Last messages from the server:"),
+                    QMessageBox::Ok, this);
+    box.setDetailedText(lines.join(QLatin1Char('\n')));
+    box.exec();
+}
+
 // --- Projects -----------------------------------------------------------------
 
 // Every window is its own process: no shared state, and one crashing or closing never affects another.
@@ -888,6 +1105,7 @@ void MainWindow::onProjectOpened(const Project &p)
 {
     InstanceRegistry::instance().setClaims(InstanceRegistry::Project, {p.root});
     SettingsManager::instance().setProject(p.root);
+    m_lsp->setProjectRoot(p.root);
     m_bookmarks = SettingsManager::instance().bookmarks();
     m_tasks->setBookmarks(m_bookmarks);
     SettingsManager::instance().addRecentProject(p.root);
@@ -923,6 +1141,7 @@ void MainWindow::onProjectClosed()
 {
     InstanceRegistry::instance().setClaims(InstanceRegistry::Project, {});
     SettingsManager::instance().setProject({});
+    m_lsp->setProjectRoot({});
     m_bookmarks.clear();
     m_tasks->setBookmarks(m_bookmarks);
     m_explorer->setProjectRoot({});
@@ -1138,7 +1357,23 @@ void MainWindow::configureRun()
         return;
     const QString key = RunConfigDialog::keyFor(path);
     SettingsManager &s = SettingsManager::instance();
-    RunConfigDialog dlg(path, s.runCommand(key), this);
+    QString command = s.runCommand(key);
+    QString note;
+    // A qmake application project: building the whole project is what Run means for its C++ sources.
+    static const QSet<QString> qmakeKeys = {QStringLiteral("cpp"), QStringLiteral("cc"), QStringLiteral("cxx"), QStringLiteral("c"),
+                                            QStringLiteral("h"), QStringLiteral("hpp"), QStringLiteral("hh"), QStringLiteral("ui"),
+                                            QStringLiteral("qrc"), QStringLiteral("pro"), QStringLiteral("pri")};
+    if (command.isEmpty() && qmakeKeys.contains(key)) {
+        const QmakeProject qmake = QmakeProject::detect(m_projects->project().root);
+        if (qmake.isValid() && qmake.isApp()) {
+            command = qmake.runCommand();
+            note = tr("Qt project <b>%1</b> detected: this command builds it with qmake in <b>build/</b> and runs the result. "
+                      "Save to use it for all %2 files of this project.").arg(qmake.proFileName().toHtmlEscaped(), key.toHtmlEscaped());
+        }
+    }
+    RunConfigDialog dlg(path, command, this);
+    dlg.setNote(note);
+    dlg.setProjectRoot(m_projects->project().root);
     if (dlg.exec() == QDialog::Accepted)
         s.setRunCommand(key, dlg.command());
 }
@@ -1531,6 +1766,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
         m_terminalHeight = m_vsplit->sizes().value(1, m_terminalHeight);
     s.setTerminalHeight(m_terminalHeight);
     m_terminal->stop();
+    m_lsp->shutdown();
     event->accept();
 }
 

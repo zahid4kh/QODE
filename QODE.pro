@@ -36,6 +36,7 @@ SOURCES += \
     src/filesystem/FileManager.cpp \
     src/project/ProjectFiles.cpp \
     src/project/ProjectManager.cpp \
+    src/project/QmakeProject.cpp \
     src/project/ProjectModel.cpp \
     src/project/PythonEnv.cpp \
     src/media/MarkdownPreview.cpp \
@@ -54,6 +55,7 @@ SOURCES += \
     src/dialogs/NewFileDialog.cpp \
     src/dialogs/UnsavedChangesDialog.cpp \
     src/dialogs/RunConfigDialog.cpp \
+    src/dialogs/CompilerFlagsDialog.cpp \
     src/editor/Language.cpp \
     src/editor/SyntaxHighlighter.cpp \
     src/editor/Document.cpp \
@@ -69,6 +71,9 @@ SOURCES += \
     src/terminal/TerminalView.cpp \
     src/terminal/Terminal.cpp \
     src/terminal/TerminalPanel.cpp \
+    src/lsp/LspClient.cpp \
+    src/lsp/LspManager.cpp \
+    src/lsp/LspServers.cpp \
     src/window/Island.cpp \
     src/window/SideSections.cpp \
     src/window/MainWindow.cpp
@@ -89,6 +94,7 @@ HEADERS += \
     src/project/Project.h \
     src/project/ProjectFiles.h \
     src/project/ProjectManager.h \
+    src/project/QmakeProject.h \
     src/project/ProjectModel.h \
     src/project/PythonEnv.h \
     src/media/MarkdownPreview.h \
@@ -108,6 +114,7 @@ HEADERS += \
     src/dialogs/NewFileDialog.h \
     src/dialogs/UnsavedChangesDialog.h \
     src/dialogs/RunConfigDialog.h \
+    src/dialogs/CompilerFlagsDialog.h \
     src/editor/Language.h \
     src/editor/SyntaxHighlighter.h \
     src/editor/Document.h \
@@ -123,6 +130,10 @@ HEADERS += \
     src/terminal/TerminalView.h \
     src/terminal/Terminal.h \
     src/terminal/TerminalPanel.h \
+    src/lsp/LspClient.h \
+    src/lsp/LspManager.h \
+    src/lsp/LspServers.h \
+    src/lsp/LspTypes.h \
     src/window/Island.h \
     src/window/SideSections.h \
     src/window/MainWindow.h

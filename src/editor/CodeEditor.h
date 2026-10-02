@@ -2,9 +2,11 @@
 
 #include "git/GitDiff.h"
 #include "git/GitTypes.h"
+#include "lsp/LspTypes.h"
 
 #include <QElapsedTimer>
 #include <QPlainTextEdit>
+#include <QVector>
 
 class MiniMap;
 class QTextBlock;
@@ -57,6 +59,15 @@ public:
     void setBlameGutter(bool on);
     void setBlameInline(bool on);
 
+    // --- Language server diagnostics ---------------------------------------------------------------
+    // Squiggles under the ranges, a tinted line number and a tooltip. The server re-sends the list after
+    // every edit, so the ranges only have to survive until then.
+    void setDiagnostics(const QVector<LspDiagnostic> &diagnostics);
+    // Shows the language server's hover text (Markdown) for the tooltip requested at hoverRequested(); ignored when
+    // the mouse has moved on. Diagnostics under the mouse stay in the tooltip too.
+    void showHover(const QString &markdown);
+    const QVector<LspDiagnostic> &diagnostics() const { return m_diagnostics; }
+
     // --- Bookmarks ----------------------------------------------------------
     // 0-based, sorted lines. They follow the text while it is edited; setBookmarks() does not emit.
     const QList<int> &bookmarks() const { return m_bookmarks; }
@@ -88,6 +99,8 @@ signals:
     void overwriteModeToggled();
     void blameCommitRequested(const QString &hash);
     void bookmarksChanged();
+    void hoverRequested(int line, int column); // mouse rests on an identifier (0-based line / UTF-16 column)
+    void definitionRequested(int line, int column); // Ctrl+click on an identifier
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
@@ -95,6 +108,7 @@ protected:
     void keyPressEvent(QKeyEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseDoubleClickEvent(QMouseEvent *event) override;
+    bool viewportEvent(QEvent *event) override;
     bool canInsertFromMimeData(const QMimeData *source) const override;
     void insertFromMimeData(const QMimeData *source) override;
 
@@ -121,6 +135,9 @@ private:
     int blameWidth() const { return m_blameGutter && !m_blame.isEmpty() ? m_blameColumn : 0; }
     void trackLineEdit(int position, int removed, int added); // keeps blame and bookmarks aligned
     void positionMinimap();
+    // Document range [first, second) of a diagnostic, clamped to the current text; first == -1 when invalid.
+    QPair<int, int> diagnosticRange(const LspDiagnostic &d) const;
+    QColor diagnosticColor(int severity) const;
     void appendBracketSelections(QList<QTextEdit::ExtraSelection> &extra) const;
     int bracketNearCursor() const;              // document position of the bracket at/before the cursor, or -1
     int findMatchingBracket(int pos) const;     // position of its partner, or -1
@@ -145,6 +162,11 @@ private:
     QString m_language;
     QVector<GitBlameLine> m_blame;
     QList<int> m_bookmarks;
+    QVector<LspDiagnostic> m_diagnostics;
+    int m_hoverPos = -1;       // document position of the pending hover request
+    QPoint m_hoverGlobal;      // where its tooltip goes
+    QString m_hoverDiagnostics; // diagnostics tooltip HTML at that position
+    QHash<int, int> m_diagnosticLines; // line -> most severe severity (lowest number)
     bool m_blameGutter = false;
     bool m_blameInline = true;
     int m_blameColumn = 190;

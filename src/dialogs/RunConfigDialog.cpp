@@ -77,6 +77,9 @@ RunConfigDialog::RunConfigDialog(const QString &filePath, const QString &command
     auto *intro = new QLabel(tr("Command run in the terminal when you press Run for <b>%1</b> files.")
                                  .arg(key.toHtmlEscaped()), this);
     intro->setWordWrap(true);
+    m_note = new QLabel(this);
+    m_note->setWordWrap(true);
+    m_note->hide();
     auto *vars = new QLabel(tr("Variables: <b>{file}</b> full path · <b>{dir}</b> its folder · <b>{name}</b> file name without "
                                "extension · <b>{project}</b> project root. Paths are quoted for you."), this);
     vars->setObjectName(QStringLiteral("emptyText"));
@@ -91,6 +94,7 @@ RunConfigDialog::RunConfigDialog(const QString &filePath, const QString &command
 
     auto *layout = new QVBoxLayout(this);
     layout->addWidget(intro);
+    layout->addWidget(m_note);
     layout->addLayout(form);
     layout->addWidget(vars);
     layout->addWidget(m_preview);
@@ -110,5 +114,17 @@ QString RunConfigDialog::command() const
 void RunConfigDialog::updatePreview()
 {
     const QString cmd = command().isEmpty() ? suggestion(m_file) : command();
-    m_preview->setText(cmd.isEmpty() ? QString() : tr("Will run: %1").arg(expand(cmd, m_file, QString()).toHtmlEscaped()));
+    m_preview->setText(cmd.isEmpty() ? QString() : tr("Will run: %1").arg(expand(cmd, m_file, m_root).toHtmlEscaped()));
+}
+
+void RunConfigDialog::setNote(const QString &html)
+{
+    m_note->setText(html);
+    m_note->setVisible(!html.isEmpty());
+}
+
+void RunConfigDialog::setProjectRoot(const QString &root)
+{
+    m_root = root;
+    updatePreview();
 }

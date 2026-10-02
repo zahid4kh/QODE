@@ -8,12 +8,14 @@
 #include <QMainWindow>
 #include <QPointer>
 
+class CodeEditor;
 class DiffDialog;
 class Document;
 class GitPanel;
 class MediaPanel;
 class MarkdownPreview;
 class GitRepository;
+class LspManager;
 class EditorManager;
 class ProjectManager;
 class ProjectExplorer;
@@ -92,6 +94,16 @@ private:
     void replaceInFiles(const QStringList &paths, const SearchOptions &options, const QString &replacement);
     void forwardToFocus(const char *slot);
 
+    // Language servers (LSP)
+    void createLspMenu(QMenu *menu);
+    void rebuildLspMenu();
+    void updateLspStatus();
+    void showLspInstallHelp(const QString &serverId);
+    void chooseLspServerPath(const QString &serverId);
+    void showLspLog(const QString &serverId);
+    void editCompilerFlags();
+    void goToDefinition(CodeEditor *editor, int line, int column);
+
     // Git
     void createGitActions();
     void createGitMenu(QMenu *menu);
@@ -109,6 +121,10 @@ private:
     ProjectFiles *m_projectFiles;
     QStringList m_recentFiles; // most recently active first
     GitRepository *m_git;
+    LspManager *m_lsp;
+    QMenu *m_lspMenu;
+    QToolButton *m_lspButton;
+    bool m_lspHintShown = false;
     GitPanel *m_gitPanel;
     SearchPanel *m_searchPanel;
     TasksPanel *m_tasks;
@@ -134,7 +150,7 @@ private:
     QAction *m_undoAct, *m_redoAct, *m_cutAct, *m_copyAct, *m_pasteAct, *m_selectAllAct, *m_findAct, *m_replaceAct;
     QAction *m_projNewFileAct, *m_projNewFolderAct, *m_openProjectFolderAct;
     QAction *m_explorerAct, *m_terminalAct, *m_runAct, *m_runConfigAct, *m_venvAct, *m_fullscreenAct, *m_wordWrapAct, *m_darkThemeAct, *m_lightThemeAct;
-    QAction *m_nextTabAct, *m_prevTabAct, *m_splitRightAct, *m_splitDownAct, *m_aboutAct, *m_paletteAct, *m_quickOpenAct, *m_gotoLineAct, *m_gotoSymbolAct, *m_searchAct, *m_matchBracketAct, *m_indentGuidesAct, *m_stickyAct, *m_blameInlineAct, *m_bookmarkToggleAct, *m_bookmarkNextAct, *m_bookmarkPrevAct, *m_showBookmarksAct, *m_showTodosAct, *m_previewAct, *m_newTerminalAct, *m_blameGutterAct, *m_minimapAct, *m_breadcrumbsAct;
+    QAction *m_nextTabAct, *m_prevTabAct, *m_splitRightAct, *m_splitDownAct, *m_aboutAct, *m_paletteAct, *m_quickOpenAct, *m_gotoLineAct, *m_gotoSymbolAct, *m_gotoDefinitionAct, *m_searchAct, *m_matchBracketAct, *m_indentGuidesAct, *m_stickyAct, *m_blameInlineAct, *m_bookmarkToggleAct, *m_bookmarkNextAct, *m_bookmarkPrevAct, *m_showBookmarksAct, *m_showTodosAct, *m_previewAct, *m_newTerminalAct, *m_blameGutterAct, *m_minimapAct, *m_breadcrumbsAct;
     QMenu *m_recentMenu;
     QAction *m_autoSaveOffAct, *m_autoSaveDelayAct, *m_autoSaveFocusAct, *m_trimAct, *m_finalNewlineAct, *m_formatOnSaveAct, *m_formatAct;
     QAction *m_foldAct, *m_unfoldAct, *m_foldAllAct, *m_unfoldAllAct;

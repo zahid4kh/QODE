@@ -1,9 +1,5 @@
 #include "Application.h"
 
-#ifndef QODE_VERSION
-#define QODE_VERSION "0.1.0"
-#endif
-
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
 

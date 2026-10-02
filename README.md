@@ -16,6 +16,26 @@ A native C++/Qt 6 code editor for Linux: project explorer, tabbed syntax-highlig
 
 *Welcome page with quick actions and recent projects.*
 
+## Install
+
+### Debian / Ubuntu (APT)
+
+QODE is published in a personal APT repository (amd64), so it installs and updates like any other package:
+
+```sh
+# 1. Trust the repository's signing key
+wget -qO- https://zahid4kh.github.io/my-apt-repo/KEY.gpg | sudo gpg --dearmor -o /usr/share/keyrings/zahid-archive-keyring.gpg
+
+# 2. Add the repository
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/zahid-archive-keyring.gpg] https://zahid4kh.github.io/my-apt-repo stable main" | sudo tee /etc/apt/sources.list.d/zahid-apps.list
+
+# 3. Update the package list and install
+sudo apt update
+sudo apt install qode
+```
+
+The first step downloads the key and stores it in the system keyring, the second tells APT where the packages live and which key signs them, and the third installs QODE with its Qt 6 dependencies. Later releases arrive through `sudo apt update && sudo apt upgrade`. The `.deb` is also attached to each [GitHub release](https://github.com/zahid4kh/QODE/releases) for `sudo apt install ./qode_<version>_amd64.deb`. To build from source instead, see below.
+
 ## Build
 
 Requires Qt 6 (Core, Gui, Widgets), qmake6 and a C++17 compiler.

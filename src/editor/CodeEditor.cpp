@@ -12,6 +12,7 @@
 #include <QApplication>
 #include <QHelpEvent>
 #include <QToolTip>
+#include "HoverPopup.h"
 #include <QDateTime>
 #include <QPainterPath>
 #include <QFrame>
@@ -585,7 +586,11 @@ void CodeEditor::showHover(const QString &markdown)
     html = QStringLiteral("<style>pre,code{white-space:pre-wrap}</style>") + html + QStringLiteral("</div>");
     if (!m_hoverDiagnostics.isEmpty())
         html = m_hoverDiagnostics + QStringLiteral("<hr>") + html;
-    QToolTip::showText(m_hoverGlobal, html, viewport());
+    QToolTip::hideText();
+    if (m_hoverPopup)
+        m_hoverPopup->close();
+    m_hoverPopup = new HoverPopup(this);
+    m_hoverPopup->showHtml(html, m_hoverGlobal);
 }
 
 // --- Code folding -------------------------------------------------------------

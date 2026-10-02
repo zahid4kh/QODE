@@ -1051,6 +1051,14 @@ void MainWindow::showCodeActions(Document *doc, CodeEditor *editor, int startLin
         }
         auto *menu = new QMenu(guard);
         menu->setAttribute(Qt::WA_DeleteOnClose);
+        // Rounded and bordered like the tooltips: a translucent window lets the stylesheet's radius show.
+        menu->setWindowFlags(menu->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
+        menu->setAttribute(Qt::WA_TranslucentBackground);
+        const Theme theme = Theme::byName(SettingsManager::instance().theme());
+        menu->setStyleSheet(QStringLiteral("QMenu { background: %1; color: %2; border: 1px solid %3; border-radius: 8px; padding: 4px; }"
+                                           "QMenu::item { padding: 5px 22px 5px 12px; border-radius: 5px; }"
+                                           "QMenu::item:selected { background: %4; }")
+                                .arg(theme.panel.name(), theme.editorFg.name(), theme.border.name(), theme.selection.name()));
         for (const LspCodeAction &a : std::as_const(actions)) {
             QString title = a.title;
             title.replace(QLatin1Char('&'), QStringLiteral("&&"));

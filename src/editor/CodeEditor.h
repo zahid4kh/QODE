@@ -7,9 +7,11 @@
 
 #include <QElapsedTimer>
 #include <QPlainTextEdit>
+#include <QPointer>
 #include <QVector>
 
 class CompletionPopup;
+class HoverPopup;
 class MiniMap;
 class QTextBlock;
 class QTimer;
@@ -206,6 +208,7 @@ private:
     CompletionCommandRunner m_commandRunner;
     QPair<int, int> m_link{-1, -1}; // identifier under the mouse while Ctrl is held
     int m_hoverPos = -1;       // document position of the pending hover request
+    QPointer<HoverPopup> m_hoverPopup; // the language server's hover text; stays until clicked away
     QPoint m_hoverGlobal;      // where its tooltip goes
     QString m_hoverDiagnostics; // diagnostics tooltip HTML at that position
     QHash<int, int> m_diagnosticLines; // line -> most severe severity (lowest number)

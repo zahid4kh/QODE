@@ -27,7 +27,7 @@ const mono = JetBrains_Mono({
   display: "swap",
 });
 
-const siteUrl = "https://qode.vercel.app";
+const siteUrl = "https://qodeditor.vercel.app";
 const title = "QODE — Code without the baggage";
 const description =
   "A lightweight, native C++/Qt code editor for Linux. Fast startup, real files, an integrated terminal, Git and LSP support, and no Electron bloat.";

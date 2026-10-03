@@ -110,6 +110,10 @@ LanguageDefinition javascript(bool ts)
     d.delimited.append({re(QStringLiteral("//[^\\n]*")), {}, TokenRole::Comment});
     d.delimited.append({re(QStringLiteral("/\\*")), re(QStringLiteral("\\*/")), TokenRole::Comment});
     d.delimited.append({re(QStringLiteral("`")), re(QStringLiteral("(?<!\\\\)`")), TokenRole::String});
+    // JSX attribute values (`className="a b` ... `c"`) can run over several lines. Listed before the plain strings so
+    // they win the tie at the same start.
+    d.delimited.append({re(QStringLiteral("(?<==)\"")), re(QStringLiteral("\"")), TokenRole::String});
+    d.delimited.append({re(QStringLiteral("(?<==)'")), re(QStringLiteral("'")), TokenRole::String});
     d.delimited.append({re(dqString), {}, TokenRole::String});
     d.delimited.append({re(sqString), {}, TokenRole::String});
     return d;
@@ -200,8 +204,9 @@ LanguageDefinition markup(const QString &name, bool html)
         d.rules.append({re(QStringLiteral("<!DOCTYPE[^>]*>"), RE::CaseInsensitiveOption), TokenRole::Preprocessor});
     d.delimited.append({re(QStringLiteral("<!--")), re(QStringLiteral("-->")), TokenRole::Comment});
     // Strings only make sense inside tags; approximated by matching quoted values after '='.
-    d.delimited.append({re(QStringLiteral("(?<==)\\s*\"[^\"]*\"?")), {}, TokenRole::String});
-    d.delimited.append({re(QStringLiteral("(?<==)\\s*'[^']*'?")), {}, TokenRole::String});
+    // Attribute values may run over several lines (long class lists).
+    d.delimited.append({re(QStringLiteral("(?<==)\\s*\"")), re(QStringLiteral("\"")), TokenRole::String});
+    d.delimited.append({re(QStringLiteral("(?<==)\\s*'")), re(QStringLiteral("'")), TokenRole::String});
     return d;
 }
 
@@ -254,8 +259,9 @@ LanguageDefinition shell()
     d.rules.append({re(numberPattern), TokenRole::Number});
     d.rules.append({re(QStringLiteral("^#!.*")), TokenRole::Preprocessor});
     d.delimited.append({re(QStringLiteral("(?<![\\w$])#[^\\n]*")), {}, TokenRole::Comment});
-    d.delimited.append({re(dqString), {}, TokenRole::String});
-    d.delimited.append({re(QStringLiteral("'[^']*'?")), {}, TokenRole::String});
+    // Both quote kinds can span lines in a shell script. \G pins the end search to where it starts, skipping \".
+    d.delimited.append({re(QStringLiteral("\"")), re(QStringLiteral("\\G(?:[^\"\\\\]|\\\\.)*\"")), TokenRole::String});
+    d.delimited.append({re(QStringLiteral("'")), re(QStringLiteral("'")), TokenRole::String});
     return d;
 }
 

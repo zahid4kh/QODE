@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include "EditorGroup.h"
 
 #include <QHash>
@@ -44,6 +46,9 @@ public:
     bool saveCurrent();
     bool saveCurrentAs();
     bool saveAll();
+    // Fallback when no formatter program exists for a file: asks the language server (set by MainWindow). Returns true when
+    // the server formatted the document (edits applied, possibly none).
+    void setLspFormatter(std::function<bool(Document *, CodeEditor *)> f) { m_lspFormatter = std::move(f); }
     bool formatCurrent(); // Format Document: runs the installed formatter for the file type
     bool closeCurrent();
     bool closeDocument(Document *doc); // prompts if modified
@@ -126,6 +131,8 @@ private:
     bool saveDocumentAs(Document *doc);
     bool maybeSave(Document *doc);
     // Format / trim / final newline as configured, as one undo step. `automatic` = triggered by auto save.
+    std::function<bool(Document *, CodeEditor *)> m_lspFormatter;
+    bool formatWithLsp(Document *doc);
     void prepareForSave(Document *doc, bool automatic, const QString &path);
     bool autoSaveDocument(Document *doc);
     void autoSaveAll();

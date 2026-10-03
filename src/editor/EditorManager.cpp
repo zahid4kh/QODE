@@ -925,13 +925,17 @@ void EditorManager::prepareForSave(Document *doc, bool automatic, const QString 
     const bool whileTyping = automatic && s.autoSaveMode() == SettingsManager::AutoSaveAfterDelay;
     QTextDocument *td = doc->textDocument();
 
-    if (s.formatOnSave() && !whileTyping && !path.isEmpty() && Formatter::isAvailable(path)) {
-        const QString before = doc->text();
-        const Formatter::Result r = Formatter::format(path, before);
-        if (r.ok)
-            replaceDocumentText(td, before, r.text);
-        else
-            emit statusMessage(tr("Format on save skipped: %1").arg(r.error));
+    if (s.formatOnSave() && !whileTyping && !path.isEmpty()) {
+        if (Formatter::isAvailable(path)) {
+            const QString before = doc->text();
+            const Formatter::Result r = Formatter::format(path, before);
+            if (r.ok)
+                replaceDocumentText(td, before, r.text);
+            else
+                emit statusMessage(tr("Format on save skipped: %1").arg(r.error));
+        } else if (path == doc->filePath()) {
+            formatWithLsp(doc); // language server formatting; silently nothing when none serves the file
+        }
     }
 
     const bool trim = s.trimTrailingWhitespace() && doc->languageName() != QLatin1String("Markdown"); // "  " is a line break there
@@ -966,6 +970,12 @@ void EditorManager::prepareForSave(Document *doc, bool automatic, const QString 
     c.endEditBlock();
 }
 
+bool EditorManager::formatWithLsp(Document *doc)
+{
+    CodeEditor *ed = editorFor(doc);
+    return m_lspFormatter && ed && m_lspFormatter(doc, ed);
+}
+
 bool EditorManager::formatCurrent()
 {
     Document *d = currentDocument();
@@ -976,6 +986,10 @@ bool EditorManager::formatCurrent()
         return false;
     }
     const QString before = d->text();
+    if (!Formatter::isAvailable(d->filePath()) && formatWithLsp(d)) {
+        emit statusMessage(d->text() == before ? tr("Already formatted (language server)") : tr("Formatted with the language server"));
+        return true;
+    }
     const Formatter::Result r = Formatter::format(d->filePath(), before);
     if (!r.ok) {
         emit statusMessage(r.error);

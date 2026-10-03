@@ -167,6 +167,15 @@ MainWindow::MainWindow(QWidget *parent)
     setCentralWidget(m_hsplit);
 
     m_lsp = new LspManager(this);
+    m_editors->setLspFormatter([this](Document *doc, CodeEditor *ed) {
+        auto &cfg = SettingsManager::instance();
+        QVector<LspTextEdit> edits;
+        if (!m_lsp->formatting(doc, cfg.tabSize(), cfg.useSpaces(), 3000, &edits))
+            return false;
+        if (!edits.isEmpty())
+            ed->applyTextEdits(edits);
+        return true;
+    });
     m_lsp->setApplyEditHandler([this](const QJsonObject &edit) { return applyWorkspaceEdit(edit); });
     createActions();
     createMenus();

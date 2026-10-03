@@ -39,6 +39,7 @@ LspClient::LspClient(const QString &program, const QStringList &arguments, const
             {QStringLiteral("publishDiagnostics"), QJsonObject{{QStringLiteral("relatedInformation"), false}}},
             {QStringLiteral("diagnostic"), QJsonObject{{QStringLiteral("dynamicRegistration"), false}}}, // pull model (Kotlin)
             {QStringLiteral("hover"), QJsonObject{{QStringLiteral("contentFormat"), QJsonArray{QStringLiteral("markdown"), QStringLiteral("plaintext")}}}},
+            {QStringLiteral("formatting"), QJsonObject{{QStringLiteral("dynamicRegistration"), false}}},
             {QStringLiteral("definition"), QJsonObject{{QStringLiteral("linkSupport"), true}}},
             {QStringLiteral("codeAction"),
              QJsonObject{{QStringLiteral("codeActionLiteralSupport"),

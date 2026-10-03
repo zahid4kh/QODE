@@ -137,6 +137,26 @@ QVector<bool> protectedMask(const QTextBlock &block)
     return mask;
 }
 
+bool inCommentAt(const QTextDocument *doc, int position)
+{
+    if (position <= 0)
+        return false;
+    const QTextBlock block = doc->findBlock(position - 1);
+    const int i = position - 1 - block.position();
+    for (const QTextLayout::FormatRange &r : block.layout()->formats())
+        if (r.format.property(kTokenRoleProperty).toInt() == int(TokenRole::Comment) && r.format.property(kTokenRoleProperty).isValid() &&
+            i >= r.start && i < r.start + r.length)
+            return true;
+    return false;
+}
+
+// Web languages complete inside strings too: import paths, class names, CSS values, attribute values.
+bool completesInStrings(const QString &lang)
+{
+    return lang == QLatin1String("TypeScript") || lang == QLatin1String("JavaScript") || lang == QLatin1String("HTML") ||
+           lang == QLatin1String("CSS") || lang == QLatin1String("JSON");
+}
+
 bool isBlankBefore(const QString &text, int pos)
 {
     for (int i = 0; i < pos; ++i)
@@ -1348,6 +1368,93 @@ QString CodeEditor::indentUnit() const
     return s.useSpaces() ? QString(s.tabSize(), QLatin1Char(' ')) : QStringLiteral("\t");
 }
 
+namespace {
+
+bool isMarkupLanguage(const QString &lang)
+{
+    return lang == QLatin1String("TypeScript") || lang == QLatin1String("JavaScript") || lang == QLatin1String("HTML") ||
+           lang == QLatin1String("XML");
+}
+
+// How the text of a line (up to the caret) leaves an HTML / JSX tag:
+//  Attributes - an opening tag is started but not finished (`<motion.a`), so the next line holds its attributes;
+//  Children   - the line ends an opening tag (`<div>`, or the lone `>` closing a multi-line tag), so content goes inside.
+enum class TagState { None, Attributes, Children };
+
+TagState tagState(const QString &before, bool *closerBelow, const QString &after)
+{
+    static const QSet<QString> voidTags = {QStringLiteral("br"),   QStringLiteral("hr"),    QStringLiteral("img"),
+                                           QStringLiteral("input"), QStringLiteral("meta"),  QStringLiteral("link"),
+                                           QStringLiteral("area"),  QStringLiteral("base"),  QStringLiteral("col"),
+                                           QStringLiteral("embed"), QStringLiteral("source"), QStringLiteral("track"),
+                                           QStringLiteral("wbr"),   QStringLiteral("param")};
+    *closerBelow = false;
+    const QString t = before.trimmed();
+    if (t.isEmpty())
+        return TagState::None;
+
+    // Walk the line tracking quotes and braces, remembering the last tag that was opened and whether it got closed.
+    int tagStart = -1, braces = 0;
+    bool tagOpen = false, selfClosed = false;
+    QChar quote;
+    for (int i = 0; i < t.size(); ++i) {
+        const QChar ch = t.at(i);
+        if (!quote.isNull()) {
+            if (ch == quote)
+                quote = QChar();
+            continue;
+        }
+        if (tagOpen) {
+            if (ch == QLatin1Char('"') || ch == QLatin1Char('\''))
+                quote = ch;
+            else if (ch == QLatin1Char('{'))
+                ++braces;
+            else if (ch == QLatin1Char('}'))
+                --braces;
+            else if (ch == QLatin1Char('>') && braces <= 0 && !(i > 0 && t.at(i - 1) == QLatin1Char('='))) {
+                selfClosed = i > 0 && t.at(i - 1) == QLatin1Char('/');
+                tagOpen = false;
+            }
+            continue;
+        }
+        if (ch == QLatin1Char('<')) {
+            const QChar prev = i > 0 ? t.at(i - 1) : QLatin1Char(' ');
+            const QChar next = i + 1 < t.size() ? t.at(i + 1) : QLatin1Char('>');
+            if (next == QLatin1Char('/')) { // `</div>` closes whatever was open on this line
+                tagStart = -1;
+                continue;
+            }
+            // `Array<string>` is a generic, `a < b` a comparison and `<!--` a comment: not openers.
+            if (prev.isLetterOrNumber() || prev == QLatin1Char('_') || prev == QLatin1Char(')'))
+                continue;
+            if (!(next.isLetter() || next == QLatin1Char('>')))
+                continue;
+            tagStart = i;
+            tagOpen = true;
+            braces = 0;
+            selfClosed = false;
+        }
+    }
+    if (tagStart < 0)
+        return TagState::None;
+    if (tagOpen)
+        return t.startsWith(QLatin1Char('<')) && tagStart == 0 ? TagState::Attributes : TagState::None;
+    if (selfClosed)
+        return TagState::None;
+    int e = tagStart + 1;
+    while (e < t.size() && (t.at(e).isLetterOrNumber() || t.at(e) == QLatin1Char('.') || t.at(e) == QLatin1Char('-') ||
+                            t.at(e) == QLatin1Char(':') || t.at(e) == QLatin1Char('_')))
+        ++e;
+    if (voidTags.contains(t.mid(tagStart + 1, e - tagStart - 1).toLower()))
+        return TagState::None;
+    if (!t.endsWith(QLatin1Char('>')))
+        return TagState::None;
+    *closerBelow = after.trimmed().startsWith(QLatin1String("</"));
+    return TagState::Children;
+}
+
+} // namespace
+
 void CodeEditor::insertNewlineWithIndent()
 {
     QTextCursor c = textCursor();
@@ -1367,13 +1474,24 @@ void CodeEditor::insertNewlineWithIndent()
         indent = indent.left(col);
 
     const QString trimmedBefore = before.trimmed();
-    const bool opens = !trimmedBefore.isEmpty()
+    bool tagCloserBelow = false;
+    TagState tag = TagState::None;
+    if (isMarkupLanguage(m_language)) {
+        tag = tagState(before, &tagCloserBelow, after);
+        // The lone `>` / `/>` line that finishes a multi-line tag: the line it started on is what children hang from.
+        if (tag == TagState::None && trimmedBefore == QLatin1String(">")) {
+            tag = TagState::Children;
+            tagCloserBelow = after.trimmed().startsWith(QLatin1String("</"));
+        }
+    }
+    const bool opens = tag != TagState::None
+        || (!trimmedBefore.isEmpty()
         && (trimmedBefore.endsWith(QLatin1Char('{')) || trimmedBefore.endsWith(QLatin1Char('(')) ||
             trimmedBefore.endsWith(QLatin1Char('[')) ||
-            (m_indentAfterColon && trimmedBefore.endsWith(QLatin1Char(':'))));
+            (m_indentAfterColon && trimmedBefore.endsWith(QLatin1Char(':')))));
     c.beginEditBlock();
     c.removeSelectedText();
-    if (opens && !after.trimmed().isEmpty() && (after.trimmed().startsWith(QLatin1Char('}')) ||
+    if (opens && !after.trimmed().isEmpty() && (tagCloserBelow || after.trimmed().startsWith(QLatin1Char('}')) ||
                                                  after.trimmed().startsWith(QLatin1Char(')')) ||
                                                  after.trimmed().startsWith(QLatin1Char(']')))) {
         // Cursor sits between a bracket pair: open an indented empty line and push the closer below.
@@ -1620,9 +1738,27 @@ void CodeEditor::handleKey(QKeyEvent *event)
             return;
         }
         break;
+    case Qt::Key_Slash:
+        // `<` then `/` on a whitespace-only line starts a closing tag: it lines up with its opener, one level out.
+        if (isMarkupLanguage(m_language) && !textCursor().hasSelection()) {
+            QTextCursor c = textCursor();
+            const QString line = c.block().text();
+            const QString unit = indentUnit();
+            if (line.trimmed() == QLatin1String("<") && c.positionInBlock() == line.size() && line.size() > unit.size() + 1 &&
+                line.startsWith(unit)) {
+                c.movePosition(QTextCursor::StartOfBlock);
+                c.setPosition(c.position() + unit.size(), QTextCursor::KeepAnchor);
+                c.removeSelectedText();
+                c.movePosition(QTextCursor::EndOfBlock);
+                setTextCursor(c);
+            }
+        }
+        break;
+    case Qt::Key_ParenRight:
+    case Qt::Key_BracketRight:
     case Qt::Key_BraceRight:
         if (mods == Qt::NoModifier || mods == Qt::ShiftModifier) {
-            // Typing '}' on a whitespace-only line dedents one level.
+            // Typing a closing bracket on a whitespace-only line dedents one level.
             QTextCursor c = textCursor();
             const QString line = c.block().text();
             if (!c.hasSelection() && !line.isEmpty() && line.trimmed().isEmpty() && c.positionInBlock() == line.size()) {
@@ -2191,7 +2327,7 @@ void CodeEditor::completionTyped(QKeyEvent *event, bool edited)
             }
             return;
         }
-        if (!served || inStringOrComment(cur))
+        if (!served || (completesInStrings(m_language) ? inCommentAt(document(), cur) : inStringOrComment(cur)))
             return;
         QTextCursor c(document());
         c.setPosition(cur);
@@ -2204,9 +2340,19 @@ void CodeEditor::completionTyped(QKeyEvent *event, bool edited)
         return;
     }
     hideCompletion();
-    if (!served || inStringOrComment(cur - 1))
+    if (!served || (completesInStrings(m_language) ? inCommentAt(document(), cur - 1) : inStringOrComment(cur - 1)))
         return;
     const QChar prev = cur >= 2 ? document()->characterAt(cur - 2) : QChar();
+    // Web servers: tags and closing tags (< and /), import paths and attribute values (quotes, /, @), CSS (: - @).
+    if (completesInStrings(m_language)) {
+        const bool css = m_language == QLatin1String("CSS");
+        const bool html = m_language == QLatin1String("HTML");
+        const QString triggers = css ? QStringLiteral(":-@") : html ? QStringLiteral("<\"'/=") : QStringLiteral("\"'`/@<");
+        if (ch == QLatin1Char('.') || triggers.contains(ch)) {
+            scheduleCompletion(2, QString(ch));
+            return;
+        }
+    }
     if (ch == QLatin1Char('.') || (ch == QLatin1Char('>') && prev == QLatin1Char('-')) || (ch == QLatin1Char(':') && prev == QLatin1Char(':')))
         scheduleCompletion(2, ch == QLatin1Char('>') ? QStringLiteral(">") : QString(ch));
 }

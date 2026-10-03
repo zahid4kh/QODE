@@ -9,6 +9,7 @@
 
 #include <QCryptographicHash>
 #include <QDir>
+#include <QEventLoop>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QProcess>
@@ -16,6 +17,8 @@
 #include <QTextDocument>
 #include <QTimer>
 #include <QUrl>
+
+#include <memory>
 
 namespace {
 constexpr int kMaxRestarts = 2;
@@ -792,6 +795,46 @@ void LspManager::codeActions(Document *doc, int startLine, int startColumn, int 
                        }
                    done(out);
                });
+}
+
+bool LspManager::formatting(Document *doc, int tabSize, bool spaces, int timeoutMs, QVector<LspTextEdit> *edits)
+{
+    QString uri;
+    LspClient *c = readyClientFor(doc, &uri);
+    if (!c)
+        return false;
+    const QJsonValue provider = c->serverCapabilities().value(QStringLiteral("documentFormattingProvider"));
+    if (provider.isUndefined() || provider.isNull() || provider.toBool(true) == false)
+        return false;
+    // Shared with the callback, which may still run after a timeout.
+    struct State {
+        bool done = false, ok = false;
+        QVector<LspTextEdit> edits;
+        QEventLoop loop;
+    };
+    auto st = std::make_shared<State>();
+    QTimer timeout;
+    timeout.setSingleShot(true);
+    connect(&timeout, &QTimer::timeout, &st->loop, &QEventLoop::quit);
+    c->request(QStringLiteral("textDocument/formatting"),
+               QJsonObject{{QStringLiteral("textDocument"), QJsonObject{{QStringLiteral("uri"), uri}}},
+                           {QStringLiteral("options"), QJsonObject{{QStringLiteral("tabSize"), tabSize},
+                                                                   {QStringLiteral("insertSpaces"), spaces}}}},
+               [st](const QJsonValue &result, const QJsonObject &error) {
+                   st->done = true;
+                   if (error.isEmpty() && result.isArray()) {
+                       st->ok = true;
+                       for (const QJsonValue &v : result.toArray())
+                           st->edits.append(parseEdit(v.toObject()));
+                   }
+                   st->loop.quit();
+               });
+    timeout.start(timeoutMs);
+    st->loop.exec();
+    if (!st->done || !st->ok)
+        return false;
+    *edits = st->edits;
+    return true;
 }
 
 void LspManager::runCodeAction(Document *doc, const LspCodeAction &action, std::function<void(bool)> done)

@@ -86,6 +86,9 @@ public:
     // Quick fixes / refactorings for the range (Alt+Enter); diagnostics inside it are passed along.
     void codeActions(Document *doc, int startLine, int startColumn, int endLine, int endColumn,
                      std::function<void(const QVector<LspCodeAction> &)> done);
+    // textDocument/formatting, waited for with a local event loop (save must stay synchronous). False when no running
+    // server formats this document, it timed out or failed; *edits may be empty when the text is already formatted.
+    bool formatting(Document *doc, int tabSize, bool spaces, int timeoutMs, QVector<LspTextEdit> *edits);
     void runCodeAction(Document *doc, const LspCodeAction &action, std::function<void(bool)> done);
     // Applies a WorkspaceEdit the server sends (workspace/applyEdit) or a code action carries; returns whether it went through.
     void setApplyEditHandler(std::function<bool(const QJsonObject &edit)> handler) { m_applyEdit = std::move(handler); }

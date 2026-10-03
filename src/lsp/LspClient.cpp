@@ -50,7 +50,7 @@ LspClient::LspClient(const QString &program, const QStringList &arguments, const
             {QStringLiteral("completion"),
              QJsonObject{{QStringLiteral("contextSupport"), true},
                          {QStringLiteral("completionItem"),
-                          QJsonObject{{QStringLiteral("snippetSupport"), false},
+                          QJsonObject{{QStringLiteral("snippetSupport"), true},
                                       {QStringLiteral("deprecatedSupport"), true},
                                       {QStringLiteral("labelDetailsSupport"), true},
                                       {QStringLiteral("documentationFormat"), QJsonArray{QStringLiteral("plaintext")}}}}}},

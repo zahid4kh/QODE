@@ -16,7 +16,8 @@ class CompletionPopup : public QFrame
 public:
     explicit CompletionPopup(QWidget *editor);
 
-    void setItems(const QVector<LspCompletionItem> &items);
+    // `extra` (QODE's snippets) is listed after `items` without copying the server's list into a bigger one first.
+    void setItems(const QVector<LspCompletionItem> &items, const QVector<LspCompletionItem> &extra = {});
     // Filters by `prefix` (case-insensitive prefix first, then camel-case / subsequence matches). Returns the
     // number of items left.
     int setPrefix(const QString &prefix);

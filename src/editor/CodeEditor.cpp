@@ -4,6 +4,7 @@
 #include "CompletionPopup.h"
 #include "MiniMap.h"
 #include "SyntaxHighlighter.h"
+#include "Snippets.h"
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
@@ -30,6 +31,7 @@
 #include <QTextBlock>
 #include <QTextDocument>
 #include <QRegularExpression>
+#include <QScopeGuard>
 #include <QSet>
 #include <QTimer>
 #include <QUrl>
@@ -1381,21 +1383,17 @@ bool isMarkupLanguage(const QString &lang)
 //  Children   - the line ends an opening tag (`<div>`, or the lone `>` closing a multi-line tag), so content goes inside.
 enum class TagState { None, Attributes, Children };
 
-TagState tagState(const QString &before, bool *closerBelow, const QString &after)
-{
-    static const QSet<QString> voidTags = {QStringLiteral("br"),   QStringLiteral("hr"),    QStringLiteral("img"),
-                                           QStringLiteral("input"), QStringLiteral("meta"),  QStringLiteral("link"),
-                                           QStringLiteral("area"),  QStringLiteral("base"),  QStringLiteral("col"),
-                                           QStringLiteral("embed"), QStringLiteral("source"), QStringLiteral("track"),
-                                           QStringLiteral("wbr"),   QStringLiteral("param")};
-    *closerBelow = false;
-    const QString t = before.trimmed();
-    if (t.isEmpty())
-        return TagState::None;
+// Walks `t` (the text up to a position) tracking the last HTML / JSX tag opened: where it starts, and whether it is still
+// unfinished (inside its attributes) or was closed (`>` or `/>`).
+struct TagScan {
+    int start = -1;
+    bool open = false, selfClosed = false;
+};
 
-    // Walk the line tracking quotes and braces, remembering the last tag that was opened and whether it got closed.
-    int tagStart = -1, braces = 0;
-    bool tagOpen = false, selfClosed = false;
+TagScan scanTags(const QString &t)
+{
+    TagScan r;
+    int braces = 0;
     QChar quote;
     for (int i = 0; i < t.size(); ++i) {
         const QChar ch = t.at(i);
@@ -1404,7 +1402,7 @@ TagState tagState(const QString &before, bool *closerBelow, const QString &after
                 quote = QChar();
             continue;
         }
-        if (tagOpen) {
+        if (r.open) {
             if (ch == QLatin1Char('"') || ch == QLatin1Char('\''))
                 quote = ch;
             else if (ch == QLatin1Char('{'))
@@ -1412,8 +1410,8 @@ TagState tagState(const QString &before, bool *closerBelow, const QString &after
             else if (ch == QLatin1Char('}'))
                 --braces;
             else if (ch == QLatin1Char('>') && braces <= 0 && !(i > 0 && t.at(i - 1) == QLatin1Char('='))) {
-                selfClosed = i > 0 && t.at(i - 1) == QLatin1Char('/');
-                tagOpen = false;
+                r.selfClosed = i > 0 && t.at(i - 1) == QLatin1Char('/');
+                r.open = false;
             }
             continue;
         }
@@ -1421,7 +1419,7 @@ TagState tagState(const QString &before, bool *closerBelow, const QString &after
             const QChar prev = i > 0 ? t.at(i - 1) : QLatin1Char(' ');
             const QChar next = i + 1 < t.size() ? t.at(i + 1) : QLatin1Char('>');
             if (next == QLatin1Char('/')) { // `</div>` closes whatever was open on this line
-                tagStart = -1;
+                r.start = -1;
                 continue;
             }
             // `Array<string>` is a generic, `a < b` a comparison and `<!--` a comment: not openers.
@@ -1429,31 +1427,307 @@ TagState tagState(const QString &before, bool *closerBelow, const QString &after
                 continue;
             if (!(next.isLetter() || next == QLatin1Char('>')))
                 continue;
-            tagStart = i;
-            tagOpen = true;
+            r.start = i;
+            r.open = true;
             braces = 0;
-            selfClosed = false;
+            r.selfClosed = false;
         }
     }
-    if (tagStart < 0)
-        return TagState::None;
-    if (tagOpen)
-        return t.startsWith(QLatin1Char('<')) && tagStart == 0 ? TagState::Attributes : TagState::None;
-    if (selfClosed)
-        return TagState::None;
-    int e = tagStart + 1;
+    return r;
+}
+
+QString tagNameAt(const QString &t, int start)
+{
+    int e = start + 1;
     while (e < t.size() && (t.at(e).isLetterOrNumber() || t.at(e) == QLatin1Char('.') || t.at(e) == QLatin1Char('-') ||
                             t.at(e) == QLatin1Char(':') || t.at(e) == QLatin1Char('_')))
         ++e;
-    if (voidTags.contains(t.mid(tagStart + 1, e - tagStart - 1).toLower()))
+    return t.mid(start + 1, e - start - 1);
+}
+
+bool isVoidTag(const QString &name)
+{
+    static const QSet<QString> voidTags = {QStringLiteral("br"),    QStringLiteral("hr"),     QStringLiteral("img"),
+                                           QStringLiteral("input"), QStringLiteral("meta"),   QStringLiteral("link"),
+                                           QStringLiteral("area"),  QStringLiteral("base"),   QStringLiteral("col"),
+                                           QStringLiteral("embed"), QStringLiteral("source"), QStringLiteral("track"),
+                                           QStringLiteral("wbr"),   QStringLiteral("param")};
+    return voidTags.contains(name.toLower());
+}
+
+TagState tagState(const QString &before, bool *closerBelow, const QString &after)
+{
+    *closerBelow = false;
+    const QString t = before.trimmed();
+    if (t.isEmpty())
         return TagState::None;
-    if (!t.endsWith(QLatin1Char('>')))
+    const TagScan scan = scanTags(t);
+    if (scan.start < 0)
+        return TagState::None;
+    if (scan.open)
+        return scan.start == 0 ? TagState::Attributes : TagState::None;
+    if (scan.selfClosed || isVoidTag(tagNameAt(t, scan.start)) || !t.endsWith(QLatin1Char('>')))
         return TagState::None;
     *closerBelow = after.trimmed().startsWith(QLatin1String("</"));
     return TagState::Children;
 }
 
 } // namespace
+
+namespace {
+bool isTagNameChar(QChar c)
+{
+    return c.isLetterOrNumber() || c == QLatin1Char('_') || c == QLatin1Char('.') || c == QLatin1Char('-') || c == QLatin1Char(':');
+}
+
+// End of the tag whose attributes start at `from` (position of the '>'), or -1.
+int tagEnd(const QString &t, int from, bool *selfClosed)
+{
+    int braces = 0;
+    QChar quote;
+    const int limit = qMin(int(t.size()), from + 6000);
+    for (int i = from; i < limit; ++i) {
+        const QChar ch = t.at(i);
+        if (!quote.isNull()) {
+            if (ch == quote)
+                quote = QChar();
+        } else if (ch == QLatin1Char('"') || ch == QLatin1Char('\'')) {
+            quote = ch;
+        } else if (ch == QLatin1Char('{')) {
+            ++braces;
+        } else if (ch == QLatin1Char('}')) {
+            --braces;
+        } else if (ch == QLatin1Char('>') && braces <= 0 && !(i > 0 && t.at(i - 1) == QLatin1Char('='))) {
+            *selfClosed = i > 0 && t.at(i - 1) == QLatin1Char('/');
+            return i;
+        } else if (ch == QLatin1Char('<') && braces <= 0) {
+            return -1; // a new tag starts: this one was never finished
+        }
+    }
+    return -1;
+}
+
+// Start of the name that pairs with the tag name at `nameStart` (`<name` <-> `</name`), or -1.
+int findTagPair(const QString &t, int nameStart, const QString &name)
+{
+    const QRegularExpression re(QStringLiteral("<(/?)") + QRegularExpression::escape(name) + QStringLiteral("(?![\\w.:-])"));
+    QVector<int> stack; // name starts of the open tags
+    for (auto it = re.globalMatch(t); it.hasNext();) {
+        const QRegularExpressionMatch m = it.next();
+        const int start = int(m.capturedEnd() - name.size());
+        if (m.captured(1).isEmpty()) {
+            const QChar prev = m.capturedStart() > 0 ? t.at(m.capturedStart() - 1) : QLatin1Char(' ');
+            if (prev.isLetterOrNumber() || prev == QLatin1Char('_') || prev == QLatin1Char(')'))
+                continue; // a generic or a comparison
+            bool selfClosed = false;
+            if (tagEnd(t, m.capturedEnd(), &selfClosed) < 0 || selfClosed)
+                continue; // `<name />` has no partner
+            stack.append(start);
+        } else if (!stack.isEmpty()) {
+            const int open = stack.takeLast();
+            if (start == nameStart)
+                return open;
+            if (open == nameStart)
+                return start;
+        }
+    }
+    return -1;
+}
+} // namespace
+
+// Starts a linked-rename session when the selection lies in a tag name that has a partner.
+bool CodeEditor::beginTagLink()
+{
+    const QTextCursor c = textCursor();
+    const QTextBlock block = c.block();
+    const QString line = block.text();
+    const int s = c.selectionStart() - block.position(), e = c.selectionEnd() - block.position();
+    if (c.selectionStart() < block.position() || c.selectionEnd() > block.position() + line.size())
+        return false;
+    int ns = s, ne = e;
+    while (ns > 0 && isTagNameChar(line.at(ns - 1)))
+        --ns;
+    while (ne < line.size() && isTagNameChar(line.at(ne)))
+        ++ne;
+    const bool closing = ns >= 2 && line.at(ns - 1) == QLatin1Char('/') && line.at(ns - 2) == QLatin1Char('<');
+    const bool opening = ns >= 1 && line.at(ns - 1) == QLatin1Char('<');
+    if (ne == ns || (!closing && !opening))
+        return false; // cheap rejection: this is not a tag name
+    const QString name = line.mid(ns, ne - ns);
+    const QString all = toPlainText();
+    const int nameStart = block.position() + ns;
+    const int pair = findTagPair(all, nameStart, name);
+    if (pair < 0)
+        return false;
+    auto cursorAt = [this](int pos, bool keep) {
+        QTextCursor t(document());
+        t.setPosition(pos);
+        t.setKeepPositionOnInsert(keep);
+        return t;
+    };
+    m_tagLink.aFrom = cursorAt(nameStart, true);
+    m_tagLink.aTo = cursorAt(nameStart + name.size(), false);
+    m_tagLink.bFrom = cursorAt(pair, true);
+    m_tagLink.bTo = cursorAt(pair + name.size(), false);
+    m_tagLink.active = true;
+    return true;
+}
+
+void CodeEditor::syncTagLink()
+{
+    if (!m_tagLink.active)
+        return;
+    const int af = m_tagLink.aFrom.position(), at = m_tagLink.aTo.position();
+    const int bf = m_tagLink.bFrom.position(), bt = m_tagLink.bTo.position();
+    if (at < af || bt < bf) {
+        m_tagLink.active = false;
+        return;
+    }
+    QTextCursor a(document());
+    a.setPosition(af);
+    a.setPosition(at, QTextCursor::KeepAnchor);
+    const QString name = a.selectedText();
+    for (const QChar ch : name)
+        if (!isTagNameChar(ch)) { // the edit left the name (a space, `>` ...): the rename is over
+            m_tagLink.active = false;
+            return;
+        }
+    QTextCursor b(document());
+    b.setPosition(bf);
+    b.setPosition(bt, QTextCursor::KeepAnchor);
+    if (b.selectedText() == name)
+        return;
+    b.insertText(name);
+}
+
+void CodeEditor::beforeKeyEdit(QKeyEvent *event)
+{
+    if (isReadOnly())
+        return;
+    const QString t = event->text();
+    const bool edits = event->key() == Qt::Key_Backspace || event->key() == Qt::Key_Delete ||
+                       event->matches(QKeySequence::Paste) || event->matches(QKeySequence::Cut) ||
+                       (t.size() == 1 && (isTagNameChar(t.at(0)) || t.at(0).isPrint()));
+    if (!edits)
+        return;
+    if (isMarkupLanguage(m_language)) {
+        bool keep = false;
+        if (m_tagLink.active) { // still inside the name being renamed?
+            const int p = textCursor().selectionStart(), q = textCursor().selectionEnd();
+            keep = p >= m_tagLink.aFrom.position() && q <= m_tagLink.aTo.position();
+            if (!keep)
+                m_tagLink.active = false;
+        }
+        if (!keep && t.size() <= 1 && (event->key() == Qt::Key_Backspace || event->key() == Qt::Key_Delete ||
+                                      event->matches(QKeySequence::Paste) || event->matches(QKeySequence::Cut) ||
+                                      (t.size() == 1 && isTagNameChar(t.at(0)))))
+            beginTagLink();
+    }
+    const bool mirrors = m_snippetAt >= 0 && m_snippetAt < m_snippetStops.size() && !m_snippetStops.at(m_snippetAt).mirrors.isEmpty();
+    if ((m_tagLink.active || mirrors) && !m_keyGroupOpen) {
+        // The typed character and the copies made after it are one undo step.
+        m_keyGroup = QTextCursor(document());
+        m_keyGroup.beginEditBlock();
+        m_keyGroupOpen = true;
+    }
+}
+
+void CodeEditor::afterKeyEdit()
+{
+    syncSnippetMirrors();
+    syncTagLink();
+    if (m_keyGroupOpen) {
+        m_keyGroup.endEditBlock();
+        m_keyGroupOpen = false;
+    }
+}
+
+bool CodeEditor::autoCloseTag()
+{
+    if (!isMarkupLanguage(m_language) || textCursor().hasSelection() || inStringOrComment(textCursor().position()))
+        return false;
+    QTextCursor c = textCursor();
+    // A window of the lines above is enough: an opening tag rarely spans more than a few.
+    QTextCursor w(document());
+    w.setPosition(document()->findBlockByNumber(qMax(0, c.blockNumber() - 60)).position());
+    w.setPosition(c.position(), QTextCursor::KeepAnchor);
+    const QString text = w.selectedText().replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
+    const TagScan scan = scanTags(text);
+    if (scan.start < 0 || !scan.open || text.endsWith(QLatin1Char('/')) || text.endsWith(QLatin1Char('=')))
+        return false;
+    const QString name = tagNameAt(text, scan.start);
+    // `<T>` in TypeScript is a generic, not a tag.
+    if (isVoidTag(name) || (name.size() == 1 && name.at(0).isUpper()))
+        return false;
+    const QString line = c.block().text();
+    if (line.mid(c.positionInBlock()).startsWith(QStringLiteral("</") + name))
+        return false;
+    c.beginEditBlock();
+    c.insertText(QStringLiteral(">"));
+    const int pos = c.position();
+    c.insertText(QStringLiteral("</") + name + QLatin1Char('>'));
+    c.setPosition(pos);
+    c.endEditBlock();
+    setTextCursor(c);
+    return true;
+}
+
+void CodeEditor::clearSnippet()
+{
+    m_snippetStops.clear();
+    m_snippetAt = -1;
+}
+
+void CodeEditor::selectSnippetStop(int i)
+{
+    QTextCursor c(document());
+    c.setPosition(m_snippetStops.at(i).from.position());
+    c.setPosition(qMax(m_snippetStops.at(i).to.position(), c.position()), QTextCursor::KeepAnchor);
+    setTextCursor(c);
+}
+
+// Copies the text of the current tab stop into its mirrors (called after every key press).
+void CodeEditor::syncSnippetMirrors()
+{
+    if (m_snippetAt < 0 || m_snippetAt >= m_snippetStops.size() || m_snippetStops.at(m_snippetAt).mirrors.isEmpty())
+        return;
+    const SnippetStop &stop = m_snippetStops.at(m_snippetAt);
+    QTextCursor src(document());
+    src.setPosition(stop.from.position());
+    src.setPosition(qMax(stop.to.position(), src.position()), QTextCursor::KeepAnchor);
+    const QString text = src.selectedText();
+    for (const auto &m : stop.mirrors) {
+        QTextCursor c(document());
+        c.setPosition(m.first.position());
+        c.setPosition(qMax(m.second.position(), c.position()), QTextCursor::KeepAnchor);
+        if (c.selectedText() != text)
+            c.insertText(text);
+    }
+}
+
+bool CodeEditor::snippetJump(int direction)
+{
+    if (m_snippetStops.isEmpty())
+        return false;
+    const int cur = textCursor().position();
+    if (cur < m_snippetStart.position() || cur > m_snippetEnd.position()) {
+        clearSnippet();
+        return false;
+    }
+    const int next = m_snippetAt + direction;
+    if (next < 0)
+        return false;
+    if (next >= m_snippetStops.size()) {
+        clearSnippet();
+        return false;
+    }
+    m_snippetAt = next;
+    selectSnippetStop(next);
+    ensureCursorVisible();
+    if (next == m_snippetStops.size() - 1)
+        clearSnippet();
+    return true;
+}
 
 void CodeEditor::insertNewlineWithIndent()
 {
@@ -1663,6 +1937,8 @@ void CodeEditor::handleBackspaceInIndent(QKeyEvent *event)
 
 void CodeEditor::keyPressEvent(QKeyEvent *event)
 {
+    beforeKeyEdit(event);
+    const auto afterEdit = qScopeGuard([this] { afterKeyEdit(); });
     if (!isReadOnly()) {
         if (m_completion && m_completion->isVisible() && completionKey(event))
             return;
@@ -1704,7 +1980,16 @@ void CodeEditor::handleKey(QKeyEvent *event)
             return;
         }
         break;
+    case Qt::Key_Greater:
+        if ((mods == Qt::NoModifier || mods == Qt::ShiftModifier) && autoCloseTag())
+            return;
+        break;
+    case Qt::Key_Escape:
+        clearSnippet();
+        break;
     case Qt::Key_Tab:
+        if (mods == Qt::NoModifier && snippetJump(1))
+            return;
         if (mods == Qt::NoModifier) {
             if (textCursor().hasSelection() &&
                 textCursor().document()->findBlock(textCursor().selectionStart()) !=
@@ -1728,6 +2013,8 @@ void CodeEditor::handleKey(QKeyEvent *event)
         }
         break;
     case Qt::Key_Backtab:
+        if (snippetJump(-1))
+            return;
         indentSelection(true);
         return;
     case Qt::Key_Backspace:
@@ -2327,7 +2614,8 @@ void CodeEditor::completionTyped(QKeyEvent *event, bool edited)
             }
             return;
         }
-        if (!served || (completesInStrings(m_language) ? inCommentAt(document(), cur) : inStringOrComment(cur)))
+        if ((!served && Snippets::forLanguage(m_language).isEmpty()) ||
+            (completesInStrings(m_language) ? inCommentAt(document(), cur) : inStringOrComment(cur)))
             return;
         QTextCursor c(document());
         c.setPosition(cur);
@@ -2371,6 +2659,7 @@ void CodeEditor::scheduleCompletion(int kind, const QString &triggerChar)
 
 void CodeEditor::triggerCompletion()
 {
+    m_completionManual = true;
     requestCompletion(1, {});
 }
 
@@ -2384,11 +2673,19 @@ void CodeEditor::requestCompletion(int kind, const QString &triggerChar)
     const int token = ++m_completionToken;
     const bool served = m_canGoToDefinition && m_canGoToDefinition();
     if (served) {
+        m_completionManual = false;
         const QTextCursor c = textCursor();
         emit completionRequested(c.blockNumber(), c.positionInBlock(), kind, triggerChar, token);
         return;
     }
-    // No server: offer the words that already appear in the document.
+    // No server: offer the words that already appear in the document, but only when asked (Ctrl+Space); while typing,
+    // the popup then shows just our snippets.
+    const bool manual = m_completionManual;
+    m_completionManual = false;
+    if (!manual) {
+        showCompletions({}, false, token);
+        return;
+    }
     QSet<QString> seen;
     QVector<LspCompletionItem> items;
     static const QRegularExpression word(QStringLiteral("[A-Za-z_][A-Za-z0-9_]{2,}"));
@@ -2417,7 +2714,8 @@ void CodeEditor::showCompletions(const QVector<LspCompletionItem> &items, bool i
     bool wordOnly = cur >= m_completionAnchor;
     for (const QChar c : prefix)
         wordOnly = wordOnly && isIdentChar(c);
-    if (!wordOnly || items.isEmpty()) {
+    const QVector<LspCompletionItem> &snippets = Snippets::forLanguage(m_language);
+    if (!wordOnly || (items.isEmpty() && snippets.isEmpty())) {
         hideCompletion();
         return;
     }
@@ -2428,7 +2726,7 @@ void CodeEditor::showCompletions(const QVector<LspCompletionItem> &items, bool i
         connect(verticalScrollBar(), &QScrollBar::valueChanged, this, &CodeEditor::hideCompletion);
     }
     m_completionIncomplete = incomplete;
-    m_completion->setItems(items);
+    m_completion->setItems(items, snippets);
     if (m_completion->setPrefix(prefix) == 0) {
         hideCompletion();
         return;
@@ -2440,16 +2738,100 @@ void CodeEditor::showCompletions(const QVector<LspCompletionItem> &items, bool i
 }
 
 namespace {
-// "foo(${1:a}, $2)$0" -> "foo(a, )"
-QString stripSnippet(QString text)
+// Parses an LSP snippet: "foo(${1:a}, $2)$0" -> text "foo(a, )" and the tab stops (index, range in the text).
+// Supports $n, ${n}, ${n:placeholder} (nested), ${n|a,b|} (first choice), variables (replaced by their default or nothing)
+// and the \\$ \\} \\\\ escapes. Line breaks get `indent` appended so multi-line snippets follow the current indentation.
+struct SnippetStopSpec {
+    int index, start, end;
+};
+
+class SnippetParser
 {
-    static const QRegularExpression placeholder(QStringLiteral("\\$\\{\\d+:([^}]*)\\}"));
-    static const QRegularExpression tabstop(QStringLiteral("\\$(\\{\\d+\\}|\\d+)"));
-    text.replace(placeholder, QStringLiteral("\\1"));
-    text.remove(tabstop);
-    text.replace(QStringLiteral("\\$"), QStringLiteral("$"));
-    return text;
-}
+public:
+    SnippetParser(const QString &src, const QString &indent, const QString &unit) : s(src), m_indent(indent), m_unit(unit) { parse(false); }
+    QString text;
+    QVector<SnippetStopSpec> stops;
+
+private:
+    const QString &s;
+    QString m_indent, m_unit;
+    int i = 0;
+
+    int readNumber()
+    {
+        int n = 0;
+        while (i < s.size() && s.at(i).isDigit())
+            n = n * 10 + s.at(i++).digitValue();
+        return n;
+    }
+    void skipName()
+    {
+        while (i < s.size() && (s.at(i).isLetterOrNumber() || s.at(i) == QLatin1Char('_')))
+            ++i;
+    }
+    void parse(bool nested)
+    {
+        while (i < s.size()) {
+            const QChar c = s.at(i);
+            if (nested && c == QLatin1Char('}'))
+                return;
+            if (c == QLatin1Char('\\') && i + 1 < s.size() &&
+                (s.at(i + 1) == QLatin1Char('$') || s.at(i + 1) == QLatin1Char('}') || s.at(i + 1) == QLatin1Char('\\'))) {
+                text += s.at(i + 1);
+                i += 2;
+                continue;
+            }
+            if (c == QLatin1Char('\n')) {
+                text += c + m_indent;
+                ++i;
+                continue;
+            }
+            if (c == QLatin1Char('\t')) { // one indentation level, in the user's style
+                text += m_unit;
+                ++i;
+                continue;
+            }
+            if (c != QLatin1Char('$') || i + 1 >= s.size()) {
+                text += c;
+                ++i;
+                continue;
+            }
+            ++i; // the '$'
+            if (s.at(i).isDigit()) {
+                stops.append({readNumber(), int(text.size()), int(text.size())});
+            } else if (s.at(i) == QLatin1Char('{')) {
+                ++i;
+                if (i < s.size() && s.at(i).isDigit()) {
+                    const int n = readNumber();
+                    const int start = text.size();
+                    if (i < s.size() && s.at(i) == QLatin1Char(':')) {
+                        ++i;
+                        parse(true);
+                    } else if (i < s.size() && s.at(i) == QLatin1Char('|')) {
+                        ++i;
+                        const int close = s.indexOf(QLatin1String("|}"), i);
+                        const QString choices = close < 0 ? s.mid(i) : s.mid(i, close - i);
+                        text += choices.section(QLatin1Char(','), 0, 0);
+                        i = close < 0 ? s.size() : close + 1;
+                    }
+                    stops.append({n, start, int(text.size())});
+                } else {
+                    skipName(); // ${VAR} / ${VAR:default}
+                    if (i < s.size() && s.at(i) == QLatin1Char(':')) {
+                        ++i;
+                        parse(true);
+                    }
+                }
+                if (i < s.size() && s.at(i) == QLatin1Char('}'))
+                    ++i;
+            } else if (s.at(i).isLetter() || s.at(i) == QLatin1Char('_')) {
+                skipName(); // $VAR
+            } else {
+                text += QLatin1Char('$');
+            }
+        }
+    }
+};
 }
 
 void CodeEditor::acceptCompletion()
@@ -2524,12 +2906,22 @@ void CodeEditor::insertCompletion(const LspCompletionItem &item, int anchor, int
         QString text;
     };
     QString text = item.hasEdit ? item.edit.text : (item.insertText.isEmpty() ? item.label.trimmed() : item.insertText);
-    if (item.snippet)
-        text = stripSnippet(text);
     int start = anchor, end = cur;
     if (item.hasEdit) {
         start = position(item.edit.startLine, item.edit.startColumn);
         end = qMax(position(item.edit.endLine, item.edit.endColumn), cur); // keep what was typed since the request
+    }
+    QVector<SnippetStopSpec> stops;
+    if (item.snippet) {
+        QString indent;
+        for (const QChar ch : doc->findBlock(start).text()) {
+            if (ch != QLatin1Char(' ') && ch != QLatin1Char('\t'))
+                break;
+            indent += ch;
+        }
+        const SnippetParser parsed(text, indent, indentUnit());
+        text = parsed.text;
+        stops = parsed.stops;
     }
     QVector<Edit> edits{{start, end, text}};
     for (const LspTextEdit &e : item.additionalEdits)
@@ -2549,7 +2941,46 @@ void CodeEditor::insertCompletion(const LspCompletionItem &item, int anchor, int
         c.insertText(e.text);
     }
     c.endEditBlock();
-    c.setPosition(start + shift + text.size());
-    setTextCursor(c);
+    const int base = start + shift;
+    clearSnippet();
+    if (!stops.isEmpty()) {
+        // Order: 1, 2, ... then $0 (or the end of the inserted text when there is none).
+        std::stable_sort(stops.begin(), stops.end(), [](const SnippetStopSpec &a, const SnippetStopSpec &b) {
+            return (a.index == 0 ? INT_MAX : a.index) < (b.index == 0 ? INT_MAX : b.index);
+        });
+        // One entry per index; further occurrences become mirrors of the first.
+        auto range = [&](const SnippetStopSpec &st) {
+            QTextCursor f(doc), t(doc);
+            f.setPosition(base + st.start);
+            f.setKeepPositionOnInsert(true);
+            t.setPosition(base + st.end);
+            return qMakePair(f, t);
+        };
+        QVector<int> indices;
+        for (const SnippetStopSpec &st : std::as_const(stops)) {
+            const auto r = range(st);
+            if (!indices.isEmpty() && indices.last() == st.index) {
+                m_snippetStops.last().mirrors.append(r);
+            } else {
+                indices.append(st.index);
+                m_snippetStops.append({r.first, r.second, {}});
+            }
+        }
+        if (indices.last() != 0) { // no $0: the caret ends after the inserted text
+            const auto r = range({0, int(text.size()), int(text.size())});
+            m_snippetStops.append({r.first, r.second, {}});
+        }
+        m_snippetStart = QTextCursor(doc);
+        m_snippetStart.setPosition(base);
+        m_snippetEnd = QTextCursor(doc);
+        m_snippetEnd.setPosition(base + text.size());
+        m_snippetAt = 0;
+        selectSnippetStop(0);
+        if (m_snippetStops.size() == 1)
+            clearSnippet(); // only the final position
+    } else {
+        c.setPosition(base + text.size());
+        setTextCursor(c);
+    }
     ensureCursorVisible();
 }

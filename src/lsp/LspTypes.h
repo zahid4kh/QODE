@@ -39,6 +39,7 @@ struct LspCompletionItem {
     QString sortText;
     int kind = 0;       // CompletionItemKind (1 Text ... 25 TypeParameter)
     bool snippet = false;
+    bool builtin = false; // one of QODE's own snippets (editor/Snippets): matched by prefix only
     bool deprecated = false;
     bool hasEdit = false;
     LspTextEdit edit;                     // replaces the prefix the server saw

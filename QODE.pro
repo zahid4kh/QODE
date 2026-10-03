@@ -72,6 +72,7 @@ SOURCES += \
     src/editor/Breadcrumbs.cpp \
     src/editor/CodeEditor.cpp \
     src/editor/CompletionPopup.cpp \
+    src/editor/Snippets.cpp \
     src/editor/HoverPopup.cpp \
     src/editor/MiniMap.cpp \
     src/editor/FindBar.cpp \
@@ -145,6 +146,7 @@ HEADERS += \
     src/editor/Breadcrumbs.h \
     src/editor/CodeEditor.h \
     src/editor/CompletionPopup.h \
+    src/editor/Snippets.h \
     src/editor/HoverPopup.h \
     src/editor/MiniMap.h \
     src/editor/FindBar.h \

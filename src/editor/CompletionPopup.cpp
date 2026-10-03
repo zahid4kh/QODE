@@ -104,10 +104,11 @@ public:
         }
     }
 
-    void setAll(const QVector<LspCompletionItem> &items)
+    void setAll(const QVector<LspCompletionItem> &items, const QVector<LspCompletionItem> &extra)
     {
         beginResetModel();
         m_all = items;
+        m_all += extra;
         m_rows.clear();
         endResetModel();
     }
@@ -121,7 +122,7 @@ public:
         for (int i = 0; i < m_all.size(); ++i) {
             const LspCompletionItem &it = m_all[i];
             const int s = matchScore(it.filterText.isEmpty() ? shownLabel(it.label) : it.filterText, prefix);
-            if (s >= 0)
+            if (s >= 0 && !(it.builtin && s > 1)) // our snippets match by prefix only, never by subsequence
                 hits.append({s, i});
         }
         std::stable_sort(hits.begin(), hits.end(), [this](const Hit &a, const Hit &b) {
@@ -299,9 +300,9 @@ void CompletionPopup::paintEvent(QPaintEvent *)
     p.drawRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 8, 8);
 }
 
-void CompletionPopup::setItems(const QVector<LspCompletionItem> &items)
+void CompletionPopup::setItems(const QVector<LspCompletionItem> &items, const QVector<LspCompletionItem> &extra)
 {
-    m_model->setAll(items);
+    m_model->setAll(items, extra);
 }
 
 int CompletionPopup::setPrefix(const QString &prefix)

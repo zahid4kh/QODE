@@ -217,6 +217,35 @@ private:
     void updateLink(bool ctrlDown);
     std::function<bool()> m_canGoToDefinition;
     CompletionCommandRunner m_commandRunner;
+    // Snippet session: Tab walks the tab stops of the last inserted snippet, in order, ending at $0.
+    // A tab stop: the placeholder is [from, to] (empty for a bare $1). `from` stays put when text is typed at it, `to` moves
+    // along, so the range grows to cover what is typed. `mirrors` are the other occurrences of the same $n; they copy the text.
+    struct SnippetStop {
+        QTextCursor from, to;
+        QVector<QPair<QTextCursor, QTextCursor>> mirrors;
+    };
+    QVector<SnippetStop> m_snippetStops;
+    int m_snippetAt = -1;
+    QTextCursor m_snippetStart, m_snippetEnd;
+    void clearSnippet();
+    bool snippetJump(int direction); // true when the key was consumed
+    void syncSnippetMirrors();
+    void selectSnippetStop(int i);
+    // Linked tag renaming: while the caret or selection sits in a tag name, edits to it are copied to its partner
+    // (`<div>` <-> `</div>`). The session lives until the caret leaves the name.
+    struct TagLink {
+        QTextCursor aFrom, aTo, bFrom, bTo; // the edited name and its partner
+        bool active = false;
+    };
+    TagLink m_tagLink;
+    void beforeKeyEdit(QKeyEvent *event);
+    void afterKeyEdit();
+    bool beginTagLink();
+    void syncTagLink();
+    QTextCursor m_keyGroup; // holds the edit block that keeps a typed character and its mirrored copies one undo step
+    bool m_keyGroupOpen = false;
+    bool m_completionManual = false; // Ctrl+Space, as opposed to completion that popped up while typing
+    bool autoCloseTag();             // typing '>' after <Tag ...: also inserts </Tag>
     QList<QTextCursor> m_unusedImports; // each selects the text of one import line
     int importRunEnd(const QTextBlock &header) const; // last block of the import list starting at `header`, or -1
     QPair<int, int> m_link{-1, -1}; // identifier under the mouse while Ctrl is held

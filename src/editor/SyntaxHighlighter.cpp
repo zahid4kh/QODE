@@ -57,6 +57,21 @@ QTextCharFormat SyntaxHighlighter::formatFor(TokenRole role) const
 
 void SyntaxHighlighter::highlightBlock(const QString &text)
 {
+    highlightText(text);
+    if (!m_gaps)
+        return;
+    for (const int col : m_gaps(currentBlock())) {
+        if (col < 0 || col >= text.size())
+            continue;
+        QTextCharFormat f = format(col);
+        f.setFontLetterSpacingType(QFont::AbsoluteSpacing);
+        f.setFontLetterSpacing(m_gapPixels);
+        setFormat(col, 1, f);
+    }
+}
+
+void SyntaxHighlighter::highlightText(const QString &text)
+{
     setCurrentBlockState(0);
     if (!m_lang || (text.isEmpty() && previousBlockState() <= 0))
         return;

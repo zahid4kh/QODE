@@ -353,6 +353,15 @@ void EditorManager::newUntitled()
     focusEditor();
 }
 
+// Emmet works in HTML files and in React files (.jsx / .tsx): 1 = HTML, 2 = JSX, 0 = off.
+static int emmetModeFor(const Document *doc)
+{
+    const QString ext = QFileInfo(doc->filePath()).suffix().toLower();
+    if (ext == QLatin1String("jsx") || ext == QLatin1String("tsx"))
+        return 2;
+    return doc->languageName() == QLatin1String("HTML") ? 1 : 0;
+}
+
 EditorManager::Entry EditorManager::addDocument(Document *doc)
 {
     auto *editor = new CodeEditor;
@@ -360,6 +369,7 @@ EditorManager::Entry EditorManager::addDocument(Document *doc)
     editor->attachDocument(doc->textDocument());
     editor->setIndentAfterColon(doc->languageName() == QLatin1String("Python"));
     editor->setLanguage(doc->languageName());
+    editor->setEmmetMode(emmetModeFor(doc));
     m_docForEditor.insert(editor, doc);
 
     connect(doc, &Document::stateChanged, this, [this, doc] {
@@ -387,7 +397,8 @@ EditorManager::Entry EditorManager::addDocument(Document *doc)
         updateCrumbs(doc);
         updateTabTitle(doc);
         editor->setIndentAfterColon(doc->languageName() == QLatin1String("Python"));
-    editor->setLanguage(doc->languageName());
+        editor->setLanguage(doc->languageName());
+        editor->setEmmetMode(emmetModeFor(doc));
         emit documentStateChanged();
         syncFileClaims();
         emit documentPathChanged(doc);

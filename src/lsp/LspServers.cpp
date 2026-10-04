@@ -1,7 +1,10 @@
 #include "LspServers.h"
 
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QVersionNumber>
@@ -98,6 +101,43 @@ QString npmExecutable()
             return fi.absoluteFilePath();
     }
     return QStandardPaths::findExecutable(QStringLiteral("npm"));
+}
+
+namespace {
+bool dependsOn(const QString &root, const QString &package)
+{
+    if (root.isEmpty())
+        return false;
+    if (QFileInfo(root + QStringLiteral("/node_modules/") + package).isDir())
+        return true;
+    QFile f(root + QStringLiteral("/package.json"));
+    if (!f.open(QIODevice::ReadOnly))
+        return false;
+    const QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
+    for (const char *key : {"dependencies", "devDependencies"})
+        if (o.value(QLatin1String(key)).toObject().contains(package))
+            return true;
+    return false;
+}
+} // namespace
+
+// ESLint needs its own library in the project (the server loads it from there) and some configuration.
+bool hasEslint(const QString &root)
+{
+    if (root.isEmpty() || !QFileInfo(root + QStringLiteral("/node_modules/eslint")).isDir())
+        return false;
+    const QStringList configs = QDir(root).entryList({QStringLiteral("eslint.config.*"), QStringLiteral(".eslintrc*")}, QDir::Files | QDir::Hidden);
+    if (!configs.isEmpty())
+        return true;
+    QFile f(root + QStringLiteral("/package.json"));
+    return f.open(QIODevice::ReadOnly) && QJsonDocument::fromJson(f.readAll()).object().contains(QStringLiteral("eslintConfig"));
+}
+
+bool hasTailwind(const QString &root)
+{
+    if (dependsOn(root, QStringLiteral("tailwindcss")))
+        return true;
+    return !root.isEmpty() && !QDir(root).entryList({QStringLiteral("tailwind.config.*")}, QDir::Files).isEmpty();
 }
 
 const QList<LspServerSpec> &all()
@@ -197,6 +237,38 @@ const QList<LspServerSpec> &all()
         LspServerSpec json = webServer(QStringLiteral("json"), QStringLiteral("JSON"), QStringLiteral("vscode-json-language-server"),
                                        {QStringLiteral("json"), QStringLiteral("jsonc")});
         l.append(json);
+
+        // Companions: installed by the same npm install, started only for projects that use them.
+        LspServerSpec eslint = webServer(QStringLiteral("eslint"), QStringLiteral("ESLint"), QStringLiteral("vscode-eslint-language-server"),
+                                         {QStringLiteral("js"), QStringLiteral("jsx"), QStringLiteral("mjs"), QStringLiteral("cjs"),
+                                          QStringLiteral("ts"), QStringLiteral("tsx"), QStringLiteral("mts"), QStringLiteral("cts")});
+        eslint.languageIds = ts.languageIds;
+        eslint.companion = true;
+        eslint.wantsConfiguration = true;
+        eslint.relevant = [](const QString &root) { return hasEslint(root); };
+        eslint.installHelp = QStringLiteral(
+            "ESLint reports lint problems as you type. It needs ESLint itself in the project (npm install -D eslint, with an "
+            "eslint.config.js or .eslintrc file) and starts only for such projects. The language server comes with "
+            "LSP > ESLint > Download and Set Up (the same npm install as the other web servers).");
+        l.append(eslint);
+
+        LspServerSpec tailwind = webServer(QStringLiteral("tailwindcss"), QStringLiteral("Tailwind CSS"),
+                                           QStringLiteral("tailwindcss-language-server"),
+                                           {QStringLiteral("html"), QStringLiteral("htm"), QStringLiteral("css"), QStringLiteral("jsx"),
+                                            QStringLiteral("tsx"), QStringLiteral("js"), QStringLiteral("ts")});
+        tailwind.languageIds = ts.languageIds;
+        tailwind.languageIds.insert(QStringLiteral("html"), QStringLiteral("html"));
+        tailwind.languageIds.insert(QStringLiteral("htm"), QStringLiteral("html"));
+        tailwind.languageIds.insert(QStringLiteral("css"), QStringLiteral("css"));
+        tailwind.companion = true;
+        tailwind.wantsConfiguration = true;
+        tailwind.relevant = [](const QString &root) { return hasTailwind(root); };
+        tailwind.installHelp = QStringLiteral(
+            "Tailwind CSS IntelliSense completes class names, shows what a class does on hover, previews colours and warns "
+            "about conflicting classes. It starts only for projects that depend on tailwindcss. Install it with "
+            "LSP > Tailwind CSS > Download and Set Up (the official @tailwindcss/language-server, installed with the other web "
+            "servers by one npm install; Node.js is required).");
+        l.append(tailwind);
         return l;
     }();
     return specs;
@@ -207,9 +279,18 @@ const LspServerSpec *forFile(const QString &path)
     if (path.isEmpty())
         return nullptr;
     for (const LspServerSpec &s : all())
-        if (!s.languageId(path).isEmpty())
+        if (!s.companion && !s.languageId(path).isEmpty())
             return &s;
     return nullptr;
+}
+
+QList<const LspServerSpec *> companionsFor(const QString &path, const QString &root)
+{
+    QList<const LspServerSpec *> out;
+    for (const LspServerSpec &s : all())
+        if (s.companion && !s.languageId(path).isEmpty() && (!s.relevant || s.relevant(root)))
+            out << &s;
+    return out;
 }
 
 const LspServerSpec *byId(const QString &id)

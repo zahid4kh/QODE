@@ -1,6 +1,7 @@
 #pragma once
 
 #include "git/GitTypes.h"
+#include "lsp/LspTypes.h"
 #include "project/Project.h"
 
 #include <QHash>
@@ -15,6 +16,7 @@ class Document;
 class QTimer;
 class GitPanel;
 class MediaPanel;
+class ReferencesDialog;
 class MarkdownPreview;
 class GitRepository;
 class LspManager;
@@ -113,6 +115,11 @@ private:
     void showCodeActions(Document *doc, CodeEditor *editor, int startLine, int startColumn, int endLine, int endColumn);
     bool applyWorkspaceEdit(const QJsonObject &edit);
     void removeUnusedImports(CodeEditor *editor);
+    void renameSymbol();
+    void findReferences();
+    void requestColors(Document *doc, CodeEditor *editor);
+    void pickColor(Document *doc, CodeEditor *editor, int index);
+    Document *documentOf(CodeEditor *editor) const;
 
     // Git
     void createGitActions();
@@ -136,6 +143,9 @@ private:
     QTimer *m_importTimer = nullptr; // recomputes the unused imports once diagnostics settle
     QString m_importPath;
     QToolButton *m_lspButton;
+    QPointer<ReferencesDialog> m_refsDialog;
+    QHash<CodeEditor *, QVector<LspColor>> m_colorData; // the colour literals behind each editor's swatches
+    QHash<Document *, qint64> m_colorAsked;            // when colours were last requested for a document (throttle)
     bool m_lspHintShown = false;
     GitPanel *m_gitPanel;
     SearchPanel *m_searchPanel;
@@ -162,7 +172,7 @@ private:
     QAction *m_undoAct, *m_redoAct, *m_cutAct, *m_copyAct, *m_pasteAct, *m_selectAllAct, *m_findAct, *m_replaceAct;
     QAction *m_projNewFileAct, *m_projNewFolderAct, *m_openProjectFolderAct;
     QAction *m_explorerAct, *m_terminalAct, *m_runAct, *m_runConfigAct, *m_venvAct, *m_fullscreenAct, *m_wordWrapAct, *m_darkThemeAct, *m_lightThemeAct;
-    QAction *m_nextTabAct, *m_prevTabAct, *m_splitRightAct, *m_splitDownAct, *m_aboutAct, *m_paletteAct, *m_quickOpenAct, *m_gotoLineAct, *m_gotoSymbolAct, *m_gotoDefinitionAct, *m_searchAct, *m_matchBracketAct, *m_indentGuidesAct, *m_stickyAct, *m_blameInlineAct, *m_bookmarkToggleAct, *m_bookmarkNextAct, *m_bookmarkPrevAct, *m_showBookmarksAct, *m_showTodosAct, *m_previewAct, *m_newTerminalAct, *m_blameGutterAct, *m_minimapAct, *m_breadcrumbsAct, *m_hiddenFilesAct;
+    QAction *m_nextTabAct, *m_prevTabAct, *m_splitRightAct, *m_splitDownAct, *m_aboutAct, *m_paletteAct, *m_quickOpenAct, *m_gotoLineAct, *m_gotoSymbolAct, *m_gotoDefinitionAct, *m_renameAct, *m_findRefsAct, *m_searchAct, *m_matchBracketAct, *m_indentGuidesAct, *m_stickyAct, *m_blameInlineAct, *m_bookmarkToggleAct, *m_bookmarkNextAct, *m_bookmarkPrevAct, *m_showBookmarksAct, *m_showTodosAct, *m_previewAct, *m_newTerminalAct, *m_blameGutterAct, *m_minimapAct, *m_breadcrumbsAct, *m_hiddenFilesAct;
     QMenu *m_recentMenu;
     DevServerBar *m_serverBar = nullptr;
     QAction *m_serverBarAct = nullptr;

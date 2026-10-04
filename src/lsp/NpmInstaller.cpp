@@ -15,7 +15,8 @@ QString NpmInstaller::installRoot()
 QStringList NpmInstaller::packages()
 {
     // typescript@6: version 7 is the native port, which has no tsserver.js for typescript-language-server to drive.
-    return {QStringLiteral("typescript@6"), QStringLiteral("typescript-language-server"), QStringLiteral("vscode-langservers-extracted")};
+    return {QStringLiteral("typescript@6"), QStringLiteral("typescript-language-server"), QStringLiteral("vscode-langservers-extracted"),
+            QStringLiteral("@tailwindcss/language-server")};
 }
 
 QString NpmInstaller::commandLine()

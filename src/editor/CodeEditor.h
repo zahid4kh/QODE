@@ -21,6 +21,7 @@ class CodeEditor : public QPlainTextEdit
     Q_OBJECT
 public:
     explicit CodeEditor(QWidget *parent = nullptr);
+    ~CodeEditor() override;
 
     int lineNumberAreaWidth() const;
     void lineNumberAreaPaintEvent(QPaintEvent *event);
@@ -95,6 +96,24 @@ public:
     // Applies server text edits (0-based line / UTF-16 column, positions as of the text the server saw) as one undo step.
     bool applyTextEdits(const QVector<LspTextEdit> &edits);
 
+    // --- Emmet ---------------------------------------------------------------------------------
+    // 0 = off, 1 = HTML, 2 = JSX. Tab after an abbreviation (`ul>li*3`) expands it like a snippet.
+    void setEmmetMode(int mode) { m_emmetMode = mode; }
+    bool expandEmmet(); // true when the abbreviation before the caret was expanded
+
+    // --- Colour swatches -----------------------------------------------------------------------
+    // A small square in front of each colour literal (CSS colours, Tailwind classes); clicking one emits swatchClicked().
+    // The ranges follow edits until the next list arrives.
+    struct ColorSwatch {
+        int startLine = 0, startColumn = 0, endLine = 0, endColumn = 0;
+        QColor color;
+    };
+    void setColorSwatches(const QVector<ColorSwatch> &swatches);
+    bool hasColorSwatches() const { return !m_swatches.isEmpty(); }
+    // The swatch's current range as a document selection, or an invalid cursor.
+    QTextCursor swatchRange(int index) const;
+    void replaceSwatch(int index, const QString &text); // one undo step
+
     // --- Bookmarks ----------------------------------------------------------
     // 0-based, sorted lines. They follow the text while it is edited; setBookmarks() does not emit.
     const QList<int> &bookmarks() const { return m_bookmarks; }
@@ -136,6 +155,8 @@ signals:
     // Alt+Enter: quick fixes / actions for the selection (or the caret when it is empty); 0-based line / UTF-16 column.
     void removeUnusedImportsRequested();
     void codeActionsRequested(int startLine, int startColumn, int endLine, int endColumn);
+    void colorsRequested();          // the text settled after an edit: ask the server for colour literals again
+    void swatchClicked(int index);   // index into the list given to setColorSwatches()
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
@@ -246,6 +267,20 @@ private:
     bool m_keyGroupOpen = false;
     bool m_completionManual = false; // Ctrl+Space, as opposed to completion that popped up while typing
     bool autoCloseTag();             // typing '>' after <Tag ...: also inserts </Tag>
+    int m_emmetMode = 0;
+    struct Swatch {
+        QTextCursor start, end;
+        QColor color;
+        QRect rect; // of the last paint
+    };
+    QVector<Swatch> m_swatches;
+    QTimer *m_colorTimer = nullptr;
+    int swatchGap() const;
+    QVector<int> swatchGapColumns(const QTextBlock &block) const;
+    mutable int m_gapRevision = -1;
+    mutable QHash<int, QVector<int>> m_gapMap; // block number -> columns followed by a swatch gap (valid for m_gapRevision)
+    void applyGapProvider(const QSet<int> &blocks);
+    void paintSwatches();
     QList<QTextCursor> m_unusedImports; // each selects the text of one import line
     int importRunEnd(const QTextBlock &header) const; // last block of the import list starting at `header`, or -1
     QPair<int, int> m_link{-1, -1}; // identifier under the mouse while Ctrl is held

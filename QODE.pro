@@ -61,6 +61,7 @@ SOURCES += \
     src/dialogs/NewFileDialog.cpp \
     src/dialogs/UnsavedChangesDialog.cpp \
     src/dialogs/UnusedImportsDialog.cpp \
+    src/dialogs/ReferencesDialog.cpp \
     src/dialogs/RunConfigDialog.cpp \
     src/dialogs/CompilerFlagsDialog.cpp \
     src/dialogs/LspInstallDialog.cpp \
@@ -73,6 +74,7 @@ SOURCES += \
     src/editor/CodeEditor.cpp \
     src/editor/CompletionPopup.cpp \
     src/editor/Snippets.cpp \
+    src/editor/Emmet.cpp \
     src/editor/HoverPopup.cpp \
     src/editor/MiniMap.cpp \
     src/editor/FindBar.cpp \
@@ -135,6 +137,7 @@ HEADERS += \
     src/dialogs/NewFileDialog.h \
     src/dialogs/UnsavedChangesDialog.h \
     src/dialogs/UnusedImportsDialog.h \
+    src/dialogs/ReferencesDialog.h \
     src/dialogs/RunConfigDialog.h \
     src/dialogs/CompilerFlagsDialog.h \
     src/dialogs/LspInstallDialog.h \
@@ -147,6 +150,7 @@ HEADERS += \
     src/editor/CodeEditor.h \
     src/editor/CompletionPopup.h \
     src/editor/Snippets.h \
+    src/editor/Emmet.h \
     src/editor/HoverPopup.h \
     src/editor/MiniMap.h \
     src/editor/FindBar.h \

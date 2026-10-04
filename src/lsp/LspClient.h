@@ -41,6 +41,9 @@ public:
     int request(const QString &method, const QJsonValue &params, Callback callback = {});
     void notify(const QString &method, const QJsonValue &params);
     void cancel(int id);
+    // Answers workspace/configuration: called once per requested item ({scopeUri, section}); advertised to the server
+    // only when set. Without it every item is answered with null (server defaults).
+    void setConfigurationProvider(std::function<QJsonValue(const QJsonObject &item)> provider) { m_configuration = std::move(provider); }
     // Answers the server's workspace/applyEdit (WorkspaceEdit in, true when every change was applied).
     void setApplyEditHandler(std::function<bool(const QJsonObject &edit)> handler) { m_applyEdit = std::move(handler); }
 
@@ -67,5 +70,6 @@ private:
     QString m_serverName, m_serverVersion, m_error;
     QStringList m_log;
     std::function<bool(const QJsonObject &)> m_applyEdit;
+    std::function<QJsonValue(const QJsonObject &)> m_configuration;
     bool m_exiting = false; // we asked it to leave
 };

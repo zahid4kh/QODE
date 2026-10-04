@@ -1,6 +1,7 @@
 #include "LspClient.h"
 
 #include <QCoreApplication>
+#include <QDesktopServices>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -41,6 +42,9 @@ LspClient::LspClient(const QString &program, const QStringList &arguments, const
             {QStringLiteral("hover"), QJsonObject{{QStringLiteral("contentFormat"), QJsonArray{QStringLiteral("markdown"), QStringLiteral("plaintext")}}}},
             {QStringLiteral("formatting"), QJsonObject{{QStringLiteral("dynamicRegistration"), false}}},
             {QStringLiteral("definition"), QJsonObject{{QStringLiteral("linkSupport"), true}}},
+            {QStringLiteral("references"), QJsonObject{{QStringLiteral("dynamicRegistration"), false}}},
+            {QStringLiteral("rename"), QJsonObject{{QStringLiteral("prepareSupport"), true}}},
+            {QStringLiteral("colorProvider"), QJsonObject{{QStringLiteral("dynamicRegistration"), false}}},
             {QStringLiteral("codeAction"),
              QJsonObject{{QStringLiteral("codeActionLiteralSupport"),
                           QJsonObject{{QStringLiteral("codeActionKind"),
@@ -67,6 +71,7 @@ LspClient::LspClient(const QString &program, const QStringList &arguments, const
              QJsonObject{{QStringLiteral("textDocument"), textDocument},
                          {QStringLiteral("workspace"),
                           QJsonObject{{QStringLiteral("applyEdit"), true},
+                                      {QStringLiteral("configuration"), bool(m_configuration)},
                                       {QStringLiteral("workspaceEdit"), QJsonObject{{QStringLiteral("documentChanges"), true}}}}},
                          {QStringLiteral("window"), QJsonObject{{QStringLiteral("workDoneProgress"), true}}},
                          {QStringLiteral("general"), QJsonObject{{QStringLiteral("positionEncodings"), QJsonArray{QStringLiteral("utf-16")}}}}}},
@@ -225,14 +230,18 @@ void LspClient::handleServerRequest(const QJsonObject &message)
     const QString method = message.value(QStringLiteral("method")).toString();
     QJsonObject reply{{QStringLiteral("jsonrpc"), QStringLiteral("2.0")}, {QStringLiteral("id"), message.value(QStringLiteral("id"))}};
     if (method == QLatin1String("workspace/configuration")) {
-        QJsonArray nulls;
-        const int n = message.value(QStringLiteral("params")).toObject().value(QStringLiteral("items")).toArray().size();
-        for (int i = 0; i < n; ++i)
-            nulls.append(QJsonValue::Null);
-        reply.insert(QStringLiteral("result"), nulls);
+        QJsonArray answers;
+        for (const QJsonValue &item : message.value(QStringLiteral("params")).toObject().value(QStringLiteral("items")).toArray())
+            answers.append(m_configuration ? m_configuration(item.toObject()) : QJsonValue(QJsonValue::Null));
+        reply.insert(QStringLiteral("result"), answers);
     } else if (method == QLatin1String("workspace/applyEdit")) {
         const bool ok = m_applyEdit && m_applyEdit(message.value(QStringLiteral("params")).toObject().value(QStringLiteral("edit")).toObject());
         reply.insert(QStringLiteral("result"), QJsonObject{{QStringLiteral("applied"), ok}});
+    } else if (method.startsWith(QLatin1String("eslint/"))) {
+        // ESLint asks things like "may I run this project's ESLint?" (4 = always allowed) and "no library found" (ignored).
+        if (method == QLatin1String("eslint/openDoc")) // "Show documentation for <rule>"
+            QDesktopServices::openUrl(QUrl(message.value(QStringLiteral("params")).toObject().value(QStringLiteral("url")).toString()));
+        reply.insert(QStringLiteral("result"), method == QLatin1String("eslint/confirmESLintExecution") ? QJsonValue(4) : QJsonValue(QJsonValue::Null));
     } else if (method == QLatin1String("client/registerCapability") || method == QLatin1String("client/unregisterCapability") ||
                method == QLatin1String("window/workDoneProgress/create") || method == QLatin1String("window/showMessageRequest") ||
                method.endsWith(QLatin1String("/refresh"))) {

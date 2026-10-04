@@ -22,6 +22,11 @@ struct LspServerSpec {
     QString managedId;        // folder under <data>/QODE/lsp/ (defaults to id)
     QString managedBinary;    // launcher inside that folder, e.g. "node_modules/.bin/vscode-html-language-server"
     bool needsNode = false;   // a Node.js script: `node` must be reachable by its "#!/usr/bin/env node" line
+    // A companion runs next to the file's main server (ESLint, Tailwind CSS): it never becomes "the" server of a file,
+    // but every document it applies to is opened in it too, and its diagnostics / completions / colours are merged in.
+    bool companion = false;
+    bool (*relevant)(const QString &projectRoot) = nullptr; // companions only start where this holds (e.g. eslint is a dependency)
+    bool wantsConfiguration = false; // asks the client for settings through workspace/configuration (we answer in LspManager)
     QHash<QString, QString> languageIds; // extension -> LSP language id when it differs from `id`
 
     // LSP language id for a file ("c", "cpp", ...), or an empty string.
@@ -41,7 +46,9 @@ QList<const LspServerSpec *> sharingInstall(const LspServerSpec &spec);
 QString nodeExecutable();
 QString npmExecutable(); // next to node, else PATH
 const QList<LspServerSpec> &all();
-const LspServerSpec *forFile(const QString &path);
+const LspServerSpec *forFile(const QString &path); // the main server (never a companion)
+// The companions that handle this file and are relevant to the project at `root`.
+QList<const LspServerSpec *> companionsFor(const QString &path, const QString &root);
 const LspServerSpec *byId(const QString &id);
 // The configured path when it is executable, otherwise the first match on PATH, otherwise a copy QODE downloaded.
 // Empty when not found.

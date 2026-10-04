@@ -20,6 +20,7 @@
 #include "git/GitPanel.h"
 #include "git/GitRepository.h"
 #include "git/PatchDialog.h"
+#include "dialogs/ReferencesDialog.h"
 #include "dialogs/UnusedImportsDialog.h"
 #include "lsp/JarSource.h"
 #include "lsp/LspInstaller.h"
@@ -48,6 +49,7 @@
 #include <QActionGroup>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QColorDialog>
 #include <QDir>
 #include <QDragEnterEvent>
 #include <QFileDialog>
@@ -299,6 +301,12 @@ MainWindow::MainWindow(QWidget *parent)
             return true;
         });
         connect(ed, &CodeEditor::removeUnusedImportsRequested, this, [this, ed] { removeUnusedImports(ed); });
+        connect(ed, &CodeEditor::colorsRequested, this, [this, doc, ed] { requestColors(doc, ed); });
+        connect(ed, &CodeEditor::swatchClicked, this, [this, doc, ed](int index) { pickColor(doc, ed, index); });
+        connect(ed, &QObject::destroyed, this, [this, ed, doc] {
+            m_colorData.remove(ed);
+            m_colorAsked.remove(doc);
+        });
         connect(ed, &CodeEditor::codeActionsRequested, this, [this, doc, ed](int sl, int sc, int el, int ec) { showCodeActions(doc, ed, sl, sc, el, ec); });
         connect(ed, &CodeEditor::definitionRequested, this, [this, ed](int line, int column) { goToDefinition(ed, line, column); });
         connect(ed, &CodeEditor::bookmarksChanged, this, [this, doc, ed] {
@@ -316,6 +324,17 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_editors, &EditorManager::documentSaved, this, [this](Document *doc) { m_lsp->buildFileSaved(doc->filePath()); });
     connect(m_editors, &EditorManager::documentPathChanged, m_lsp, &LspManager::documentPathChanged);
     connect(m_lsp, &LspManager::statusChanged, this, &MainWindow::updateLspStatus);
+    // A server that just finished starting: fetch the colour literals of the files already open.
+    auto *colorRetry = new QTimer(this);
+    colorRetry->setSingleShot(true);
+    colorRetry->setInterval(700);
+    connect(colorRetry, &QTimer::timeout, this, [this] {
+        for (Document *d : m_editors->documents())
+            if (CodeEditor *ed = m_editors->editorFor(d))
+                if (!ed->hasColorSwatches() && m_lsp->isServed(d))
+                    requestColors(d, ed);
+    });
+    connect(m_lsp, &LspManager::statusChanged, colorRetry, qOverload<>(&QTimer::start));
     connect(m_lsp, &LspManager::diagnosticsChanged, this, [this](const QString &path) {
         if (Document *d = m_editors->documentForPath(path))
             if (CodeEditor *ed = m_editors->editorFor(d)) {
@@ -465,8 +484,10 @@ void MainWindow::createActions()
     m_gotoDefinitionAct = make(tr("Go to Definition"), QKeySequence(K::Key_F12));
     m_gotoLineAct = make(tr("Go to Line…"), QKeySequence(C | K::Key_G));
     m_bookmarkToggleAct = make(tr("Toggle Bookmark"), QKeySequence(C | K::Key_F2));
-    m_bookmarkNextAct = make(tr("Next Bookmark"), QKeySequence(K::Key_F2));
-    m_bookmarkPrevAct = make(tr("Previous Bookmark"), QKeySequence(S | K::Key_F2));
+    m_bookmarkNextAct = make(tr("Next Bookmark"), QKeySequence(S | K::Key_F2));
+    m_bookmarkPrevAct = make(tr("Previous Bookmark"), QKeySequence(C | S | K::Key_F2));
+    m_renameAct = make(tr("Rename Symbol…"), QKeySequence(K::Key_F2));
+    m_findRefsAct = make(tr("Find All References"), QKeySequence(S | K::Key_F12));
     m_newTerminalAct = make(tr("New Terminal"), QKeySequence(C | S | K::Key_T), QStringLiteral(":/new-icons/plus.svg"));
     m_previewAct = make(tr("Toggle Preview (Markdown / SVG)"), QKeySequence(C | S | K::Key_V));
     m_showBookmarksAct = make(tr("Show Bookmarks"));
@@ -591,6 +612,8 @@ void MainWindow::createActions()
             goToDefinition(e, c.blockNumber(), c.positionInBlock());
         }
     });
+    connect(m_renameAct, &QAction::triggered, this, &MainWindow::renameSymbol);
+    connect(m_findRefsAct, &QAction::triggered, this, &MainWindow::findReferences);
     connect(m_gotoLineAct, &QAction::triggered, this, [this] { showQuickOpen(QStringLiteral(":")); });
     connect(m_bookmarkToggleAct, &QAction::triggered, this, [this] {
         if (CodeEditor *e = m_editors->currentEditor())
@@ -687,6 +710,8 @@ void MainWindow::createMenus()
     edit->addAction(m_gotoLineAct);
     edit->addAction(m_gotoSymbolAct);
     edit->addAction(m_gotoDefinitionAct);
+    edit->addAction(m_findRefsAct);
+    edit->addAction(m_renameAct);
     edit->addSeparator();
     edit->addAction(m_bookmarkToggleAct);
     edit->addAction(m_bookmarkNextAct);
@@ -1141,8 +1166,8 @@ void MainWindow::updateLspStatus()
     QColor color = t.textMuted;
     QString tip = tr("Language servers");
     for (const LspManager::ServerState &st : m_lsp->servers()) {
-        if (st.documents == 0)
-            continue; // nothing open that this server handles
+        if (st.documents == 0 || st.companion)
+            continue; // nothing open that this server handles (companions report through the diagnostics counts)
         const QString name = st.name.section(QLatin1Char(' '), 0, 0);
         switch (st.status) {
         case Status::NotFound:
@@ -2421,4 +2446,200 @@ void MainWindow::discardPaths(const QStringList &paths)
                 changes << *c;
     if (GitPanel::confirmDiscard(changes, this))
         m_git->discard(paths);
+}
+
+// --- Colours, rename, references --------------------------------------------------------------------
+
+Document *MainWindow::documentOf(CodeEditor *editor) const
+{
+    for (Document *d : m_editors->documents())
+        if (m_editors->editorFor(d) == editor)
+            return d;
+    return nullptr;
+}
+
+// Swatches in front of colour literals (CSS colours, Tailwind classes), from every server that knows colours.
+void MainWindow::requestColors(Document *doc, CodeEditor *editor)
+{
+    // Throttle: a server that knows no colours answers nothing, and every status change asks again.
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (!m_lsp->isServed(doc) || (!editor->hasColorSwatches() && now - m_colorAsked.value(doc, 0) < 2500))
+        return;
+    m_colorAsked.insert(doc, now);
+    QPointer<CodeEditor> guard(editor);
+    m_lsp->documentColors(doc, [this, guard](const QVector<LspColor> &colors) {
+        if (!guard)
+            return;
+        QVector<CodeEditor::ColorSwatch> swatches;
+        swatches.reserve(colors.size());
+        for (const LspColor &c : colors) {
+            CodeEditor::ColorSwatch sw;
+            sw.startLine = c.startLine;
+            sw.startColumn = c.startColumn;
+            sw.endLine = c.endLine;
+            sw.endColumn = c.endColumn;
+            sw.color = QColor::fromRgbF(qBound(0.0, c.red, 1.0), qBound(0.0, c.green, 1.0), qBound(0.0, c.blue, 1.0), qBound(0.0, c.alpha, 1.0));
+            swatches.append(sw);
+        }
+        m_colorData.insert(guard, colors);
+        guard->setColorSwatches(swatches);
+    });
+}
+
+// Click on a swatch: pick a new colour and write it back in the notation the text already uses.
+void MainWindow::pickColor(Document *doc, CodeEditor *editor, int index)
+{
+    const QVector<LspColor> data = m_colorData.value(editor);
+    const QTextCursor range = editor->swatchRange(index);
+    if (index < 0 || index >= data.size() || range.isNull())
+        return;
+    const LspColor lc = data.at(index);
+    const QString original = range.selectedText().trimmed().toLower();
+    const QColor initial = QColor::fromRgbF(qBound(0.0, lc.red, 1.0), qBound(0.0, lc.green, 1.0), qBound(0.0, lc.blue, 1.0), qBound(0.0, lc.alpha, 1.0));
+    const QColor picked = QColorDialog::getColor(initial, this, tr("Pick a Color"), QColorDialog::ShowAlphaChannel);
+    if (!picked.isValid())
+        return;
+    QPointer<CodeEditor> guard(editor);
+    m_lsp->colorPresentations(doc, lc, picked, [this, guard, index, original](const QVector<LspColorPresentation> &list) {
+        if (!guard)
+            return;
+        if (list.isEmpty()) {
+            statusBar()->showMessage(tr("This colour cannot be edited with the picker"), 4000);
+            return;
+        }
+        // Keep the notation of the original: #hex, rgb(), hsl() ...
+        QString prefix;
+        for (const QString &p : {QStringLiteral("#"), QStringLiteral("rgb"), QStringLiteral("hsl"), QStringLiteral("hwb")})
+            if (original.startsWith(p))
+                prefix = p;
+        const LspColorPresentation *chosen = &list.first();
+        if (!prefix.isEmpty())
+            for (const LspColorPresentation &p : list)
+                if (p.label.toLower().startsWith(prefix)) {
+                    chosen = &p;
+                    break;
+                }
+        guard->replaceSwatch(index, chosen->hasEdit ? chosen->edit.text : chosen->label);
+    });
+}
+
+// F2: rename the symbol under the caret everywhere the language server knows it.
+void MainWindow::renameSymbol()
+{
+    CodeEditor *ed = m_editors->currentEditor();
+    Document *doc = ed ? documentOf(ed) : nullptr;
+    if (!doc)
+        return;
+    if (!m_lsp->supportsRename(doc)) {
+        statusBar()->showMessage(tr("Rename needs a running language server that supports it for this file"), 4000);
+        return;
+    }
+    QTextCursor word = ed->textCursor();
+    word.select(QTextCursor::WordUnderCursor);
+    QString fallback = word.selectedText();
+    // CSS servers rename the whole selector (".card"), so the box shows it with its dot / hash.
+    const QChar lead = word.selectionStart() > 0 ? ed->document()->characterAt(word.selectionStart() - 1) : QChar();
+    const QString selectorLead = (lead == QLatin1Char('.') || lead == QLatin1Char('#')) && !fallback.isEmpty() ? QString(lead) : QString();
+    const bool cssLike = doc->languageName() == QLatin1String("CSS") || doc->languageName() == QLatin1String("SCSS") || doc->languageName() == QLatin1String("Less");
+    if (cssLike)
+        fallback.prepend(selectorLead);
+    const int line = ed->textCursor().blockNumber(), column = ed->textCursor().positionInBlock();
+    QPointer<CodeEditor> guard(ed);
+    m_lsp->prepareRename(doc, line, column, [this, doc, guard, line, column, fallback, selectorLead, cssLike](bool ok, const QString &placeholder, const QString &error) {
+        if (!guard)
+            return;
+        if (!ok) {
+            statusBar()->showMessage(error.isEmpty() ? tr("There is nothing to rename here") : error, 4000);
+            return;
+        }
+        const QString current = placeholder.isEmpty() ? fallback : placeholder;
+        if (current.isEmpty()) {
+            statusBar()->showMessage(tr("Put the caret on a name to rename it"), 3000);
+            return;
+        }
+        bool accepted = false;
+        QString name = QInputDialog::getText(this, tr("Rename Symbol"), tr("New name for “%1”:").arg(current), QLineEdit::Normal, current, &accepted).trimmed();
+        if (!accepted || name.isEmpty() || name == current)
+            return;
+        if (!selectorLead.isEmpty() && cssLike && !name.startsWith(selectorLead))
+            name.prepend(selectorLead); // the server replaces the selector including its dot / hash
+        m_lsp->rename(doc, line, column, name, [this, current, name](const QJsonObject &edit, const QString &err) {
+            if (!err.isEmpty()) {
+                statusBar()->showMessage(tr("Rename failed: %1").arg(err), 6000);
+                return;
+            }
+            bool editable = false;
+            const QHash<QString, QVector<LspTextEdit>> byPath = LspManager::editsOf(edit, &editable);
+            int places = 0;
+            for (const QVector<LspTextEdit> &v : byPath)
+                places += v.size();
+            if (!applyWorkspaceEdit(edit)) {
+                statusBar()->showMessage(tr("The language server's rename could not be applied"), 6000);
+                return;
+            }
+            statusBar()->showMessage(tr("Renamed “%1” to “%2”: %3 change(s) in %4 file(s) — files stay unsaved, review with Save All")
+                                         .arg(current, name).arg(places).arg(byPath.size()),
+                                     8000);
+        });
+    });
+}
+
+// Shift+F12: every use of the symbol under the caret, in a list that jumps to the place.
+void MainWindow::findReferences()
+{
+    CodeEditor *ed = m_editors->currentEditor();
+    Document *doc = ed ? documentOf(ed) : nullptr;
+    if (!doc)
+        return;
+    if (!m_lsp->supportsReferences(doc)) {
+        statusBar()->showMessage(tr("Find All References needs a running language server that supports it for this file"), 4000);
+        return;
+    }
+    QTextCursor word = ed->textCursor();
+    word.select(QTextCursor::WordUnderCursor);
+    const QString symbol = word.selectedText();
+    QPointer<CodeEditor> guard(ed);
+    m_lsp->references(doc, ed->textCursor().blockNumber(), ed->textCursor().positionInBlock(), [this, guard, symbol](const QVector<LspLocation> &locations) {
+        if (!guard)
+            return;
+        if (locations.isEmpty()) {
+            statusBar()->showMessage(tr("No references found"), 3000);
+            return;
+        }
+        QHash<QString, QStringList> texts; // file -> lines, read once
+        QVector<ReferencesDialog::Entry> entries;
+        for (const LspLocation &loc : locations) {
+            if (!texts.contains(loc.path)) {
+                QString content;
+                if (Document *open = m_editors->documentForPath(loc.path)) {
+                    content = open->text();
+                } else {
+                    QFile f(loc.path);
+                    if (f.open(QIODevice::ReadOnly))
+                        content = QString::fromUtf8(f.read(4 * 1024 * 1024));
+                }
+                texts.insert(loc.path, content.split(QLatin1Char('\n')));
+            }
+            const QStringList &lines = texts[loc.path];
+            ReferencesDialog::Entry e;
+            e.path = loc.path;
+            e.line = loc.line;
+            e.column = loc.column;
+            e.text = loc.line >= 0 && loc.line < lines.size() ? lines.at(loc.line) : QString();
+            entries.append(e);
+        }
+        std::stable_sort(entries.begin(), entries.end(), [](const ReferencesDialog::Entry &a, const ReferencesDialog::Entry &b) {
+            return a.path == b.path ? a.line < b.line : a.path < b.path;
+        });
+        if (!m_refsDialog) {
+            m_refsDialog = new ReferencesDialog(this);
+            m_refsDialog->setAttribute(Qt::WA_DeleteOnClose);
+            connect(m_refsDialog, &ReferencesDialog::openRequested, this,
+                    [this](const QString &path, int line, int column) { m_editors->openFileAt(path, line + 1, column + 1); });
+        }
+        m_refsDialog->setReferences(symbol, entries, m_projects->project().root);
+        m_refsDialog->show();
+        m_refsDialog->raise();
+        m_refsDialog->activateWindow();
+    });
 }

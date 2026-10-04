@@ -1,5 +1,7 @@
 #include "CodeEditor.h"
 
+#include "Emmet.h"
+
 #include "Breadcrumbs.h"
 #include "CompletionPopup.h"
 #include "MiniMap.h"
@@ -178,6 +180,10 @@ CodeEditor::CodeEditor(QWidget *parent)
     m_matchTimer->setSingleShot(true);
     m_matchTimer->setInterval(150);
     connect(m_matchTimer, &QTimer::timeout, this, &CodeEditor::recomputeMatches);
+    m_colorTimer = new QTimer(this);
+    m_colorTimer->setSingleShot(true);
+    m_colorTimer->setInterval(450);
+    connect(m_colorTimer, &QTimer::timeout, this, &CodeEditor::colorsRequested);
 
     setFrameShape(QFrame::NoFrame);
     setStyleSheet(QStringLiteral("QPlainTextEdit { border: none; border-radius: 0; }")); // no focus ring inside the island
@@ -194,6 +200,7 @@ CodeEditor::CodeEditor(QWidget *parent)
             m_matchTimer->start();
         if (m_hasBase)
             m_diffTimer->start();
+        m_colorTimer->start();
     });
     m_foldTimer = new QTimer(this);
     m_foldTimer->setSingleShot(true);
@@ -450,6 +457,13 @@ void CodeEditor::lineNumberAreaPaintEvent(QPaintEvent *event)
 }
 
 // --- Highlights ------------------------------------------------------------
+
+CodeEditor::~CodeEditor()
+{
+    // The document (and its highlighter) may outlive the editor: the highlighter must not call back into it.
+    if (auto *hl = document() ? document()->findChild<SyntaxHighlighter *>() : nullptr)
+        hl->setGapProvider({}, 0);
+}
 
 void CodeEditor::refreshSelections()
 {
@@ -1093,6 +1107,7 @@ void CodeEditor::paintEvent(QPaintEvent *event)
     paintFoldMarkers();
     paintStickyScroll();
     paintBlameAnnotation();
+    paintSwatches();
 }
 
 QList<int> CodeEditor::stickyLines() const
@@ -2031,6 +2046,8 @@ void CodeEditor::handleKey(QKeyEvent *event)
     case Qt::Key_Tab:
         if (mods == Qt::NoModifier && snippetJump(1))
             return;
+        if (mods == Qt::NoModifier && m_emmetMode && expandEmmet())
+            return;
         if (mods == Qt::NoModifier) {
             if (textCursor().hasSelection() &&
                 textCursor().document()->findBlock(textCursor().selectionStart()) !=
@@ -2146,6 +2163,11 @@ void CodeEditor::mouseMoveEvent(QMouseEvent *event)
             viewport()->setCursor(Qt::PointingHandCursor);
             break;
         }
+    for (const Swatch &sw : std::as_const(m_swatches))
+        if (sw.rect.contains(event->pos())) {
+            viewport()->setCursor(Qt::PointingHandCursor);
+            break;
+        }
 }
 
 void CodeEditor::keyReleaseEvent(QKeyEvent *event)
@@ -2171,6 +2193,12 @@ void CodeEditor::leaveEvent(QEvent *event)
 void CodeEditor::mousePressEvent(QMouseEvent *event)
 {
     hideCompletion();
+    if (event->button() == Qt::LeftButton && event->modifiers() == Qt::NoModifier)
+        for (int i = 0; i < m_swatches.size(); ++i)
+            if (m_swatches.at(i).rect.contains(event->pos())) {
+                emit swatchClicked(i);
+                return;
+            }
     if (event->button() == Qt::LeftButton && event->modifiers() == Qt::ControlModifier) {
         const QTextCursor at = cursorForPosition(event->pos());
         const QString text = at.block().text();
@@ -3022,4 +3050,200 @@ void CodeEditor::insertCompletion(const LspCompletionItem &item, int anchor, int
         setTextCursor(c);
     }
     ensureCursorVisible();
+}
+
+// --- Emmet -----------------------------------------------------------------------------------------
+
+bool CodeEditor::expandEmmet()
+{
+    if (!m_emmetMode || textCursor().hasSelection() || completionVisible())
+        return false;
+    const bool jsx = m_emmetMode == 2;
+    const QTextCursor caret = textCursor();
+    const QString line = caret.block().text();
+    const int col = caret.positionInBlock();
+    if (col < line.size() && !line.at(col).isSpace() && line.at(col) != QLatin1Char('<'))
+        return false; // only at the end of a word
+    const int start = Emmet::findAbbreviation(line, col, jsx);
+    if (start < 0)
+        return false;
+    const QString abbr = line.mid(start, col - start);
+    const QString before = line.left(start);
+    // Inside an attribute value or a JSX expression string.
+    if (before.count(QLatin1Char('"')) % 2 == 1 || before.count(QLatin1Char('`')) % 2 == 1)
+        return false;
+    if (!jsx) {
+        // Not inside <style> / <script>.
+        QTextCursor back(document());
+        back.setPosition(qMax(0, caret.position() - 20000));
+        back.setPosition(caret.position(), QTextCursor::KeepAnchor);
+        const QString text = back.selectedText();
+        for (const QString tag : {QStringLiteral("style"), QStringLiteral("script")})
+            if (text.lastIndexOf(QStringLiteral("<") + tag, -1, Qt::CaseInsensitive) > text.lastIndexOf(QStringLiteral("</") + tag, -1, Qt::CaseInsensitive))
+                return false;
+    } else {
+        // In JSX files an abbreviation is markup only where an expression can start: line start, after `(`, `>`, `return` ...
+        const QString prefix = before.trimmed();
+        static const QStringList enders = {QStringLiteral(">"), QStringLiteral("("), QStringLiteral("?"), QStringLiteral(":"), QStringLiteral("&&"),
+                                           QStringLiteral("||"), QStringLiteral("=>"), QStringLiteral("return"), QStringLiteral("{")};
+        bool ok = prefix.isEmpty();
+        for (const QString &e : enders)
+            ok = ok || prefix.endsWith(e);
+        if (!ok)
+            return false;
+    }
+    // A plain word must be a tag (or a custom element); anything with Emmet operators is taken as an abbreviation, but in
+    // JSX its first name has to be a tag too, so `foo.bar` in code stays code.
+    static const QString operators = QStringLiteral(".#>+^*[]{}()$@");
+    const QString first = abbr.section(QRegularExpression(QStringLiteral("[^A-Za-z0-9:_-]")), 0, 0);
+    static const QSet<QString> tags = {QStringLiteral("a"), QStringLiteral("abbr"), QStringLiteral("address"), QStringLiteral("article"), QStringLiteral("aside"), QStringLiteral("audio"), QStringLiteral("b"), QStringLiteral("blockquote"), QStringLiteral("body"), QStringLiteral("br"), QStringLiteral("button"), QStringLiteral("canvas"), QStringLiteral("caption"), QStringLiteral("code"), QStringLiteral("div"), QStringLiteral("dl"), QStringLiteral("dt"), QStringLiteral("dd"), QStringLiteral("em"), QStringLiteral("fieldset"), QStringLiteral("figure"), QStringLiteral("footer"), QStringLiteral("form"), QStringLiteral("h1"), QStringLiteral("h2"), QStringLiteral("h3"), QStringLiteral("h4"), QStringLiteral("h5"), QStringLiteral("h6"), QStringLiteral("head"), QStringLiteral("header"), QStringLiteral("hr"), QStringLiteral("html"), QStringLiteral("i"), QStringLiteral("iframe"), QStringLiteral("img"), QStringLiteral("input"), QStringLiteral("label"), QStringLiteral("legend"), QStringLiteral("li"), QStringLiteral("link"), QStringLiteral("main"), QStringLiteral("meta"), QStringLiteral("nav"), QStringLiteral("ol"), QStringLiteral("option"), QStringLiteral("p"), QStringLiteral("pre"), QStringLiteral("script"), QStringLiteral("section"), QStringLiteral("select"), QStringLiteral("small"), QStringLiteral("span"), QStringLiteral("strong"), QStringLiteral("style"), QStringLiteral("sub"), QStringLiteral("sup"), QStringLiteral("svg"), QStringLiteral("table"), QStringLiteral("tbody"), QStringLiteral("td"), QStringLiteral("textarea"), QStringLiteral("tfoot"), QStringLiteral("th"), QStringLiteral("thead"), QStringLiteral("title"), QStringLiteral("tr"), QStringLiteral("ul"), QStringLiteral("video"),
+        // Emmet's short names
+        QStringLiteral("bq"), QStringLiteral("btn"), QStringLiteral("fig"), QStringLiteral("figc"), QStringLiteral("ifr"), QStringLiteral("sect"), QStringLiteral("art"), QStringLiteral("hdr"), QStringLiteral("ftr"), QStringLiteral("inp"), QStringLiteral("str"), QStringLiteral("opt"), QStringLiteral("tarea")};
+    const bool known = first.isEmpty() || tags.contains(first.section(QLatin1Char(':'), 0, 0)) || first.contains(QLatin1Char('-'));
+    bool hasOperator = false;
+    for (const QChar c : abbr)
+        hasOperator = hasOperator || operators.contains(c);
+    if (abbr == QLatin1String("!") && !jsx) {
+        // the HTML5 skeleton
+    } else if (!hasOperator && !known) {
+        return false;
+    } else if (!known && (jsx || !hasOperator)) {
+        return false;
+    }
+    Emmet::Options options;
+    options.jsx = jsx;
+    options.indent = indentUnit();
+    const QString expanded = Emmet::expand(abbr, options);
+    if (expanded.isEmpty())
+        return false;
+    LspCompletionItem item;
+    item.label = abbr;
+    item.snippet = true;
+    item.insertText = expanded;
+    const int anchor = caret.block().position() + start;
+    insertCompletion(item, anchor, caret.position());
+    return true;
+}
+
+// --- Colour swatches ---------------------------------------------------------------------------------
+
+int CodeEditor::swatchGap() const
+{
+    return qMax(12, fontMetrics().height() - 2);
+}
+
+void CodeEditor::setColorSwatches(const QVector<ColorSwatch> &swatches)
+{
+    QVector<Swatch> next;
+    next.reserve(swatches.size());
+    for (const ColorSwatch &c : swatches) {
+        const QTextBlock a = document()->findBlockByNumber(c.startLine), b = document()->findBlockByNumber(c.endLine);
+        Swatch sw;
+        if (!a.isValid() || !b.isValid()) { // keep the list aligned with the caller's
+            next.append(sw);
+            continue;
+        }
+        sw.start = QTextCursor(document());
+        sw.start.setPosition(a.position() + qMin(c.startColumn, qMax(0, a.length() - 1)));
+        sw.start.setKeepPositionOnInsert(true);
+        sw.end = QTextCursor(document());
+        sw.end.setPosition(b.position() + qMin(c.endColumn, qMax(0, b.length() - 1)));
+        sw.color = c.color;
+        next.append(sw);
+    }
+    // Blocks whose gap columns change (before or after) are highlighted again; the highlighter lays the gaps out.
+    QSet<int> blocks;
+    for (const Swatch &old : std::as_const(m_swatches))
+        if (!old.start.isNull())
+            blocks.insert(old.start.blockNumber());
+    for (const Swatch &n : std::as_const(next))
+        if (!n.start.isNull())
+            blocks.insert(n.start.blockNumber());
+    m_swatches = next;
+    m_gapRevision = -1;
+    applyGapProvider(blocks);
+    viewport()->update();
+}
+
+QVector<int> CodeEditor::swatchGapColumns(const QTextBlock &block) const
+{
+    if (m_gapRevision != document()->revision()) {
+        m_gapMap.clear();
+        for (const Swatch &sw : m_swatches)
+            if (!sw.start.isNull() && !sw.start.atBlockStart())
+                m_gapMap[sw.start.blockNumber()] << sw.start.positionInBlock() - 1;
+        m_gapRevision = document()->revision();
+    }
+    return m_gapMap.value(block.blockNumber());
+}
+
+void CodeEditor::applyGapProvider(const QSet<int> &blocks)
+{
+    auto *hl = document()->findChild<SyntaxHighlighter *>();
+    if (!hl)
+        return;
+    hl->setGapProvider([this](const QTextBlock &b) { return swatchGapColumns(b); }, m_swatches.isEmpty() ? 0 : swatchGap());
+    for (const int n : blocks) {
+        const QTextBlock b = document()->findBlockByNumber(n);
+        if (b.isValid())
+            hl->rehighlightBlock(b);
+    }
+}
+
+QTextCursor CodeEditor::swatchRange(int index) const
+{
+    if (index < 0 || index >= m_swatches.size() || m_swatches.at(index).start.isNull())
+        return QTextCursor();
+    QTextCursor c(document());
+    c.setPosition(m_swatches.at(index).start.position());
+    c.setPosition(m_swatches.at(index).end.position(), QTextCursor::KeepAnchor);
+    return c;
+}
+
+void CodeEditor::replaceSwatch(int index, const QString &text)
+{
+    QTextCursor c = swatchRange(index);
+    if (c.isNull())
+        return;
+    c.beginEditBlock();
+    c.insertText(text);
+    c.endEditBlock();
+}
+
+void CodeEditor::paintSwatches()
+{
+    for (Swatch &sw : m_swatches)
+        sw.rect = QRect();
+    if (m_swatches.isEmpty())
+        return;
+    QPainter p(viewport());
+    p.setRenderHint(QPainter::Antialiasing);
+    const Theme t = Theme::byName(SettingsManager::instance().theme());
+    const int gap = swatchGap();
+    const int size = qMax(8, gap - 4);
+    const int viewBottom = viewport()->height();
+    for (Swatch &sw : m_swatches) {
+        if (sw.start.isNull() || sw.start.atBlockStart() || !sw.start.block().isVisible())
+            continue;
+        const QRect r = cursorRect(sw.start);
+        if (r.bottom() < 0 || r.top() > viewBottom)
+            continue;
+        const QRect box(r.left() - gap + 2, r.top() + (r.height() - size) / 2, size, size);
+        sw.rect = box.adjusted(-2, -2, 2, 2);
+        // A checkerboard shows through translucent colours.
+        QPainterPath path;
+        path.addRoundedRect(QRectF(box), 3, 3);
+        p.save();
+        p.setClipPath(path);
+        if (sw.color.alpha() < 255) {
+            p.fillRect(box, QColor(255, 255, 255));
+            p.fillRect(QRect(box.left(), box.top(), size / 2, size / 2), QColor(200, 200, 200));
+            p.fillRect(QRect(box.left() + size / 2, box.top() + size / 2, size - size / 2, size - size / 2), QColor(200, 200, 200));
+        }
+        p.fillRect(box, sw.color);
+        p.restore();
+        p.setPen(QPen(t.border.lighter(t.dark ? 150 : 90), 1));
+        p.setBrush(Qt::NoBrush);
+        p.drawRoundedRect(QRectF(box).adjusted(0.5, 0.5, -0.5, -0.5), 3, 3);
+    }
 }

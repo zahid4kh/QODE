@@ -5,7 +5,7 @@
 
 class QProcess;
 
-// Sets up the web language servers (TypeScript / JavaScript, HTML, CSS, JSON) with `npm install --prefix`
+// Sets up the web language servers (TypeScript / JavaScript, HTML, CSS, JSON, plus the ESLint and Tailwind CSS companions) with `npm install --prefix`
 // into ~/.local/share/QODE/lsp/web: nothing global, no root needed, and removing the folder removes everything.
 // Needs Node.js with npm on the system; the servers are Node scripts.
 class NpmInstaller : public QObject

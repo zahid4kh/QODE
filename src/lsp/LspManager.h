@@ -2,6 +2,7 @@
 
 #include "LspTypes.h"
 
+#include <QColor>
 #include <QHash>
 #include <QJsonArray>
 #include <functional>
@@ -32,6 +33,7 @@ public:
         int documents = 0; // open files this server handles
         QString progress;  // what the server reports it is busy with ("Importing Gradle project 40%"), or empty
         bool installable = false; // QODE can download it (LspInstaller)
+        bool companion = false;   // ESLint / Tailwind: runs next to a file's main server
     };
 
     explicit LspManager(QObject *parent = nullptr);
@@ -67,6 +69,21 @@ public:
     void hover(Document *doc, int line, int column, std::function<void(const QString &)> done);
     // Where the symbol under (line, column) is defined; empty when unknown.
     void definition(Document *doc, int line, int column, std::function<void(const QVector<LspLocation> &)> done);
+
+    // Colour literals of the document (CSS colours, Tailwind classes), merged from every server that provides them.
+    void documentColors(Document *doc, std::function<void(const QVector<LspColor> &)> done);
+    // The spellings the server offers for a colour picked by the user ("#ff0000", "rgb(255, 0, 0)", ...).
+    void colorPresentations(Document *doc, const LspColor &color, const QColor &picked,
+                            std::function<void(const QVector<LspColorPresentation> &)> done);
+    // Rename: whether the file's server supports it; prepareRename gives the range / current name (or an error text);
+    // rename returns the WorkspaceEdit to apply.
+    bool supportsRename(Document *doc) const;
+    void prepareRename(Document *doc, int line, int column,
+                       std::function<void(bool ok, const QString &placeholder, const QString &error)> done);
+    void rename(Document *doc, int line, int column, const QString &newName,
+                std::function<void(const QJsonObject &edit, const QString &error)> done);
+    bool supportsReferences(Document *doc) const;
+    void references(Document *doc, int line, int column, std::function<void(const QVector<LspLocation> &)> done);
 
     // Completion candidates at (line, column). triggerKind: 1 invoked, 2 trigger character, 3 list was incomplete.
     // A newer request cancels the previous one (whose callback then never runs).
@@ -109,10 +126,13 @@ private:
         QHash<QString, QStringList> progress; // $/progress token -> {title, text shown} of the running operations
     };
     struct Tracked {
-        QString uri, path, serverId;
+        QString uri, path, serverId; // serverId: the file's main server
+        QStringList companions;      // ids of companion servers that also hold this document
+        QSet<QString> openOn;        // servers that have received didOpen (cleared per server when it stops)
         int version = 0;
-        bool opened = false;
         bool dirty = false;
+        bool opened() const { return openOn.contains(serverId); }
+        QStringList servers() const { return QStringList{serverId} + companions; }
     };
 
     Server *ensureServer(const LspServerSpec &spec, const QString &filePath);
@@ -123,24 +143,27 @@ private:
     void onNotification(const QString &id, const QString &method, const QJsonValue &params);
     void track(Document *doc);
     void untrack(Document *doc, bool sendClose);
-    void sendOpen(Document *doc, Tracked &t);
+    void sendOpen(Document *doc, Tracked &t, const QString &serverId);
+    // Every running server holding the document, main server first.
+    QList<LspClient *> readyClientsFor(Document *doc, QString *uri);
     void flushChanges();
     void setStatus(Server &s, Status status, const QString &detail = {});
     QString rootFor(const QString &filePath) const;
     LspClient *readyClientFor(Document *doc, QString *uri);
-    void clearDiagnosticsFor(const QString &path);
-    void setDiagnosticsFor(const QString &path, const QJsonArray &list);
+    void clearDiagnosticsFor(const QString &path, const QString &serverId = {}); // empty id = every server
+    void setDiagnosticsFor(const QString &path, const QJsonArray &list, const QString &serverId);
+    void publishMerged(const QString &path);
     void pullDiagnostics(Document *doc); // servers with diagnosticProvider (Kotlin) are asked instead of pushing
 
     QString m_root;
     QHash<QString, Server> m_servers;
     QHash<Document *, Tracked> m_tracked;
-    QHash<QString, QVector<LspDiagnostic>> m_diagnostics;
+    QHash<QString, QVector<LspDiagnostic>> m_diagnostics;                    // merged over all servers
+    QHash<QString, QHash<QString, QVector<LspDiagnostic>>> m_diagBySource;  // path -> server id -> its diagnostics
     QTimer *m_changeTimer;
     bool handleApplyEdit(const QJsonObject &edit);
     std::function<bool(const QJsonObject &)> m_applyEdit;
     bool m_capturing = false; // unusedImports() is running: the next workspace/applyEdit is recorded, not applied
     QJsonObject m_captured;
-    QPointer<LspClient> m_completionClient; // the request in flight, so a newer one can cancel it
-    int m_completionId = -1;
+    QVector<QPair<QPointer<LspClient>, int>> m_completionRequests; // in flight, so a newer request can cancel them
 };

@@ -14,6 +14,7 @@ struct LspDiagnostic {
     QString message;
     QString source;
     QString code;
+    QString server;  // id of the server that reported it (ESLint runs next to the TypeScript server)
     QJsonObject raw; // as sent by the server; code action requests hand it back
 };
 
@@ -53,4 +54,20 @@ struct LspCodeAction {
     QString title;
     QString kind;
     QJsonObject json; // the whole CodeAction; its `edit` and/or `command` are applied when chosen
+    QString server;   // which server offered it (and must run its command)
+};
+
+// A colour literal found by textDocument/documentColor (components 0..1).
+struct LspColor {
+    int startLine = 0, startColumn = 0, endLine = 0, endColumn = 0;
+    double red = 0, green = 0, blue = 0, alpha = 1;
+    QJsonObject raw; // the ColorInformation, handed back to colorPresentation
+    QString server;
+};
+
+// One way to write a picked colour (textDocument/colorPresentation): "#ff0000", "rgb(255, 0, 0)", ...
+struct LspColorPresentation {
+    QString label;
+    bool hasEdit = false;
+    LspTextEdit edit;
 };

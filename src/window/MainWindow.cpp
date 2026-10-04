@@ -5,6 +5,7 @@
 #include "SideSections.h"
 #include "dialogs/CompilerFlagsDialog.h"
 #include "dialogs/LspInstallDialog.h"
+#include "dialogs/LspLogDialog.h"
 #include "dialogs/LspRemoveDialog.h"
 #include "dialogs/NpmInstallDialog.h"
 #include "dialogs/NewProjectDialog.h"
@@ -1402,12 +1403,11 @@ void MainWindow::chooseLspServerPath(const QString &serverId)
 
 void MainWindow::showLspLog(const QString &serverId)
 {
-    const QStringList lines = m_lsp->logOf(serverId);
-    QMessageBox box(QMessageBox::Information, tr("Server log"),
-                    lines.isEmpty() ? tr("The server has not written anything to its log.") : tr("Last messages from the server:"),
-                    QMessageBox::Ok, this);
-    box.setDetailedText(lines.join(QLatin1Char('\n')));
-    box.exec();
+    const LspServerSpec *spec = LspServers::byId(serverId);
+    auto *dlg = new LspLogDialog(spec ? spec->displayName : serverId, [this, serverId] { return m_lsp->logOf(serverId); }, this);
+    dlg->show();
+    dlg->raise();
+    dlg->activateWindow();
 }
 
 // --- Projects -----------------------------------------------------------------

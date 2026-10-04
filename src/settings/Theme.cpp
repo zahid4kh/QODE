@@ -139,9 +139,9 @@ QTabBar::tab { background: %1; color: %7; padding: 5px 10px; border: none; borde
 QTabBar::tab:selected { background: %8; color: %2; border-top: 2px solid %9; }
 QTabBar::tab:hover:!selected { background: %4; }
 QTabBar#terminalTabs { background: transparent; }
-QTabBar#terminalTabs::tab { background: transparent; color: %7; padding: 4px 8px; border: none; border-bottom: 2px solid transparent; min-width: 0; }
-QTabBar#terminalTabs::tab:selected { background: transparent; color: %2; border-top: none; border-bottom: 2px solid %9; }
-QTabBar#terminalTabs::tab:hover:!selected { background: %4; }
+QTabBar#terminalTabs::tab { background: transparent; color: %7; padding: 3px 8px; margin: 4px 2px 4px 0; border: 1px solid transparent; border-radius: 6px; min-width: 0; }
+QTabBar#terminalTabs::tab:selected { background: %8; color: %2; border: 1px solid %3; }
+QTabBar#terminalTabs::tab:hover:!selected { background: %4; color: %2; }
 QTabBar::close-button { image: url(%14); subcontrol-position: right; border-radius: 2px; }
 QTabBar::close-button:hover { background: %6; }
 QLineEdit, QSpinBox, QComboBox { background: %8; color: %2; border: 1px solid %3; border-radius: 3px; padding: 3px 5px; selection-background-color: %6; }

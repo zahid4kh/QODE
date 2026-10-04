@@ -69,9 +69,10 @@ TerminalPanel::TerminalPanel(QWidget *parent)
     auto *hl = new QHBoxLayout(header);
     hl->setContentsMargins(4, 0, 4, 0);
     hl->setSpacing(2);
+    header->setMinimumHeight(34);
     hl->addWidget(m_tabs, 0);
-    hl->addWidget(addBtn);
     hl->addStretch(1);
+    hl->addWidget(addBtn);
     hl->addWidget(splitBtn);
     hl->addWidget(clearBtn);
     hl->addWidget(restartBtn);

@@ -87,7 +87,9 @@ void Terminal::setHeaderVisible(bool on)
 
 QString Terminal::shellName() const
 {
-    return m_shell->isRunning() ? QFileInfo(m_shell->shell()).fileName() : QString();
+    // Never empty: a tab whose shell has not (re)started yet would otherwise flash a placeholder name.
+    const QString path = m_shell->shell().isEmpty() ? ShellProcess::defaultShell() : m_shell->shell();
+    return QFileInfo(path).fileName();
 }
 
 void Terminal::updateHeader()

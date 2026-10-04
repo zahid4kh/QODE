@@ -1,10 +1,6 @@
-qode (0.4.0) unstable; urgency=low
+qode (0.5.0) unstable; urgency=low
 
-  * Web development: CSS colour swatches with a colour picker, Emmet for HTML and JSX, ESLint and Tailwind CSS companion servers.
-  * Rename Symbol (F2) and Find References (Shift+F12); bookmarks moved to Shift+F2 / Ctrl+Shift+F2.
-  * HTML, CSS and JSON formatting through their language servers; indentation follows the file.
-  * Terminal: scrolling fixes, rounded themed tabs; welcome page no longer squeezes when short.
-  * LSP server log is now a resizable, themed dialog with filter and copy.
+  * Fix compiler warnings; no functional changes since 0.4.0.
 
- -- Zahid Khalilov <halilzahid@gmail.com>  Sun, 04 Oct 2026 20:50:00 +0200
+ -- Zahid Khalilov <halilzahid@gmail.com>  Sun, 04 Oct 2026 20:54:03 +0200
 

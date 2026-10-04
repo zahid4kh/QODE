@@ -128,6 +128,9 @@ void LspManager::startServer(Server &s, const QString &rootPath)
         if (!flags.isEmpty())
             options.insert(QStringLiteral("fallbackFlags"), QJsonArray::fromStringList(flags));
     }
+    // The vscode html/css/json servers only offer formatting when asked to.
+    if (s.spec->id == QLatin1String("html") || s.spec->id == QLatin1String("css") || s.spec->id == QLatin1String("json"))
+        options.insert(QStringLiteral("provideFormatter"), true);
     if (s.spec->id == QLatin1String("typescript")) {
         // typescript-language-server does not look next to itself for TypeScript: use the project's own version when it
         // has one (so the editor agrees with its build), otherwise the copy installed together with the server.

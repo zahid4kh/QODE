@@ -1364,8 +1364,49 @@ int CodeEditor::replaceAll(const QString &replacement)
 
 // --- Editing behaviour -----------------------------------------------------
 
+// The indentation the file itself uses (tabs, or the most common step between nested lines), so new lines line up with
+// the existing ones whatever the global tab size says. Empty when the file shows no clear convention.
+static QString detectIndent(QTextDocument *doc)
+{
+    int tabs = 0, spaces = 0, prev = 0;
+    QHash<int, int> steps;
+    int seen = 0;
+    for (QTextBlock b = doc->begin(); b.isValid() && seen < 1500; b = b.next(), ++seen) {
+        const QString t = b.text();
+        int n = 0;
+        while (n < t.size() && (t.at(n) == QLatin1Char(' ') || t.at(n) == QLatin1Char('\t')))
+            ++n;
+        if (n == t.size())
+            continue; // blank
+        if (t.at(0) == QLatin1Char('\t')) {
+            ++tabs;
+            prev = 0;
+            continue;
+        }
+        if (n > 0) {
+            ++spaces;
+            const int d = qAbs(n - prev);
+            if (d >= 1 && d <= 8)
+                ++steps[d];
+        }
+        prev = n;
+    }
+    if (tabs > spaces)
+        return QStringLiteral("\t");
+    int best = 0, bestCount = 0;
+    for (auto it = steps.constBegin(); it != steps.constEnd(); ++it)
+        if (it.value() > bestCount || (it.value() == bestCount && it.key() < best)) {
+            best = it.key();
+            bestCount = it.value();
+        }
+    return bestCount >= 2 ? QString(best, QLatin1Char(' ')) : QString();
+}
+
 QString CodeEditor::indentUnit() const
 {
+    const QString detected = detectIndent(document());
+    if (!detected.isEmpty())
+        return detected;
     auto &s = SettingsManager::instance();
     return s.useSpaces() ? QString(s.tabSize(), QLatin1Char(' ')) : QStringLiteral("\t");
 }
@@ -1785,7 +1826,7 @@ void CodeEditor::indentSelection(bool outdent)
 {
     QTextCursor c = textCursor();
     const QString unit = indentUnit();
-    const int tab = SettingsManager::instance().tabSize();
+    const int tab = unit.startsWith(QLatin1Char(' ')) ? unit.size() : SettingsManager::instance().tabSize();
 
     QTextCursor start(document());
     start.setPosition(c.selectionStart());
@@ -1997,13 +2038,11 @@ void CodeEditor::handleKey(QKeyEvent *event)
                 indentSelection(false);
             } else {
                 QTextCursor c = textCursor();
-                auto &s = SettingsManager::instance();
-                if (s.useSpaces()) {
+                const QString unit = indentUnit();
+                if (unit.startsWith(QLatin1Char(' '))) {
                     // Advance to the next tab stop rather than always inserting N spaces.
-                    const int col = document()->findBlock(c.selectionStart()).position() >= 0
-                        ? c.selectionStart() - c.document()->findBlock(c.selectionStart()).position() : 0;
-                    const int n = s.tabSize() - (col % s.tabSize());
-                    c.insertText(QString(n, QLatin1Char(' ')));
+                    const int col = c.selectionStart() - c.document()->findBlock(c.selectionStart()).position();
+                    c.insertText(QString(unit.size() - (col % unit.size()), QLatin1Char(' ')));
                 } else {
                     c.insertText(QStringLiteral("\t"));
                 }

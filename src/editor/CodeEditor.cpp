@@ -3078,7 +3078,7 @@ bool CodeEditor::expandEmmet()
         back.setPosition(qMax(0, caret.position() - 20000));
         back.setPosition(caret.position(), QTextCursor::KeepAnchor);
         const QString text = back.selectedText();
-        for (const QString tag : {QStringLiteral("style"), QStringLiteral("script")})
+        for (const QString &tag : {QStringLiteral("style"), QStringLiteral("script")})
             if (text.lastIndexOf(QStringLiteral("<") + tag, -1, Qt::CaseInsensitive) > text.lastIndexOf(QStringLiteral("</") + tag, -1, Qt::CaseInsensitive))
                 return false;
     } else {

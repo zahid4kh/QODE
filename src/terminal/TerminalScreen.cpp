@@ -20,6 +20,7 @@ void TerminalScreen::reset()
     m_screen = QVector<Line>(m_rows, blankLine());
     m_savedPrimary.clear();
     m_alt = false;
+    m_mouseTracking = m_sgrMouse = false;
     m_row = m_col = 0;
     m_wrapPending = false;
     m_scrollTop = 0;
@@ -468,6 +469,8 @@ void TerminalScreen::setMode(bool priv, int mode, bool on)
     case 25: m_cursorVisible = on; break;
     case 47: case 1047: enterAlt(on, false); break;
     case 1049: enterAlt(on, true); break;
+    case 1000: case 1002: case 1003: m_mouseTracking = on; break;
+    case 1006: m_sgrMouse = on; break;
     case 2004: m_bracketedPaste = on; break;
     default: break;
     }

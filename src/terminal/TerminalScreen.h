@@ -41,6 +41,8 @@ public:
     bool applicationCursorKeys() const { return m_appCursor; }
     bool bracketedPaste() const { return m_bracketedPaste; }
     bool isAlternateScreen() const { return m_alt; }
+    bool mouseReporting() const { return m_mouseTracking; }
+    bool sgrMouse() const { return m_sgrMouse; }
     QString title() const { return m_title; }
 
     QString textInRange(int startLine, int startCol, int endLine, int endCol) const;
@@ -98,6 +100,8 @@ private:
     bool m_bracketedPaste = false;
     bool m_originMode = false;
     bool m_alt = false;
+    bool m_mouseTracking = false; // DEC modes 1000/1002/1003: the app wants mouse reports
+    bool m_sgrMouse = false;      // mode 1006
     QVector<bool> m_tabStops;
     QString m_title;
 

@@ -103,9 +103,11 @@ void TerminalView::updateScrollBar()
 {
     QScrollBar *sb = verticalScrollBar();
     const bool follow = m_atBottom;
-    sb->setRange(0, m_screen->scrollbackSize());
+    // The alternate screen (vim, less, TUIs) has no scrollback: pin the view to it.
+    const int back = m_screen->scrollbackSize();
+    sb->setRange(m_screen->isAlternateScreen() ? back : 0, back);
     sb->setPageStep(m_screen->rows());
-    if (follow)
+    if (follow || m_screen->isAlternateScreen())
         sb->setValue(sb->maximum());
 }
 
@@ -319,6 +321,37 @@ void TerminalView::mouseDoubleClickEvent(QMouseEvent *e)
 
 void TerminalView::wheelEvent(QWheelEvent *e)
 {
+    const int dy = e->angleDelta().y();
+    if (m_screen->mouseReporting() || m_screen->isAlternateScreen()) {
+        if (!m_shellActive || dy == 0) {
+            e->accept();
+            return;
+        }
+        // Accumulate so smooth-scrolling touchpads still produce whole steps.
+        m_wheelAcc += dy;
+        const int steps = m_wheelAcc / 40;
+        m_wheelAcc -= steps * 40;
+        const bool up = steps > 0;
+        const QPoint cell = cellAt(e->position().toPoint());
+        const int col = qBound(1, cell.x() + 1, 223), row = qBound(1, cell.y() - verticalScrollBar()->value() + 1, 223);
+        QByteArray out;
+        for (int i = 0; i < qAbs(steps); ++i) {
+            if (m_screen->mouseReporting()) {
+                const int btn = up ? 64 : 65;
+                if (m_screen->sgrMouse())
+                    out += QByteArray("\x1b[<") + QByteArray::number(btn) + ';' + QByteArray::number(col) + ';' + QByteArray::number(row) + 'M';
+                else
+                    out += QByteArray("\x1b[M") + char(32 + btn) + char(32 + col) + char(32 + row);
+            } else {
+                // No mouse mode on the alternate screen: behave like arrow keys (xterm's alternateScroll).
+                out += QByteArray(m_screen->applicationCursorKeys() ? "\x1bO" : "\x1b[") + (up ? 'A' : 'B');
+            }
+        }
+        if (!out.isEmpty())
+            emit input(out);
+        e->accept();
+        return;
+    }
     QAbstractScrollArea::wheelEvent(e);
 }
 

@@ -59,6 +59,7 @@ private:
     qreal m_cw = 8, m_ch = 16;
     int m_ascent = 12;
     bool m_atBottom = true;
+    int m_wheelAcc = 0;
     bool m_shellActive = true;
     bool m_focused = false;
     bool m_selecting = false;

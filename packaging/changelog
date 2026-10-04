@@ -1,13 +1,10 @@
-qode (0.2.0) unstable; urgency=low
+qode (0.4.0) unstable; urgency=low
 
-  * Web development: HTML, CSS, JavaScript, TypeScript and JSON language servers with managed install.
-  * Dev server controls (npm, pnpm, yarn, bun), nested web projects, pinned ports and a .env editor.
-  * Explorer order: folders, dot folders, dot files, files; option to hide dot files.
+  * Web development: CSS colour swatches with a colour picker, Emmet for HTML and JSX, ESLint and Tailwind CSS companion servers.
+  * Rename Symbol (F2) and Find References (Shift+F12); bookmarks moved to Shift+F2 / Ctrl+Shift+F2.
+  * HTML, CSS and JSON formatting through their language servers; indentation follows the file.
+  * Terminal: scrolling fixes, rounded themed tabs; welcome page no longer squeezes when short.
+  * LSP server log is now a resizable, themed dialog with filter and copy.
 
- -- Zahid Khalilov <halilzahid@gmail.com>  Fri, 02 Oct 2026 23:46:57 +0200
+ -- Zahid Khalilov <halilzahid@gmail.com>  Sun, 04 Oct 2026 20:50:00 +0200
 
-qode (0.1.0) unstable; urgency=low
-
-  * Initial Debian package of QODE.
-
- -- Zahid Khalilov <halilzahid@gmail.com>  Fri, 02 Oct 2026 18:15:05 +0200

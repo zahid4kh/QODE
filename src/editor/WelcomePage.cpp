@@ -12,6 +12,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QStyledItemDelegate>
 #include <QVBoxLayout>
 
@@ -138,20 +139,36 @@ private:
 WelcomePage::WelcomePage(QWidget *parent)
     : QWidget(parent)
 {
-    auto *wl = new QVBoxLayout(this);
+    // The content keeps its natural size; when the page gets shorter than that (terminal dragged tall)
+    // it scrolls instead of squeezing the buttons and overlapping the text.
+    auto *outer = new QVBoxLayout(this);
+    outer->setContentsMargins(0, 0, 0, 0);
+    auto *scroll = new QScrollArea(this);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setStyleSheet(QStringLiteral("QScrollArea { background: transparent; }"));
+    scroll->viewport()->setAutoFillBackground(false);
+    outer->addWidget(scroll);
+    auto *content = new QWidget;
+    content->setAutoFillBackground(false);
+    scroll->setWidget(content);
+    auto *wl = new QVBoxLayout(content);
+    wl->setContentsMargins(12, 12, 12, 12);
     wl->setAlignment(Qt::AlignCenter);
     wl->setSpacing(10);
-    auto *title = new QLabel(QStringLiteral("QODE"), this);
+    auto *title = new QLabel(QStringLiteral("QODE"), content);
     title->setObjectName(QStringLiteral("emptyTitle"));
     title->setAlignment(Qt::AlignCenter);
     wl->addWidget(title);
-    auto *heading = new QLabel(tr("No project or file is open.\nCreate or select one to get started."), this);
+    auto *heading = new QLabel(tr("No project or file is open.\nCreate or select one to get started."), content);
     heading->setAlignment(Qt::AlignCenter);
     heading->setObjectName(QStringLiteral("emptyText"));
     wl->addWidget(heading);
     auto addButton = [&](const QString &text, void (WelcomePage::*sig)()) {
-        auto *b = new QPushButton(text, this);
+        auto *b = new QPushButton(text, content);
         b->setMinimumWidth(200);
+        b->setMinimumHeight(b->sizeHint().height());
         connect(b, &QPushButton::clicked, this, sig);
         wl->addWidget(b, 0, Qt::AlignCenter);
     };
@@ -161,7 +178,7 @@ WelcomePage::WelcomePage(QWidget *parent)
     addButton(tr("Open File…"), &WelcomePage::openFileRequested);
 
     wl->addSpacing(14);
-    m_recentTitle = new QLabel(tr("RECENT PROJECTS"), this);
+    m_recentTitle = new QLabel(tr("RECENT PROJECTS"), content);
     m_recentTitle->setObjectName(QStringLiteral("emptyText"));
     QFont tf = m_recentTitle->font();
     tf.setPointSizeF(qMax(7.5, tf.pointSizeF() - 1.5));
@@ -173,7 +190,7 @@ WelcomePage::WelcomePage(QWidget *parent)
     m_recent = new RecentList(this);
     wl->addWidget(m_recent, 0, Qt::AlignCenter);
 
-    auto *hint = new QLabel(tr("<span>Ctrl+Shift+O open project &nbsp;·&nbsp; Ctrl+O open file &nbsp;·&nbsp; Ctrl+Shift+P command palette &nbsp;·&nbsp; Ctrl+J terminal</span>"), this);
+    auto *hint = new QLabel(tr("<span>Ctrl+Shift+O open project &nbsp;·&nbsp; Ctrl+O open file &nbsp;·&nbsp; Ctrl+Shift+P command palette &nbsp;·&nbsp; Ctrl+J terminal</span>"), content);
     hint->setAlignment(Qt::AlignCenter);
     hint->setObjectName(QStringLiteral("emptyText"));
     wl->addSpacing(6);

@@ -2599,6 +2599,18 @@ QString CodeEditor::completionPrefix() const
     return c.selectedText();
 }
 
+QVector<LspCompletionItem> CodeEditor::localCompletions() const
+{
+    if (!m_localCompletions)
+        return {};
+    const int cur = textCursor().position();
+    int start = cur;
+    while (start > 0 && isIdentChar(document()->characterAt(start - 1)))
+        --start;
+    const QTextBlock block = document()->findBlock(start);
+    return m_localCompletions(block.text().left(start - block.position()));
+}
+
 void CodeEditor::hideCompletion()
 {
     if (m_completionTimer)
@@ -2646,7 +2658,7 @@ bool CodeEditor::completionKey(QKeyEvent *event)
 
 void CodeEditor::completionTyped(QKeyEvent *event, bool edited)
 {
-    const bool served = m_canGoToDefinition && m_canGoToDefinition();
+    const bool served = (m_canGoToDefinition && m_canGoToDefinition()) || !localCompletions().isEmpty();
     const int cur = textCursor().position();
     if (completionVisible() && (cur < m_completionAnchor || !edited)) { // moved away from the word
         if (!edited && cur >= m_completionAnchor && completionPrefix().size() == cur - m_completionAnchor)
@@ -2738,7 +2750,7 @@ void CodeEditor::requestCompletion(int kind, const QString &triggerChar)
         --start;
     m_completionAnchor = start;
     const int token = ++m_completionToken;
-    const bool served = m_canGoToDefinition && m_canGoToDefinition();
+    const bool served = (m_canGoToDefinition && m_canGoToDefinition()) || !localCompletions().isEmpty();
     if (served) {
         m_completionManual = false;
         const QTextCursor c = textCursor();
@@ -2781,8 +2793,12 @@ void CodeEditor::showCompletions(const QVector<LspCompletionItem> &items, bool i
     bool wordOnly = cur >= m_completionAnchor;
     for (const QChar c : prefix)
         wordOnly = wordOnly && isIdentChar(c);
-    const QVector<LspCompletionItem> &snippets = Snippets::forLanguage(m_language);
-    if (!wordOnly || (items.isEmpty() && snippets.isEmpty())) {
+    const QVector<LspCompletionItem> local = localCompletions();
+    // Snippets (class, for, fun ...) make no sense right after a dot.
+    static const QVector<LspCompletionItem> noSnippets;
+    const bool afterDot = m_completionAnchor > 0 && document()->characterAt(m_completionAnchor - 1) == QLatin1Char('.');
+    const QVector<LspCompletionItem> &snippets = afterDot ? noSnippets : Snippets::forLanguage(m_language);
+    if (!wordOnly || (items.isEmpty() && local.isEmpty() && snippets.isEmpty())) {
         hideCompletion();
         return;
     }
@@ -2793,7 +2809,7 @@ void CodeEditor::showCompletions(const QVector<LspCompletionItem> &items, bool i
         connect(verticalScrollBar(), &QScrollBar::valueChanged, this, &CodeEditor::hideCompletion);
     }
     m_completionIncomplete = incomplete;
-    m_completion->setItems(items, snippets);
+    m_completion->setItems(local.isEmpty() ? items : local + items, snippets);
     if (m_completion->setPrefix(prefix) == 0) {
         hideCompletion();
         return;

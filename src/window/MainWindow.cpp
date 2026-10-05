@@ -13,6 +13,7 @@
 #include "dialogs/RunConfigDialog.h"
 #include "webdev/DevServerBar.h"
 #include "project/JvmProject.h"
+#include "project/VersionCatalog.h"
 #include "project/QmakeProject.h"
 #include "media/MarkdownPreview.h"
 #include "tasks/TasksPanel.h"
@@ -301,6 +302,18 @@ MainWindow::MainWindow(QWidget *parent)
                     });
                 });
         ed->setDefinitionAvailable([this, doc] { return m_lsp->isServed(doc); });
+        if (VersionCatalog::isBuildScript(doc->filePath())) // libs.<alias> accessors from gradle/libs.versions.toml
+            ed->setLocalCompletions([doc](const QString &beforeWord) {
+                QVector<LspCompletionItem> items;
+                for (const VersionCatalog::Entry &e : VersionCatalog::complete(doc->filePath(), beforeWord)) {
+                    LspCompletionItem it;
+                    it.label = e.label;
+                    it.detail = e.detail;
+                    it.kind = e.group ? 9 : 6;
+                    items << it;
+                }
+                return items;
+            });
         if (JarSource::isLibraryPath(doc->filePath()))
             ed->setReadOnly(true); // library source unpacked by Go to Definition
         // Kotlin completions add their import (and insert the text) through a server command.

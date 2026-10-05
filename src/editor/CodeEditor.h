@@ -98,6 +98,10 @@ public:
     // there); `finished` gets the item to insert, possibly after a short wait. Only used for items with resolveData.
     using CompletionResolver = std::function<void(const LspCompletionItem &item, std::function<void(const LspCompletionItem &)> finished)>;
     void setCompletionResolver(CompletionResolver resolver) { m_resolver = std::move(resolver); }
+    // Items QODE offers itself, without a server (Gradle version catalog accessors); asked with the line text in front of
+    // the word being typed. They are shown with the server's items and also make the file count as served for completion.
+    using LocalCompletions = std::function<QVector<LspCompletionItem>(const QString &beforeWord)>;
+    void setLocalCompletions(LocalCompletions provider) { m_localCompletions = std::move(provider); }
     // Applies server text edits (0-based line / UTF-16 column, positions as of the text the server saw) as one undo step.
     bool applyTextEdits(const QVector<LspTextEdit> &edits);
     // Replaces character ranges (offsets into the document text, ascending, not overlapping) as one undo step.
@@ -246,6 +250,8 @@ private:
     std::function<bool()> m_canGoToDefinition;
     CompletionCommandRunner m_commandRunner;
     CompletionResolver m_resolver;
+    LocalCompletions m_localCompletions;
+    QVector<LspCompletionItem> localCompletions() const;
     // Snippet session: Tab walks the tab stops of the last inserted snippet, in order, ending at $0.
     // A tab stop: the placeholder is [from, to] (empty for a bare $1). `from` stays put when text is typed at it, `to` moves
     // along, so the range grows to cover what is typed. `mirrors` are the other occurrences of the same $n; they copy the text.

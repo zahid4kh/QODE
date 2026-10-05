@@ -8,3 +8,6 @@ debian-staging-script
 *.deb
 docs/node_modules
 docs/.next
+/compile.sh
+/run.sh
+/build-deb.sh

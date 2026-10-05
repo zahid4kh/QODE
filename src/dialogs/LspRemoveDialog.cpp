@@ -1,6 +1,7 @@
 #include "LspRemoveDialog.h"
 
 #include "lsp/JarSource.h"
+#include "lsp/JdtlsInstaller.h"
 #include "lsp/LspInstaller.h"
 #include "lsp/NpmInstaller.h"
 #include "lsp/LspServers.h"
@@ -45,9 +46,10 @@ QString shown(const QString &path)
     return path.startsWith(home + QLatin1Char('/')) ? QStringLiteral("~") + path.mid(home.size()) : path;
 }
 
-QString kotlinCacheDir()
+// The server's own per-project indexes / workspace data (QODE/lsp/<id>/<hash of project>).
+QString serverCacheDir(const QString &id)
 {
-    return QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE/lsp/kotlin");
+    return QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE/lsp/") + id;
 }
 
 QString libraryCacheDir()
@@ -108,7 +110,7 @@ LspRemoveDialog::LspRemoveDialog(const QString &serverId, QWidget *parent) : QDi
         close();
     });
 
-    if (serverId == QLatin1String("kotlin"))
+    if (spec && (spec->installer == LspServerSpec::Installer::Download || spec->installer == LspServerSpec::Installer::Jdtls))
         buildManaged();
     else if (spec && spec->installer == LspServerSpec::Installer::Npm)
         buildNpm();
@@ -156,29 +158,32 @@ void LspRemoveDialog::log(const QString &line, const QString &)
     m_view->setTextCursor(c);
 }
 
-// --- A server QODE downloaded (Kotlin) ----------------------------------------------------------------
+// --- A server QODE downloaded (Kotlin, Java) ----------------------------------------------------------------
 
 void LspRemoveDialog::buildManaged()
 {
-    const QString root = LspInstaller::installRoot();
-    const QString version = LspInstaller::installedVersion();
-    const QFileInfo link(LspInstaller::linkPath());
-    const bool ownLink = link.isSymLink() && LspInstaller::isManaged(link.symLinkTarget());
+    const bool java = m_id == QLatin1String("java");
+    const QString root = java ? JdtlsInstaller::installRoot() : LspInstaller::installRoot();
+    const QString version = java ? JdtlsInstaller::installedVersion() : LspInstaller::installedVersion();
+    const QString cacheDir = serverCacheDir(m_id);
+    // Only Kotlin's install adds a ~/.local/bin command link.
+    const QFileInfo link(java ? QString() : LspInstaller::linkPath());
+    const bool ownLink = !java && link.isSymLink() && LspInstaller::isManaged(link.symLinkTarget());
     const QLocale loc;
 
-    m_intro->setText(tr("<b>Remove the Kotlin language server</b> that QODE downloaded%1. "
+    m_intro->setText(tr("<b>Remove the %1 language server</b> that QODE downloaded%2. "
                         "Nothing outside your home folder is touched and no administrator rights are needed. "
                         "These are the exact commands that will run:")
-                         .arg(version.isEmpty() ? QString() : tr(" (version %1)").arg(version.toHtmlEscaped())));
+                         .arg(java ? tr("Java") : tr("Kotlin"), version.isEmpty() ? QString() : tr(" (version %1)").arg(version.toHtmlEscaped())));
 
     m_steps.clear();
     if (ownLink)
         m_steps.append({tr("Remove the command link"), QStringLiteral("rm %1").arg(shown(link.filePath())), link.filePath(), true});
     m_steps.append({tr("Delete the downloaded server (about %1)").arg(loc.formattedDataSize(dirSize(root))),
                     QStringLiteral("rm -rf %1").arg(shown(root)), root, false});
-    if (QFileInfo::exists(kotlinCacheDir()))
-        m_steps.append({tr("Delete the server's project index and cache (about %1)").arg(loc.formattedDataSize(dirSize(kotlinCacheDir()))),
-                        QStringLiteral("rm -rf %1").arg(shown(kotlinCacheDir())), kotlinCacheDir(), false});
+    if (QFileInfo::exists(cacheDir))
+        m_steps.append({tr("Delete the server's project index and cache (about %1)").arg(loc.formattedDataSize(dirSize(cacheDir))),
+                        QStringLiteral("rm -rf %1").arg(shown(cacheDir)), cacheDir, false});
 
     m_library = new QCheckBox(tr("Also delete cached library sources opened with Go to Definition (about %1)")
                                   .arg(loc.formattedDataSize(dirSize(libraryCacheDir()))),
@@ -287,8 +292,11 @@ void LspRemoveDialog::finish(bool ok)
 {
     m_running = false;
     log(QString());
-    const bool web = m_id != QLatin1String("kotlin");
-    log(ok ? (web ? tr("Finished. The web language servers have been removed.") : tr("Finished. The Kotlin language server has been removed.")) : tr("Finished with errors. Some files could not be removed; see the messages above."));
+    const LspServerSpec *spec = LspServers::byId(m_id);
+    const QString removed = spec && spec->installer == LspServerSpec::Installer::Npm ? tr("web language servers")
+                            : m_id == QLatin1String("java")                          ? tr("Java language server")
+                                                                                     : tr("Kotlin language server");
+    log(ok ? tr("Finished. Removed the %1.").arg(removed) : tr("Finished with errors. Some files could not be removed; see the messages above."));
     m_primary->hide();
     m_close->setEnabled(true);
     askRestart(ok ? tr("Restart QODE so the language server state is fully reset?")

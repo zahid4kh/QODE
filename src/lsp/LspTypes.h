@@ -47,6 +47,7 @@ struct LspCompletionItem {
     QVector<LspTextEdit> additionalEdits; // e.g. an #include line
     QString command;      // run after accepting (Kotlin: jetbrains.kotlin.completion.apply adds the import and inserts the text)
     QJsonArray commandArgs;
+    QJsonObject resolveData; // the item as listed; set when accepting it needs completionItem/resolve first (jdtls)
 };
 
 // One entry of a textDocument/codeAction answer (quick fix, refactoring, "organize imports").

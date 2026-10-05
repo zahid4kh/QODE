@@ -52,6 +52,7 @@ SOURCES += \
     src/project/ProjectFiles.cpp \
     src/project/ProjectManager.cpp \
     src/project/QmakeProject.cpp \
+    src/project/JvmProject.cpp \
     src/project/GradleProject.cpp \
     src/project/ProjectModel.cpp \
     src/project/PythonEnv.cpp \
@@ -77,6 +78,7 @@ SOURCES += \
     src/dialogs/ThemeEditorDialog.cpp \
     src/dialogs/CompilerFlagsDialog.cpp \
     src/dialogs/LspInstallDialog.cpp \
+    src/dialogs/JdtlsInstallDialog.cpp \
     src/dialogs/LspRemoveDialog.cpp \
     src/dialogs/NpmInstallDialog.cpp \
     src/editor/Language.cpp \
@@ -101,6 +103,7 @@ SOURCES += \
     src/lsp/LspClient.cpp \
     src/lsp/JarSource.cpp \
     src/lsp/LspInstaller.cpp \
+    src/lsp/JdtlsInstaller.cpp \
     src/lsp/LspManager.cpp \
     src/lsp/LspServers.cpp \
     src/lsp/NpmInstaller.cpp \
@@ -135,6 +138,7 @@ HEADERS += \
     src/project/ProjectFiles.h \
     src/project/ProjectManager.h \
     src/project/QmakeProject.h \
+    src/project/JvmProject.h \
     src/project/GradleProject.h \
     src/project/ProjectModel.h \
     src/project/PythonEnv.h \
@@ -161,6 +165,7 @@ HEADERS += \
     src/dialogs/ThemeEditorDialog.h \
     src/dialogs/CompilerFlagsDialog.h \
     src/dialogs/LspInstallDialog.h \
+    src/dialogs/JdtlsInstallDialog.h \
     src/dialogs/LspRemoveDialog.h \
     src/dialogs/NpmInstallDialog.h \
     src/editor/Language.h \
@@ -185,6 +190,7 @@ HEADERS += \
     src/lsp/LspClient.h \
     src/lsp/JarSource.h \
     src/lsp/LspInstaller.h \
+    src/lsp/JdtlsInstaller.h \
     src/lsp/LspManager.h \
     src/lsp/LspServers.h \
     src/lsp/NpmInstaller.h \

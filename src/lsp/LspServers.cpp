@@ -6,7 +6,10 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
+#include <QProcess>
+#include <QSet>
 #include <QStandardPaths>
+#include <QSysInfo>
 #include <QVersionNumber>
 #include <algorithm>
 
@@ -58,6 +61,107 @@ QList<const LspServerSpec *> sharingInstall(const LspServerSpec &spec)
         if (s.installable && s.managedId == spec.managedId)
             out << &s;
     return out;
+}
+
+// "java -version" prints `openjdk version "21.0.4" ...` (or "1.8.0_402" for Java 8): the major version, 0 when unknown.
+static int javaMajor(const QString &javaPath)
+{
+    static QHash<QString, int> cache; // a launch asks for it again on every restart
+    const QString key = QFileInfo(javaPath).canonicalFilePath();
+    if (cache.contains(key))
+        return cache.value(key);
+    QProcess p;
+    p.setProcessChannelMode(QProcess::MergedChannels);
+    p.start(javaPath, {QStringLiteral("-version")});
+    int major = 0;
+    if (p.waitForFinished(5000)) {
+        const auto m = QRegularExpression(QStringLiteral("version \"(\\d+)(?:\\.(\\d+))?")).match(QString::fromLocal8Bit(p.readAll()));
+        if (m.hasMatch())
+            major = m.captured(1) == QLatin1String("1") && !m.captured(2).isEmpty() ? m.captured(2).toInt() : m.captured(1).toInt();
+    } else {
+        p.kill();
+    }
+    cache.insert(key, major);
+    return major;
+}
+
+JavaRuntime findJava(int minMajor)
+{
+    QStringList candidates;
+    const QString javaHome = qEnvironmentVariable("JAVA_HOME");
+    if (!javaHome.isEmpty())
+        candidates << javaHome + QStringLiteral("/bin/java");
+    const QString onPath = QStandardPaths::findExecutable(QStringLiteral("java"));
+    if (!onPath.isEmpty())
+        candidates << onPath;
+    const QString home = QDir::homePath();
+    for (const QString &dir : {QStringLiteral("/usr/lib/jvm"), QStringLiteral("/usr/lib64/jvm"), QStringLiteral("/usr/java"), QStringLiteral("/opt/jdk"),
+                               home + QStringLiteral("/.sdkman/candidates/java"), home + QStringLiteral("/.jdks"),
+                               home + QStringLiteral("/.local/share/mise/installs/java"), home + QStringLiteral("/.asdf/installs/java")}) {
+        QStringList names = QDir(dir).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+        std::sort(names.begin(), names.end(), [](const QString &a, const QString &b) { return QString::compare(a, b, Qt::CaseInsensitive) > 0; });
+        for (const QString &n : std::as_const(names))
+            candidates << dir + QLatin1Char('/') + n + QStringLiteral("/bin/java");
+    }
+    JavaRuntime best;
+    QSet<QString> seen;
+    for (const QString &c : std::as_const(candidates)) {
+        const QFileInfo fi(c);
+        const QString real = fi.canonicalFilePath();
+        if (real.isEmpty() || !fi.isExecutable() || seen.contains(real))
+            continue;
+        seen.insert(real);
+        const int major = javaMajor(c);
+        if (major >= minMajor)
+            return {fi.absoluteFilePath(), major};
+        best.major = qMax(best.major, major);
+    }
+    return best;
+}
+
+bool jdtlsCommand(const QString &launcher, const QString &workspaceDir, QString *program, QStringList *arguments, QString *error)
+{
+    const JavaRuntime java = findJava(21);
+    if (java.executable.isEmpty()) {
+        *error = java.major > 0 ? QObject::tr("The Java language server needs Java 21 or newer, but the newest Java found is %1. "
+                                              "Install a JDK 21+ (see LSP > Java > How to Install), then choose Restart Server.")
+                                      .arg(java.major)
+                                : QObject::tr("The Java language server needs Java 21 or newer, and no Java was found. "
+                                              "Install a JDK 21+ (see LSP > Java > How to Install), then choose Restart Server.");
+        return false;
+    }
+    const QStringList tail = {QStringLiteral("-configuration"), workspaceDir + QStringLiteral("/config"), QStringLiteral("-data"),
+                              workspaceDir + QStringLiteral("/data")};
+    // An extracted archive: <base>/bin/jdtls, <base>/plugins/org.eclipse.equinox.launcher_*.jar, <base>/config_linux.
+    QDir base(QFileInfo(QFileInfo(launcher).canonicalFilePath()).absolutePath());
+    base.cdUp();
+    const bool arm = QSysInfo::currentCpuArchitecture().startsWith(QLatin1String("arm64")) || QSysInfo::currentCpuArchitecture() == QLatin1String("aarch64");
+    const QString config = base.filePath(arm && base.exists(QStringLiteral("config_linux_arm")) ? QStringLiteral("config_linux_arm") : QStringLiteral("config_linux"));
+    const QStringList jars = QDir(base.filePath(QStringLiteral("plugins"))).entryList({QStringLiteral("org.eclipse.equinox.launcher_*.jar")}, QDir::Files);
+    if (!jars.isEmpty() && QFileInfo(config).isDir()) {
+        *program = java.executable;
+        *arguments = {QStringLiteral("-Declipse.application=org.eclipse.jdt.ls.core.id1"),
+                      QStringLiteral("-Dosgi.bundles.defaultStartLevel=4"),
+                      QStringLiteral("-Declipse.product=org.eclipse.jdt.ls.core.product"),
+                      QStringLiteral("-Dosgi.checkConfiguration=true"),
+                      QStringLiteral("-Dosgi.sharedConfiguration.area=") + config,
+                      QStringLiteral("-Dosgi.sharedConfiguration.area.readOnly=true"),
+                      QStringLiteral("-Dosgi.configuration.cascaded=true"),
+                      QStringLiteral("-Djava.import.generatesMetadataFilesAtProjectRoot=false"), // no .project / .classpath in the project
+                      QStringLiteral("--add-modules=ALL-SYSTEM"),
+                      QStringLiteral("--add-opens"), QStringLiteral("java.base/java.util=ALL-UNNAMED"),
+                      QStringLiteral("--add-opens"), QStringLiteral("java.base/java.lang=ALL-UNNAMED")};
+        if (java.major >= 24)
+            *arguments = QStringList{QStringLiteral("-Djdk.xml.maxGeneralEntitySizeLimit=0"), QStringLiteral("-Djdk.xml.totalEntitySizeLimit=0")} + *arguments;
+        *arguments += QStringList{QStringLiteral("-jar"), base.filePath(QStringLiteral("plugins/") + jars.first())};
+        *arguments += tail;
+        return true;
+    }
+    // A packaged "jdtls" (Python wrapper): it picks its own configuration; only tell it which Java and where to keep data.
+    *program = launcher;
+    *arguments = QStringList{QStringLiteral("--java-executable=") + java.executable,
+                             QStringLiteral("--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=false")} + tail;
+    return true;
 }
 
 QString nodeExecutable()
@@ -190,6 +294,29 @@ const QList<LspServerSpec> &all()
             "Projects should be Gradle or Maven projects (a build.gradle(.kts) or pom.xml in the project folder) so the "
             "server can find your dependencies.");
         l.append(kotlin);
+
+        LspServerSpec java;
+        java.id = QStringLiteral("java");
+        java.displayName = QStringLiteral("Java language server (Eclipse JDT)");
+        java.executables = {QStringLiteral("jdtls")};
+        java.extensions = {QStringLiteral("java")};
+        java.installer = LspServerSpec::Installer::Jdtls;
+        java.installable = true;
+        java.managedId = QStringLiteral("jdtls");
+        java.managedBinary = QStringLiteral("current/bin/jdtls");
+        java.resolvesCompletions = true;
+        java.installHelp = QStringLiteral(
+            "The Java language server is the Eclipse JDT Language Server (jdtls), the one VS Code, Neovim and Eclipse use. It "
+            "needs a Java runtime of version 21 or newer to run (any JDK; your projects can still target older Java versions).\n\n"
+            "Easiest: LSP > Java > Download and Set Up. QODE downloads the milestone build from download.eclipse.org "
+            "(about 50 MB) and unpacks it to ~/.local/share/QODE/lsp/jdtls. Nothing is installed system-wide.\n\n"
+            "Java 21 or newer: sudo apt install openjdk-21-jdk (Debian / Ubuntu), sudo dnf install java-21-openjdk-devel (Fedora), "
+            "sudo pacman -S jdk21-openjdk (Arch), or https://adoptium.net\n\n"
+            "By hand: download and extract a build from https://download.eclipse.org/jdtls/milestones/ and point QODE at its "
+            "bin/jdtls with LSP > Set Server Path (a \"jdtls\" package from your distribution works too).\n\n"
+            "Projects should be Maven or Gradle projects (pom.xml or build.gradle(.kts) in the project folder) so the server "
+            "finds their dependencies; the first import can take a minute while Maven / Gradle download them.");
+        l.append(java);
 
         // The web servers: one private `npm install` (NpmInstaller) provides all four, so they share a managedId.
         auto webServer = [](const QString &id, const QString &name, const QString &exe, const QStringList &exts) {

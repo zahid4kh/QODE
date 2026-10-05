@@ -157,6 +157,26 @@ QString extract(const QString &uri, QString *error)
     return target;
 }
 
+QString storeText(const QString &uri, const QByteArray &text)
+{
+    // jdt://contents/rt.jar/java.lang/String.class?=project/... : the class file's name decides the file name.
+    const QString name = QFileInfo(QUrl(uri).path()).completeBaseName();
+    if (name.isEmpty())
+        return {};
+    const QString hash = QString::fromLatin1(QCryptographicHash::hash(uri.toUtf8(), QCryptographicHash::Md5).toHex().left(12));
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE/lsp/library-sources/jdt/") + hash;
+    const QString target = dir + QLatin1Char('/') + name + QStringLiteral(".java");
+    QDir().mkpath(dir);
+    QFile::remove(target); // earlier copies are read-only
+    QFile out(target);
+    if (!out.open(QIODevice::WriteOnly) || out.write(text) != text.size())
+        return {};
+    out.close();
+    out.setPermissions(QFileDevice::ReadOwner | QFileDevice::ReadGroup | QFileDevice::ReadOther);
+    unpacked().insert(target, uri);
+    return target;
+}
+
 QString uriForPath(const QString &path) { return unpacked().value(path); }
 
 bool isLibraryPath(const QString &path)

@@ -15,8 +15,9 @@ struct LspServerSpec {
     bool fallbackFlags = false; // accepts initializationOptions.fallbackFlags (clangd)
     QString installHelp;    // shown when the executable is missing
     // How QODE can set the server up itself: Download = Kotlin's archive (LspInstaller), Npm = `npm install` into a private
-    // folder (NpmInstaller), shared by every server with the same managedId.
-    enum class Installer { None, Download, Npm };
+    // folder (NpmInstaller), Jdtls = the Eclipse JDT language server's archive (JdtlsInstaller); shared by every server
+    // with the same managedId.
+    enum class Installer { None, Download, Npm, Jdtls };
     Installer installer = Installer::None;
     bool installable = false; // installer != None
     QString managedId;        // folder under <data>/QODE/lsp/ (defaults to id)
@@ -26,6 +27,7 @@ struct LspServerSpec {
     // but every document it applies to is opened in it too, and its diagnostics / completions / colours are merged in.
     bool companion = false;
     bool (*relevant)(const QString &projectRoot) = nullptr; // companions only start where this holds (e.g. eslint is a dependency)
+    bool resolvesCompletions = false; // accepting an item asks completionItem/resolve first (jdtls adds its imports there)
     bool wantsConfiguration = false; // asks the client for settings through workspace/configuration (we answer in LspManager)
     QHash<QString, QString> languageIds; // extension -> LSP language id when it differs from `id`
 
@@ -41,6 +43,19 @@ QString managedExecutable(const LspServerSpec &spec); // empty when nothing is i
 bool isManaged(const LspServerSpec &spec, const QString &path);
 // Every server installed by the same managed install (the four web servers share one npm folder).
 QList<const LspServerSpec *> sharingInstall(const LspServerSpec &spec);
+// A Java runtime of at least `minMajor` (JAVA_HOME, PATH, then the usual JDK folders; a JAVA_HOME pointing at an older JDK
+// does not hide a newer one on PATH). `executable` is empty when none qualifies; `major` is then the newest one found
+// (0 = no Java at all).
+struct JavaRuntime {
+    QString executable;
+    int major = 0;
+};
+JavaRuntime findJava(int minMajor);
+// The command that starts the Eclipse JDT language server for `launcher` (its bin/jdtls, in QODE's download, another
+// extracted archive or a distribution's package). An extracted archive is started with java directly (no Python
+// wrapper); anything else is run as the wrapper with the Java runtime named. `workspaceDir` holds the server's
+// configuration and data for one project. False (with `error`) when no usable Java is found.
+bool jdtlsCommand(const QString &launcher, const QString &workspaceDir, QString *program, QStringList *arguments, QString *error);
 // A Node.js executable: PATH first, then the usual version-manager folders (a desktop-launched QODE does not see the
 // PATH nvm / fnm set up in a shell). Empty when there is none.
 QString nodeExecutable();

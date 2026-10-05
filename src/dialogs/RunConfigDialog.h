@@ -1,8 +1,12 @@
 #pragma once
 
 #include <QDialog>
+#include <QList>
+#include <QPair>
 
 class QCheckBox;
+class QComboBox;
+class QFormLayout;
 class QLabel;
 class QLineEdit;
 
@@ -17,6 +21,8 @@ public:
     // An explanation shown above the command (HTML), e.g. why it was prefilled.
     void setNote(const QString &html);
     void setProjectRoot(const QString &root);
+    // Detected configurations (name, command) to pick from; picking one fills in the command.
+    void setSuggestions(const QList<QPair<QString, QString>> &configs);
     // Offers (or, when `checked`, applies) running the whole project with this command regardless of the open file.
     void setProjectWide(bool checked);
     bool projectWide() const;
@@ -34,6 +40,9 @@ private:
 
     QString m_file;
     QLineEdit *m_command;
+    QComboBox *m_picker;
+    QFormLayout *m_form = nullptr;
+    QList<QPair<QString, QString>> m_configs;
     QLabel *m_preview;
     QLabel *m_note;
     QLabel *m_intro;

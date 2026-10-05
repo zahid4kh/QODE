@@ -1,6 +1,7 @@
 #include "RunConfigDialog.h"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFileInfo>
 #include <QFormLayout>
@@ -8,6 +9,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QVBoxLayout>
 
 namespace {
@@ -87,7 +89,10 @@ RunConfigDialog::RunConfigDialog(const QString &filePath, const QString &command
     vars->setObjectName(QStringLiteral("emptyText"));
     vars->setWordWrap(true);
 
-    auto *form = new QFormLayout;
+    m_picker = new QComboBox(this);
+    auto *form = m_form = new QFormLayout;
+    form->addRow(tr("Detected:"), m_picker);
+    form->setRowVisible(m_picker, false);
     form->addRow(tr("Command:"), m_command);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, this);
@@ -104,6 +109,18 @@ RunConfigDialog::RunConfigDialog(const QString &filePath, const QString &command
     layout->addWidget(buttons);
 
     connect(m_command, &QLineEdit::textChanged, this, &RunConfigDialog::updatePreview);
+    connect(m_command, &QLineEdit::textChanged, this, [this](const QString &text) {
+        int idx = 0; // 0 = custom
+        for (int i = 0; i < m_configs.size(); ++i)
+            if (m_configs[i].second == text.trimmed())
+                idx = i + 1;
+        QSignalBlocker block(m_picker);
+        m_picker->setCurrentIndex(idx);
+    });
+    connect(m_picker, &QComboBox::activated, this, [this](int i) {
+        if (i > 0 && i <= m_configs.size())
+            m_command->setText(m_configs[i - 1].second);
+    });
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     updateIntro();
@@ -148,4 +165,19 @@ void RunConfigDialog::setProjectRoot(const QString &root)
 {
     m_root = root;
     updatePreview();
+}
+
+void RunConfigDialog::setSuggestions(const QList<QPair<QString, QString>> &configs)
+{
+    m_configs = configs;
+    m_picker->clear();
+    m_picker->addItem(tr("Custom command"));
+    for (const auto &c : configs)
+        m_picker->addItem(c.first);
+    m_form->setRowVisible(m_picker, !configs.isEmpty());
+    int idx = 0;
+    for (int i = 0; i < configs.size(); ++i)
+        if (configs[i].second == command())
+            idx = i + 1;
+    m_picker->setCurrentIndex(idx);
 }

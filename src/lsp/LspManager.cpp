@@ -14,6 +14,8 @@
 #include <QJsonArray>
 #include <QProcess>
 #include <QStandardPaths>
+#include <QRegularExpression>
+#include <QTextBlock>
 #include <QTextDocument>
 #include <QTimer>
 #include <QUrl>
@@ -63,6 +65,32 @@ QJsonValue configurationFor(const QString &serverId, const QJsonObject &item, co
         return QJsonObject();
     }
     return QJsonValue::Null;
+}
+
+// jdtls settings: .project / .classpath / .settings stay out of the user's project (they go to the workspace folder in
+// the cache; the JVM property in LspServers::jdtlsCommand is the other half of that), and a changed pom.xml / build.gradle
+// is reloaded without a prompt.
+QJsonObject javaSettings()
+{
+    return {{QStringLiteral("java"),
+             QJsonObject{{QStringLiteral("import"), QJsonObject{{QStringLiteral("generatesMetadataFilesAtProjectRoot"), false}}},
+                         {QStringLiteral("configuration"), QJsonObject{{QStringLiteral("updateBuildConfiguration"), QStringLiteral("automatic")}}}}}};
+}
+
+// `File f = File(".");` -- jdtls says "The method File(String) is undefined for the type Main" and offers only "Create method".
+// When the name starts with a capital, is followed by "(" and is not a member call, the likely cause is a forgotten `new`.
+bool missingNew(const QTextDocument *td, int line, int column, const QString &message)
+{
+    static const QRegularExpression re(QStringLiteral("^The method ([A-Z]\\w*)\\(.*\\) is undefined for the type "));
+    const auto m = re.match(message);
+    const QTextBlock b = td ? td->findBlockByNumber(line) : QTextBlock();
+    if (!m.hasMatch() || !b.isValid())
+        return false;
+    const QString text = b.text(), name = m.captured(1);
+    if (!text.mid(column).startsWith(name + QLatin1Char('(')))
+        return false;
+    const QString before = text.left(column).trimmed();
+    return !before.endsWith(QLatin1Char('.')) && !before.endsWith(QLatin1String("new"));
 }
 
 QString uriFor(const QString &path)
@@ -193,9 +221,26 @@ void LspManager::startServer(Server &s, const QString &rootPath)
         QDir().mkpath(cache);
         args.replaceInStrings(QStringLiteral("{cache}"), cache);
     }
+    QString program = exe;
+    if (s.spec->id == QLatin1String("java")) {
+        // jdtls: java -jar <launcher> ...; its configuration and workspace data live in the cache, one per project.
+        const QString key = QString::fromLatin1(QCryptographicHash::hash(rootPath.toUtf8(), QCryptographicHash::Md5).toHex().left(12));
+        const QString workspace = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE/lsp/java/") + key;
+        QDir().mkpath(workspace);
+        QString error;
+        if (!LspServers::jdtlsCommand(exe, workspace, &program, &args, &error)) {
+            setStatus(s, Status::Crashed, error);
+            return;
+        }
+        // Report progress and serve class files that have no source (java/classFileContents); the settings are also
+        // sent as didChangeConfiguration once the server is ready (see onServerReady), which is when jdtls reads them.
+        options.insert(QStringLiteral("settings"), javaSettings());
+        options.insert(QStringLiteral("extendedClientCapabilities"),
+                       QJsonObject{{QStringLiteral("progressReportProvider"), true}, {QStringLiteral("classFileContentsSupport"), true}});
+    }
     s.progress.clear();
     s.state.progress.clear();
-    s.client = new LspClient(exe, args, rootPath, options, this);
+    s.client = new LspClient(program, args, rootPath, options, this);
     if (s.spec->wantsConfiguration) {
         const QString id = s.spec->id;
         s.client->setConfigurationProvider([id, rootPath](const QJsonObject &item) { return configurationFor(id, item, rootPath); });
@@ -219,6 +264,8 @@ void LspManager::onServerReady(const QString &id)
     if (!s.client->serverVersion().isEmpty())
         detail += QLatin1Char(' ') + s.client->serverVersion();
     setStatus(s, Status::Running, detail);
+    if (s.spec->id == QLatin1String("java"))
+        s.client->notify(QStringLiteral("workspace/didChangeConfiguration"), QJsonObject{{QStringLiteral("settings"), javaSettings()}});
     for (auto it = m_tracked.begin(); it != m_tracked.end(); ++it)
         if (it->servers().contains(id) && !it->openOn.contains(id))
             sendOpen(it.key(), it.value(), id);
@@ -536,9 +583,131 @@ void LspManager::documentSaved(Document *doc)
     pullDiagnostics(doc);
 }
 
-// A qmake .pro / .pri changed: the flags derived from it are stale, so servers using them restart.
+bool LspManager::isJvmBuildFile(const QString &path)
+{
+    const QString n = QFileInfo(path).fileName();
+    return n == QLatin1String("build.gradle") || n == QLatin1String("build.gradle.kts") || n == QLatin1String("settings.gradle")
+           || n == QLatin1String("settings.gradle.kts") || n == QLatin1String("gradle.properties") || n == QLatin1String("pom.xml")
+           || n == QLatin1String("gradle-wrapper.properties") || n.endsWith(QLatin1String(".versions.toml"));
+}
+
+// The build files of the project: the root's and its direct sub-folders' (modules), plus the version catalog.
+QStringList LspManager::jvmBuildFiles() const
+{
+    QStringList out;
+    if (m_root.isEmpty())
+        return out;
+    const QStringList names = {QStringLiteral("build.gradle"), QStringLiteral("build.gradle.kts"), QStringLiteral("settings.gradle"),
+                               QStringLiteral("settings.gradle.kts"), QStringLiteral("gradle.properties"), QStringLiteral("pom.xml")};
+    QStringList dirs = {m_root};
+    for (const QString &d : QDir(m_root).entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name))
+        if (!d.startsWith(QLatin1Char('.')) && d != QLatin1String("build") && d != QLatin1String("node_modules") && d != QLatin1String("target"))
+            dirs << m_root + QLatin1Char('/') + d;
+    for (const QString &dir : std::as_const(dirs))
+        for (const QString &n : names)
+            if (QFileInfo::exists(dir + QLatin1Char('/') + n))
+                out << dir + QLatin1Char('/') + n;
+    const QString catalog = m_root + QStringLiteral("/gradle/libs.versions.toml");
+    if (QFileInfo::exists(catalog))
+        out << catalog;
+    return out;
+}
+
+bool LspManager::hasBuildFiles() const
+{
+    return !jvmBuildFiles().isEmpty();
+}
+
+bool LspManager::canSyncBuildFiles() const
+{
+    for (const char *id : {"java", "kotlin"}) {
+        const auto it = m_servers.constFind(QLatin1String(id));
+        if (it != m_servers.constEnd() && it->client && it->client->isRunning() && it->state.status == Status::Running)
+            return true;
+    }
+    return false;
+}
+
+bool LspManager::syncBuildFiles(bool manual)
+{
+    const QStringList files = jvmBuildFiles();
+    if (files.isEmpty())
+        return false;
+    bool any = false;
+    for (const char *name : {"java", "kotlin"}) {
+        const QString id = QLatin1String(name);
+        auto it = m_servers.find(id);
+        if (it == m_servers.end() || !it->client || !it->client->isRunning() || it->state.status != Status::Running)
+            continue; // a server that is not up reads the fresh files when it starts
+        Server &s = *it;
+        any = true;
+        s.state.syncing = true;
+        s.syncSawProgress = false;
+        const int gen = ++s.syncGen;
+        QJsonArray changes;
+        for (const QString &f : files)
+            changes.append(QJsonObject{{QStringLiteral("uri"), QUrl::fromLocalFile(f).toString()}, {QStringLiteral("type"), 2}});
+        s.client->notify(QStringLiteral("workspace/didChangeWatchedFiles"), QJsonObject{{QStringLiteral("changes"), changes}});
+        if (manual && id == QLatin1String("java"))
+            s.client->request(QStringLiteral("workspace/executeCommand"), QJsonObject{{QStringLiteral("command"), QStringLiteral("java.project.import")}});
+        emit statusChanged();
+        // Nothing reported within a few seconds: the server did not notice. A manual sync then restarts it (it re-reads
+        // everything on start); an automatic one just stops claiming to sync.
+        QTimer::singleShot(5000, this, [this, id, gen, manual] {
+            Server &srv = m_servers[id];
+            if (srv.syncGen != gen || !srv.state.syncing || srv.syncSawProgress)
+                return;
+            srv.state.syncing = false;
+            emit statusChanged();
+            if (manual) {
+                restart(id);
+                srv.state.syncing = true; // until the restarted server is idle again
+                srv.syncSawProgress = true;
+                emit statusChanged();
+                const int g = ++srv.syncGen; // a restarted server's own import ends the sync; otherwise give up after a while
+                QTimer::singleShot(90000, this, [this, id, g] {
+                    Server &r = m_servers[id];
+                    if (r.syncGen == g && r.state.syncing) {
+                        r.state.syncing = false;
+                        emit statusChanged();
+                    }
+                });
+            }
+        });
+    }
+    return any;
+}
+
+// Progress of a server changed: a sync that was running is finished once every operation has ended for a moment.
+void LspManager::progressChanged(Server &s)
+{
+    if (!s.progress.isEmpty()) {
+        if (s.state.syncing)
+            s.syncSawProgress = true;
+        return;
+    }
+    if (!s.state.syncing || !s.syncSawProgress)
+        return;
+    const QString id = s.state.id;
+    const int gen = ++s.syncGen;
+    QTimer::singleShot(1500, this, [this, id, gen] {
+        Server &srv = m_servers[id];
+        if (srv.syncGen != gen || !srv.progress.isEmpty() || !srv.state.syncing)
+            return;
+        srv.state.syncing = false;
+        emit statusChanged();
+        emit buildSyncFinished(srv.state.name.section(QLatin1Char(' '), 0, 0));
+    });
+}
+
+// A qmake .pro / .pri changed: the flags derived from it are stale, so servers using them restart. A Gradle / Maven
+// file makes the Java and Kotlin servers re-import the project.
 void LspManager::buildFileSaved(const QString &path)
 {
+    if (isJvmBuildFile(path)) {
+        syncBuildFiles(false);
+        return;
+    }
     const QString suffix = QFileInfo(path).suffix();
     if (suffix != QLatin1String("pro") && suffix != QLatin1String("pri"))
         return;
@@ -721,8 +890,13 @@ void LspManager::completion(Document *doc, int line, int column, int triggerKind
     gather->pending = clients.size();
     gather->done = std::move(done);
     for (LspClient *c : clients) {
+        // jdtls adds an item's import (additionalTextEdits) only when the item is resolved.
+        bool resolvable = false;
+        for (auto it = m_servers.constBegin(); it != m_servers.constEnd(); ++it)
+            if (it->client == c && it->spec && it->spec->resolvesCompletions)
+                resolvable = c->serverCapabilities().value(QStringLiteral("completionProvider")).toObject().value(QStringLiteral("resolveProvider")).toBool();
         const int id = c->request(QStringLiteral("textDocument/completion"), params,
-                                  [gather](const QJsonValue &result, const QJsonObject &error) {
+                                  [gather, resolvable](const QJsonValue &result, const QJsonObject &error) {
                                       if (error.isEmpty()) {
                                           QJsonArray items;
                                           if (result.isArray()) {
@@ -732,8 +906,11 @@ void LspManager::completion(Document *doc, int line, int column, int triggerKind
                                               items = result.toObject().value(QStringLiteral("items")).toArray();
                                           }
                                           gather->items.reserve(gather->items.size() + items.size());
-                                          for (const QJsonValue &v : items)
+                                          for (const QJsonValue &v : items) {
                                               gather->items << parseCompletionItem(v.toObject());
+                                              if (resolvable)
+                                                  gather->items.last().resolveData = v.toObject();
+                                          }
                                       }
                                       if (--gather->pending == 0)
                                           gather->deliver();
@@ -868,6 +1045,36 @@ void LspManager::runCompletionCommand(Document *doc, const LspCompletionItem &it
     });
 }
 
+// completionItem/resolve fills in what the server left out of the list (jdtls: the import line of a type that is not
+// imported yet). `done` always runs once: with the resolved item, or the original after a timeout / on error.
+void LspManager::resolveCompletion(Document *doc, const LspCompletionItem &item, std::function<void(const LspCompletionItem &)> done)
+{
+    QString uri;
+    LspClient *c = item.resolveData.isEmpty() ? nullptr : readyClientFor(doc, &uri);
+    if (!c) {
+        done(item);
+        return;
+    }
+    auto finished = std::make_shared<bool>(false);
+    auto finish = [finished, done](const LspCompletionItem &it) {
+        if (*finished)
+            return;
+        *finished = true;
+        done(it);
+    };
+    QTimer::singleShot(1500, this, [finish, item] { finish(item); });
+    c->request(QStringLiteral("completionItem/resolve"), item.resolveData, [finish, item](const QJsonValue &result, const QJsonObject &error) {
+        LspCompletionItem out = item;
+        if (error.isEmpty() && result.isObject()) {
+            const LspCompletionItem fresh = parseCompletionItem(result.toObject());
+            out.additionalEdits = fresh.additionalEdits;
+            if (!fresh.hasEdit && !fresh.insertText.isEmpty() && !out.hasEdit)
+                out.insertText = fresh.insertText;
+        }
+        finish(out);
+    });
+}
+
 void LspManager::codeActions(Document *doc, int startLine, int startColumn, int endLine, int endColumn,
                              std::function<void(const QVector<LspCodeAction> &)> done)
 {
@@ -886,6 +1093,18 @@ void LspManager::codeActions(Document *doc, int startLine, int startColumn, int 
     };
     auto gather = std::make_shared<Gather>();
     gather->pending = clients.size();
+    for (const LspDiagnostic &d : m_diagnostics.value(doc->filePath())) {
+        const bool before = d.endLine < startLine || (d.endLine == startLine && d.endColumn < startColumn);
+        const bool after = d.startLine > endLine || (d.startLine == endLine && d.startColumn > endColumn);
+        if (before || after || d.server != QLatin1String("java") || !missingNew(doc->textDocument(), d.startLine, d.startColumn, d.message))
+            continue;
+        const QJsonObject at{{QStringLiteral("line"), d.startLine}, {QStringLiteral("character"), d.startColumn}};
+        const QJsonObject edit{{QStringLiteral("changes"),
+                                QJsonObject{{uri, QJsonArray{QJsonObject{{QStringLiteral("range"), QJsonObject{{QStringLiteral("start"), at}, {QStringLiteral("end"), at}}},
+                                                                         {QStringLiteral("newText"), QStringLiteral("new ")}}}}}}};
+        const QString title = tr("Add 'new' (create an instance)");
+        gather->actions.append({title, QStringLiteral("quickfix"), QJsonObject{{QStringLiteral("title"), title}, {QStringLiteral("edit"), edit}}, QStringLiteral("java")});
+    }
     for (LspClient *c : clients) {
         QString serverId;
         for (auto it = m_servers.constBegin(); it != m_servers.constEnd(); ++it)
@@ -979,6 +1198,14 @@ void LspManager::runCodeAction(Document *doc, const LspCodeAction &action, std::
         done(ok);
         return;
     }
+    // jdtls offers some fixes as a client-side command that carries the edit; it is not a server command.
+    if (cmd.value(QStringLiteral("command")).toString() == QLatin1String("java.apply.workspaceEdit")) {
+        bool applied = ok;
+        for (const QJsonValue &e : cmd.value(QStringLiteral("arguments")).toArray())
+            applied = (m_applyEdit && m_applyEdit(e.toObject())) && applied;
+        done(applied);
+        return;
+    }
     c->request(QStringLiteral("workspace/executeCommand"),
                QJsonObject{{QStringLiteral("command"), cmd.value(QStringLiteral("command"))}, {QStringLiteral("arguments"), cmd.value(QStringLiteral("arguments"))}},
                [done, ok](const QJsonValue &, const QJsonObject &err) { done(ok && err.isEmpty()); });
@@ -1026,17 +1253,54 @@ void LspManager::definition(Document *doc, int line, int column, std::function<v
         done({});
         return;
     }
+    QPointer<LspClient> guard(c);
     c->request(QStringLiteral("textDocument/definition"), positionParams(uri, line, column),
-               [done](const QJsonValue &result, const QJsonObject &error) {
-                   QVector<LspLocation> out;
+               [guard, done](const QJsonValue &result, const QJsonObject &error) {
+                   QVector<QJsonObject> found;
                    if (error.isEmpty()) {
                        if (result.isArray())
                            for (const QJsonValue &v : result.toArray())
-                               addLocation(out, v.toObject());
+                               found << v.toObject();
                        else if (result.isObject())
-                           addLocation(out, result.toObject());
+                           found << result.toObject();
                    }
-                   done(out);
+                   // jdtls answers "jdt://contents/…class" for library classes: ask it for the text, which is cached as a file.
+                   struct Gather {
+                       int pending = 0;
+                       QVector<LspLocation> out;
+                   };
+                   auto gather = std::make_shared<Gather>();
+                   QVector<QJsonObject> classFiles;
+                   for (const QJsonObject &o : std::as_const(found)) {
+                       const QString target = o.value(o.contains(QStringLiteral("targetUri")) ? QStringLiteral("targetUri") : QStringLiteral("uri")).toString();
+                       if (target.startsWith(QLatin1String("jdt:")) && guard)
+                           classFiles << o;
+                       else
+                           addLocation(gather->out, o);
+                   }
+                   if (classFiles.isEmpty()) {
+                       done(gather->out);
+                       return;
+                   }
+                   gather->pending = classFiles.size();
+                   for (const QJsonObject &o : std::as_const(classFiles)) {
+                       const bool link = o.contains(QStringLiteral("targetUri"));
+                       const QString target = o.value(link ? QStringLiteral("targetUri") : QStringLiteral("uri")).toString();
+                       const QJsonObject start = o.value(link ? QStringLiteral("targetSelectionRange") : QStringLiteral("range")).toObject().value(QStringLiteral("start")).toObject();
+                       guard->request(QStringLiteral("java/classFileContents"), QJsonObject{{QStringLiteral("uri"), target}},
+                                      [gather, done, target, start](const QJsonValue &text, const QJsonObject &err) {
+                                          if (err.isEmpty() && text.isString()) {
+                                              LspLocation loc;
+                                              loc.path = JarSource::storeText(target, text.toString().toUtf8());
+                                              loc.line = start.value(QStringLiteral("line")).toInt();
+                                              loc.column = start.value(QStringLiteral("character")).toInt();
+                                              if (!loc.path.isEmpty())
+                                                  gather->out << loc;
+                                          }
+                                          if (--gather->pending == 0)
+                                              done(gather->out);
+                                      });
+                   }
                });
 }
 
@@ -1070,6 +1334,34 @@ void LspManager::onNotification(const QString &id, const QString &method, const 
             s.state.progress.clear();
         else if (kind == QLatin1String("end"))
             s.state.progress = s.progress.constBegin()->value(1);
+        progressChanged(s);
+        emit statusChanged();
+        return;
+    }
+    if (method == QLatin1String("language/progressReport")) {
+        // jdtls' own progress notification: {id, task, subTask, status, totalWork, workDone, complete}.
+        Server &s = m_servers[id];
+        const QJsonObject o = params.toObject();
+        const QString token = o.value(QStringLiteral("id")).toString();
+        if (o.value(QStringLiteral("complete")).toBool()) {
+            s.progress.remove(token);
+        } else {
+            const QString task = o.value(QStringLiteral("task")).toString();
+            QString text;
+            if (task.contains(QStringLiteral("Gradle")) || task.contains(QStringLiteral("Maven")) || task.contains(QStringLiteral("mport"))
+                || task.contains(QStringLiteral("ynchroni")))
+                text = task.contains(QStringLiteral("Maven")) ? tr("Syncing Maven project") : tr("Syncing Gradle project");
+            else if (task.startsWith(QLatin1String("Search")))
+                text = tr("Indexing");
+            else
+                text = QString(task).remove(QStringLiteral("...")).trimmed();
+            const int total = o.value(QStringLiteral("totalWork")).toInt();
+            if (total > 0 && text != tr("Indexing"))
+                text += QStringLiteral(" %1%").arg(qBound(0, o.value(QStringLiteral("workDone")).toInt() * 100 / total, 100));
+            s.progress.insert(token, {task, text});
+        }
+        s.state.progress = s.progress.isEmpty() ? QString() : s.progress.constBegin()->value(1);
+        progressChanged(s);
         emit statusChanged();
         return;
     }
@@ -1106,6 +1398,13 @@ void LspManager::setDiagnosticsFor(const QString &path, const QJsonArray &items,
         diag.code = d.value(QStringLiteral("code")).toVariant().toString();
         diag.server = serverId;
         diag.raw = d;
+        if (serverId == QLatin1String("java"))
+            for (auto it = m_tracked.constBegin(); it != m_tracked.constEnd(); ++it)
+                if (it->path == path) {
+                    if (missingNew(it.key()->textDocument(), diag.startLine, diag.startColumn, diag.message))
+                        diag.message += tr("\n\nDid you forget 'new'? Press Alt+Enter to add it.");
+                    break;
+                }
         list.append(diag);
     }
     if (list.isEmpty()) {

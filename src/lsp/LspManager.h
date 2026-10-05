@@ -31,6 +31,7 @@ public:
         QString path;   // resolved executable
         QString detail; // "clangd 18.1.3", an error, ...
         int documents = 0; // open files this server handles
+        bool syncing = false; // a build-file sync (Gradle / Maven re-import) is running
         QString progress;  // what the server reports it is busy with ("Importing Gradle project 40%"), or empty
         bool installable = false; // QODE can download it (LspInstaller)
         bool companion = false;   // ESLint / Tailwind: runs next to a file's main server
@@ -46,7 +47,14 @@ public:
     void documentOpened(Document *doc);
     void documentSaved(Document *doc);
     void documentPathChanged(Document *doc);
-    void buildFileSaved(const QString &path); // .pro / .pri saved
+    void buildFileSaved(const QString &path); // .pro / .pri saved; Gradle / Maven files re-sync the JVM servers
+    // Tells the Java and Kotlin servers that the build files changed so they re-import the project (Gradle / Maven). With
+    // `manual` the files are announced even when unchanged and a server that shows no sign of syncing is restarted.
+    // Returns false when no JVM server is running (nothing to sync).
+    bool syncBuildFiles(bool manual);
+    bool hasBuildFiles() const;      // the project has a Gradle / Maven build file
+    bool canSyncBuildFiles() const;  // ... and a Java / Kotlin server is running
+    static bool isJvmBuildFile(const QString &path);
 
     QList<ServerState> servers() const;
     QString installHelp(const QString &serverId) const;
@@ -100,6 +108,8 @@ public:
     // Accepts a completion item that carries a server command (Kotlin: adds the import, inserts the text). The server's
     // edits arrive through the apply-edit handler; done(false) means nothing happened and the caller should insert locally.
     void runCompletionCommand(Document *doc, const LspCompletionItem &item, int line, int column, std::function<void(bool)> done);
+    // Asks the server to complete an item the list left unfinished (item.resolveData set: jdtls imports); `done` runs once.
+    void resolveCompletion(Document *doc, const LspCompletionItem &item, std::function<void(const LspCompletionItem &)> done);
     // Quick fixes / refactorings for the range (Alt+Enter); diagnostics inside it are passed along.
     void codeActions(Document *doc, int startLine, int startColumn, int endLine, int endColumn,
                      std::function<void(const QVector<LspCodeAction> &)> done);
@@ -115,6 +125,7 @@ public:
 
 signals:
     void statusChanged();
+    void buildSyncFinished(const QString &serverName); // the re-import ended
     void diagnosticsChanged(const QString &path);
 
 private:
@@ -123,6 +134,8 @@ private:
         LspClient *client = nullptr;
         ServerState state;
         int restarts = 0;
+        int syncGen = 0;          // invalidates the pending "did anything start?" check
+        bool syncSawProgress = false;
         QHash<QString, QStringList> progress; // $/progress token -> {title, text shown} of the running operations
     };
     struct Tracked {
@@ -140,6 +153,8 @@ private:
     void stopServer(Server &s);
     void onServerReady(const QString &id);
     void onServerStopped(const QString &id, bool crashed);
+    void progressChanged(Server &s);
+    QStringList jvmBuildFiles() const;
     void onNotification(const QString &id, const QString &method, const QJsonValue &params);
     void track(Document *doc);
     void untrack(Document *doc, bool sendClose);

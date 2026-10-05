@@ -2926,6 +2926,16 @@ void CodeEditor::acceptCompletion()
         if (taken)
             return;
     }
+    if (!item.resolveData.isEmpty() && m_resolver) {
+        // The editor stays usable while the server answers: insert only when nothing was typed meanwhile.
+        const int revision = document()->revision();
+        QPointer<CodeEditor> guard(this);
+        m_resolver(item, [guard, anchor, cur, revision](const LspCompletionItem &resolved) {
+            if (guard && guard->document()->revision() == revision)
+                guard->insertCompletion(resolved, anchor, cur);
+        });
+        return;
+    }
     insertCompletion(item, anchor, cur);
 }
 

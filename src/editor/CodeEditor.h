@@ -94,6 +94,10 @@ public:
     // done(false) if it could not finish, and the editor inserts the item's text itself.
     using CompletionCommandRunner = std::function<bool(const LspCompletionItem &item, int line, int column, std::function<void(bool done)> finished)>;
     void setCompletionCommandRunner(CompletionCommandRunner runner) { m_commandRunner = std::move(runner); }
+    // Completes an item that needs the server's completionItem/resolve before it is inserted (jdtls adds its import
+    // there); `finished` gets the item to insert, possibly after a short wait. Only used for items with resolveData.
+    using CompletionResolver = std::function<void(const LspCompletionItem &item, std::function<void(const LspCompletionItem &)> finished)>;
+    void setCompletionResolver(CompletionResolver resolver) { m_resolver = std::move(resolver); }
     // Applies server text edits (0-based line / UTF-16 column, positions as of the text the server saw) as one undo step.
     bool applyTextEdits(const QVector<LspTextEdit> &edits);
     // Replaces character ranges (offsets into the document text, ascending, not overlapping) as one undo step.
@@ -241,6 +245,7 @@ private:
     void updateLink(bool ctrlDown);
     std::function<bool()> m_canGoToDefinition;
     CompletionCommandRunner m_commandRunner;
+    CompletionResolver m_resolver;
     // Snippet session: Tab walks the tab stops of the last inserted snippet, in order, ending at $0.
     // A tab stop: the placeholder is [from, to] (empty for a bare $1). `from` stays put when text is typed at it, `to` moves
     // along, so the range grows to cover what is typed. `mirrors` are the other occurrences of the same $n; they copy the text.

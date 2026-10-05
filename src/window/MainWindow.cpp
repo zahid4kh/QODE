@@ -4,6 +4,7 @@
 #include "Island.h"
 #include "SideSections.h"
 #include "dialogs/CompilerFlagsDialog.h"
+#include "dialogs/JdtlsInstallDialog.h"
 #include "dialogs/LspInstallDialog.h"
 #include "dialogs/LspLogDialog.h"
 #include "dialogs/LspRemoveDialog.h"
@@ -11,7 +12,7 @@
 #include "dialogs/NewProjectDialog.h"
 #include "dialogs/RunConfigDialog.h"
 #include "webdev/DevServerBar.h"
-#include "project/GradleProject.h"
+#include "project/JvmProject.h"
 #include "project/QmakeProject.h"
 #include "media/MarkdownPreview.h"
 #include "tasks/TasksPanel.h"
@@ -304,10 +305,16 @@ MainWindow::MainWindow(QWidget *parent)
             ed->setReadOnly(true); // library source unpacked by Go to Definition
         // Kotlin completions add their import (and insert the text) through a server command.
         ed->setCompletionCommandRunner([this, doc](const LspCompletionItem &item, int line, int column, std::function<void(bool)> finished) {
-            if (!m_lsp->supportsCommand(doc, item.command))
+            // Only Kotlin's command inserts the text; other servers (jdtls: java.completion.onDidSelect) attach commands
+            // that are notifications, and running them instead of inserting would drop the completion.
+            if (item.command != QLatin1String("jetbrains.kotlin.completion.apply") || !m_lsp->supportsCommand(doc, item.command))
                 return false;
             m_lsp->runCompletionCommand(doc, item, line, column, std::move(finished));
             return true;
+        });
+        // Java completions get their import when the item is resolved.
+        ed->setCompletionResolver([this, doc](const LspCompletionItem &item, std::function<void(const LspCompletionItem &)> finished) {
+            m_lsp->resolveCompletion(doc, item, std::move(finished));
         });
         connect(ed, &CodeEditor::removeUnusedImportsRequested, this, [this, ed] { removeUnusedImports(ed); });
         connect(ed, &CodeEditor::colorsRequested, this, [this, doc, ed] { requestColors(doc, ed); });
@@ -330,7 +337,15 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(m_editors, &EditorManager::documentAdded, m_lsp, &LspManager::documentOpened);
     connect(m_editors, &EditorManager::documentSaved, m_lsp, &LspManager::documentSaved);
-    connect(m_editors, &EditorManager::documentSaved, this, [this](Document *doc) { m_lsp->buildFileSaved(doc->filePath()); });
+    connect(m_editors, &EditorManager::documentSaved, this, [this](Document *doc) {
+        const bool jvmBuild = LspManager::isJvmBuildFile(doc->filePath()) && m_lsp->canSyncBuildFiles();
+        m_lsp->buildFileSaved(doc->filePath());
+        if (jvmBuild)
+            statusBar()->showMessage(tr("%1 saved — syncing the project…").arg(QFileInfo(doc->filePath()).fileName()), 5000);
+    });
+    connect(m_lsp, &LspManager::buildSyncFinished, this, [this](const QString &server) {
+        statusBar()->showMessage(tr("✓ Build files synced (%1)").arg(server), 6000);
+    });
     connect(m_editors, &EditorManager::documentPathChanged, m_lsp, &LspManager::documentPathChanged);
     connect(m_lsp, &LspManager::statusChanged, this, &MainWindow::updateLspStatus);
     // A server that just finished starting: fetch the colour literals of the files already open.
@@ -1139,6 +1154,12 @@ void MainWindow::rebuildLspMenu()
 
         if (installed) {
             addMenuSection(sub, tr("Server"), theme);
+            if (id == QLatin1String("java") || id == QLatin1String("kotlin")) {
+                QAction *sync = sub->addAction(tr("Sync Build Files (Gradle / Maven)"));
+                sync->setEnabled(st.status == Status::Running && m_lsp->hasBuildFiles());
+                sync->setToolTip(tr("Make the server re-read build.gradle(.kts), settings.gradle, libs.versions.toml and pom.xml"));
+                connect(sync, &QAction::triggered, this, &MainWindow::syncBuildFiles);
+            }
             connect(sub->addAction(tr("Restart Server")), &QAction::triggered, this, [this, id] { m_lsp->restart(id); });
             if (st.status == Status::Running)
                 connect(sub->addAction(tr("Show Server Log…")), &QAction::triggered, this, [this, id] { showLspLog(id); });
@@ -1152,6 +1173,21 @@ void MainWindow::rebuildLspMenu()
     }
 
     addMenuSection(m_lspMenu, tr("Project"), theme);
+    {
+        const bool has = m_lsp->hasBuildFiles();
+        const bool syncing = [&] {
+            for (const LspManager::ServerState &st : m_lsp->servers())
+                if (st.syncing)
+                    return true;
+            return false;
+        }();
+        QAction *sync = m_lspMenu->addAction(syncing ? tr("⟳  Syncing Build Files…") : tr("⟳  Sync Build Files (Gradle / Maven)"));
+        sync->setEnabled(has && !syncing);
+        sync->setToolTip(!has ? tr("No Gradle or Maven build file in this project")
+                         : !m_lsp->canSyncBuildFiles() ? tr("Open a Java or Kotlin file first so its language server starts")
+                                                       : tr("Re-import the project after editing build.gradle(.kts), settings.gradle, libs.versions.toml or pom.xml"));
+        connect(sync, &QAction::triggered, this, &MainWindow::syncBuildFiles);
+    }
     QString detectedFrom;
     m_lsp->detectedFlags(&detectedFrom);
     QAction *flags = m_lspMenu->addAction(m_lsp->hasCompileDatabase() ? tr("Compiler Flags…")
@@ -1167,6 +1203,22 @@ void MainWindow::rebuildLspMenu()
                                 .arg(theme.textMuted.name())
                                 .arg(m_lsp->diagnosticCount(LspDiagnostic::Error))
                                 .arg(m_lsp->diagnosticCount(LspDiagnostic::Warning)));
+}
+
+// LSP > Sync Build Files: the Java / Kotlin servers re-import the Gradle / Maven project.
+void MainWindow::syncBuildFiles()
+{
+    if (!m_lsp->hasBuildFiles()) {
+        statusBar()->showMessage(tr("No Gradle or Maven build file found in this project"), 5000);
+        return;
+    }
+    if (!m_editors->saveAll())
+        return;
+    if (!m_lsp->syncBuildFiles(true)) {
+        statusBar()->showMessage(tr("Open a Java or Kotlin file first — the language server starts with it and reads the build files itself"), 7000);
+        return;
+    }
+    statusBar()->showMessage(tr("Syncing build files…"), 5000);
 }
 
 void MainWindow::updateLspStatus()
@@ -1211,7 +1263,12 @@ void MainWindow::updateLspStatus()
                 text += QStringLiteral("  ⚠ %1").arg(w);
             color = e ? t.gitConflict : (w ? t.gitModified : t.gitAdded);
             tip = tr("%1 — running").arg(st.detail.isEmpty() ? name : st.detail);
-            if (!st.progress.isEmpty()) { // e.g. a Gradle import: the server is up but still working
+            if (st.syncing) {
+                text += tr("  ⟳ Syncing build files…");
+                tip += tr("\nSyncing the Gradle / Maven project — completion and errors may be incomplete until it ends");
+                if (!st.progress.isEmpty())
+                    tip += QStringLiteral(" (%1)").arg(st.progress);
+            } else if (!st.progress.isEmpty()) { // e.g. a Gradle import: the server is up but still working
                 text += QStringLiteral("  ⟳ ") + (st.progress.size() > 40 ? st.progress.left(39) + QStringLiteral("…") : st.progress);
                 tip += QLatin1Char('\n') + st.progress;
             }
@@ -1366,6 +1423,11 @@ void MainWindow::installLspServer(const QString &serverId)
         if (dlg.exec() != QDialog::Accepted)
             return;
         what = tr("Web language servers");
+    } else if (spec->installer == LspServerSpec::Installer::Jdtls) {
+        JdtlsInstallDialog dlg(this);
+        if (dlg.exec() != QDialog::Accepted)
+            return;
+        what = tr("Java language server");
     } else {
         LspInstallDialog dlg(this);
         if (dlg.exec() != QDialog::Accepted)
@@ -1766,16 +1828,19 @@ const QString kProjectRunKey = QStringLiteral("@project");
 } // namespace
 
 // The command a recognised project type runs with (Gradle application, qmake application), or an empty string.
-static QString detectedRunCommand(const QString &root, QString *note)
+static QString detectedRunCommand(const QString &root, QString *note, QList<QPair<QString, QString>> *configs = nullptr)
 {
     if (root.isEmpty())
         return {};
-    const GradleProject gradle = GradleProject::detect(root);
-    if (gradle.isValid()) {
+    const JvmProject jvm = JvmProject::detect(root);
+    if (jvm.isValid()) {
         if (note)
-            *note = MainWindow::tr("<b>%1</b> project detected: <b>%2</b> starts the application.")
-                        .arg(gradle.kind().toHtmlEscaped(), gradle.runCommand().toHtmlEscaped());
-        return gradle.runCommand();
+            *note = MainWindow::tr("<b>%1</b> project detected: <b>%2</b> is the suggested run command. Pick another detected configuration below if it fits better.")
+                        .arg(jvm.kind().toHtmlEscaped(), jvm.runCommand().toHtmlEscaped());
+        if (configs)
+            for (const JvmProject::Config &c : jvm.configs())
+                configs->append({c.name, c.command});
+        return jvm.runCommand();
     }
     const QmakeProject qmake = QmakeProject::detect(root);
     if (qmake.isValid() && qmake.isApp()) {
@@ -1802,7 +1867,8 @@ void MainWindow::configureRun()
     const QString projectCmd = s.runCommand(kProjectRunKey);
     const QString fileCmd = path.isEmpty() ? QString() : s.runCommand(key);
     QString note;
-    const QString detected = projectCmd.isEmpty() ? detectedRunCommand(root, &note) : QString();
+    QList<QPair<QString, QString>> configs;
+    const QString detected = detectedRunCommand(root, projectCmd.isEmpty() ? &note : nullptr, &configs);
     // A recognised project runs as a whole; a file type keeps its own command until the user picks project-wide.
     const bool wide = !projectCmd.isEmpty() || (fileCmd.isEmpty() && !detected.isEmpty());
     const QString command = !projectCmd.isEmpty() ? projectCmd : !fileCmd.isEmpty() ? fileCmd : detected;
@@ -1814,6 +1880,7 @@ void MainWindow::configureRun()
     RunConfigDialog dlg(path, command, this);
     dlg.setNote(note);
     dlg.setProjectRoot(root);
+    dlg.setSuggestions(configs);
     dlg.setProjectWide(wide);
     if (dlg.exec() != QDialog::Accepted)
         return;

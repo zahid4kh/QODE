@@ -274,7 +274,7 @@ void SettingsManager::setIndentGuides(bool on)
 QString SettingsManager::theme() const
 {
     const QString local = m_data.value(QStringLiteral("theme")).toString();
-    if (local == QLatin1String("dark") || local == QLatin1String("light"))
+    if (!local.isEmpty())
         return local;
     return m_settings.value(QStringLiteral("ui/theme"), QStringLiteral("dark")).toString();
 }

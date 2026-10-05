@@ -5,6 +5,7 @@
 #include "ServerDialogs.h"
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
+#include "settings/Theme.h"
 
 #include <QDesktopServices>
 #include <QDir>
@@ -238,11 +239,11 @@ void DevServerBar::refresh()
 {
     if (!m_server)
         return;
-    const bool dark = SettingsManager::instance().theme() != QLatin1String("light");
-    const QString green = dark ? QStringLiteral("#4ec969") : QStringLiteral("#1a8f3c");
-    const QString red = dark ? QStringLiteral("#f26b6b") : QStringLiteral("#c42b2b");
-    const QString amber = dark ? QStringLiteral("#e5b94e") : QStringLiteral("#b07d0a");
-    const QString grey = dark ? QStringLiteral("#6b7078") : QStringLiteral("#a0a4ab");
+    const Theme theme = Theme::byName(SettingsManager::instance().theme());
+    const QString green = theme.success.name();
+    const QString red = theme.danger.name();
+    const QString amber = theme.warning.name();
+    const QString grey = theme.idle.name();
 
     QString colour = grey, text;
     switch (m_server->state()) {

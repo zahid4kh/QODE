@@ -40,6 +40,7 @@ SOURCES += \
     src/app/InstanceRegistry.cpp \
     src/settings/SettingsManager.cpp \
     src/settings/Theme.cpp \
+    src/settings/ThemeManager.cpp \
     src/settings/Icons.cpp \
     src/format/Formatter.cpp \
     src/search/ProjectSearch.cpp \
@@ -73,6 +74,7 @@ SOURCES += \
     src/dialogs/ReferencesDialog.cpp \
     src/dialogs/LspLogDialog.cpp \
     src/dialogs/RunConfigDialog.cpp \
+    src/dialogs/ThemeEditorDialog.cpp \
     src/dialogs/CompilerFlagsDialog.cpp \
     src/dialogs/LspInstallDialog.cpp \
     src/dialogs/LspRemoveDialog.cpp \
@@ -120,6 +122,7 @@ HEADERS += \
     src/app/InstanceRegistry.h \
     src/settings/SettingsManager.h \
     src/settings/Theme.h \
+    src/settings/ThemeManager.h \
     src/settings/Icons.h \
     src/format/Formatter.h \
     src/search/ProjectSearch.h \
@@ -155,6 +158,7 @@ HEADERS += \
     src/dialogs/ReferencesDialog.h \
     src/dialogs/LspLogDialog.h \
     src/dialogs/RunConfigDialog.h \
+    src/dialogs/ThemeEditorDialog.h \
     src/dialogs/CompilerFlagsDialog.h \
     src/dialogs/LspInstallDialog.h \
     src/dialogs/LspRemoveDialog.h \

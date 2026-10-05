@@ -72,7 +72,9 @@ public:
     void setProject(const QString &root); // empty = no project
     QString projectFilePath() const;
 
-    QString theme() const; // "dark" | "light"; the project's override, else the global default
+    QString theme() const; // a theme id ("dark", "light" or a user theme); the project's override, else the global default
+    void refreshTheme() { emit themeChanged(theme()); } // the active theme's colours changed (editor, file edit)
+    QString configFilePath() const { return m_settings.fileName(); }
     void setTheme(const QString &theme); // sets the project's override while a project is open
 
     QByteArray windowGeometry() const;

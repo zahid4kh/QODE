@@ -66,4 +66,5 @@ private:
     QPoint m_selStart {0, 0}, m_selEnd {0, 0}; // (line, col) — stored as x=col? see cellAt: x=col, y=line
     QColor m_bg, m_fg;
     QColor m_ansi[16];
+    QColor m_sel;
 };

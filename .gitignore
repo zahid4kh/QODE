@@ -11,3 +11,6 @@ docs/.next
 /compile.sh
 /run.sh
 /build-deb.sh
+
+# Planning notes
+plans/

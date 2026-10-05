@@ -3,6 +3,7 @@
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
+#include "settings/ThemeManager.h"
 
 #include <QFileInfo>
 #include <QHash>
@@ -75,14 +76,16 @@ struct Tables {
 // Icons are cached per theme: the cache empties itself when the theme changes.
 struct Cache {
     QString theme;
+    int revision = -1;
     Theme palette;
     QHash<QString, QIcon> icons;
 
     void sync()
     {
         const QString current = SettingsManager::instance().theme();
-        if (current != theme) {
+        if (current != theme || revision != ThemeManager::instance().revision()) {
             theme = current;
+            revision = ThemeManager::instance().revision();
             palette = Theme::byName(current);
             icons.clear();
         }

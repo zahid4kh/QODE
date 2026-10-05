@@ -1,8 +1,13 @@
 #include "Theme.h"
 
+#include "ThemeManager.h"
+
+#include <QJsonValue>
+
 Theme Theme::dark_()
 {
     Theme t;
+    t.name = QStringLiteral("Dark");
     t.dark = true;
     t.frame = "#14161a";
     t.window = "#1e2025";
@@ -38,12 +43,22 @@ Theme Theme::dark_()
     t.diffAddBg = "#1f3a2a";
     t.diffDelBg = "#442328";
     t.diffFillBg = "#262a31";
+    t.success = "#4ec969";
+    t.warning = "#e5b94e";
+    t.danger = "#f26b6b";
+    t.idle = "#6b7078";
+    t.findMatchBg = "#614d1f";
+    static const char *ansi[16] = {"#3f4451", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#abb2bf",
+                                   "#5c6370", "#ef7a85", "#a9d98a", "#f0d08b", "#72bfff", "#d689ee", "#67c7d3", "#ffffff"};
+    for (int i = 0; i < 16; ++i)
+        t.ansi[i] = QColor(QLatin1String(ansi[i]));
     return t;
 }
 
 Theme Theme::light_()
 {
     Theme t;
+    t.name = QStringLiteral("Light");
     t.dark = false;
     t.frame = "#dcdce1";
     t.window = "#f0f0f2";
@@ -79,12 +94,119 @@ Theme Theme::light_()
     t.diffAddBg = "#dff3e2";
     t.diffDelBg = "#fbe0e0";
     t.diffFillBg = "#ececef";
+    t.success = "#1a8f3c";
+    t.warning = "#b07d0a";
+    t.danger = "#c42b2b";
+    t.idle = "#a0a4ab";
+    t.findMatchBg = "#f5e08a";
+    static const char *ansi[16] = {"#383a42", "#e45649", "#50a14f", "#c18401", "#4078f2", "#a626a4", "#0184bc", "#a0a1a7",
+                                   "#4f525e", "#e45649", "#50a14f", "#c18401", "#4078f2", "#a626a4", "#0184bc", "#ffffff"};
+    for (int i = 0; i < 16; ++i)
+        t.ansi[i] = QColor(QLatin1String(ansi[i]));
+    return t;
+}
+
+
+const QList<Theme::Field> &Theme::fields()
+{
+#define FIELD(member, key, label, group) {key, label, group, [](Theme &t) -> QColor & { return t.member; }}
+#define ANSI(i, label) FIELD(ansi[i], "ansi" #i, label, "Terminal colours")
+    static const QList<Field> list = {
+        FIELD(frame, "frame", "Window frame", "Interface"),
+        FIELD(window, "window", "Window background", "Interface"),
+        FIELD(panel, "panel", "Panels and menus", "Interface"),
+        FIELD(border, "border", "Borders", "Interface"),
+        FIELD(accent, "accent", "Accent", "Interface"),
+        FIELD(textMuted, "textMuted", "Secondary text", "Interface"),
+        FIELD(success, "success", "Success / running", "Interface"),
+        FIELD(warning, "warning", "Warning / starting", "Interface"),
+        FIELD(danger, "danger", "Error", "Interface"),
+        FIELD(idle, "idle", "Idle / stopped", "Interface"),
+
+        FIELD(editorBg, "editorBg", "Background", "Editor"),
+        FIELD(editorFg, "editorFg", "Text", "Editor"),
+        FIELD(gutterBg, "gutterBg", "Line number background", "Editor"),
+        FIELD(gutterFg, "gutterFg", "Line numbers", "Editor"),
+        FIELD(gutterActiveFg, "gutterActiveFg", "Current line number", "Editor"),
+        FIELD(currentLine, "currentLine", "Current line", "Editor"),
+        FIELD(selection, "selection", "Selection", "Editor"),
+        FIELD(findMatchBg, "findMatchBg", "Find match", "Editor"),
+
+        FIELD(keyword, "keyword", "Keywords", "Syntax"),
+        FIELD(type, "type", "Types", "Syntax"),
+        FIELD(string, "string", "Strings", "Syntax"),
+        FIELD(comment, "comment", "Comments", "Syntax"),
+        FIELD(number, "number", "Numbers", "Syntax"),
+        FIELD(preprocessor, "preprocessor", "Preprocessor", "Syntax"),
+        FIELD(function, "function", "Functions", "Syntax"),
+        FIELD(tag, "tag", "Tags", "Syntax"),
+        FIELD(attribute, "attribute", "Attributes", "Syntax"),
+
+        FIELD(termBg, "termBg", "Background", "Terminal"),
+        FIELD(termFg, "termFg", "Text", "Terminal"),
+        ANSI(0, "Black"), ANSI(1, "Red"), ANSI(2, "Green"), ANSI(3, "Yellow"),
+        ANSI(4, "Blue"), ANSI(5, "Magenta"), ANSI(6, "Cyan"), ANSI(7, "White"),
+        ANSI(8, "Bright black"), ANSI(9, "Bright red"), ANSI(10, "Bright green"), ANSI(11, "Bright yellow"),
+        ANSI(12, "Bright blue"), ANSI(13, "Bright magenta"), ANSI(14, "Bright cyan"), ANSI(15, "Bright white"),
+
+        FIELD(gitAdded, "gitAdded", "Added", "Git"),
+        FIELD(gitModified, "gitModified", "Modified", "Git"),
+        FIELD(gitDeleted, "gitDeleted", "Deleted", "Git"),
+        FIELD(gitUntracked, "gitUntracked", "Untracked", "Git"),
+        FIELD(gitRenamed, "gitRenamed", "Renamed", "Git"),
+        FIELD(gitConflict, "gitConflict", "Conflict", "Git"),
+        FIELD(gitIgnored, "gitIgnored", "Ignored", "Git"),
+        FIELD(diffAddBg, "diffAddBg", "Added lines", "Diff"),
+        FIELD(diffDelBg, "diffDelBg", "Removed lines", "Diff"),
+        FIELD(diffFillBg, "diffFillBg", "Filler", "Diff"),
+    };
+#undef ANSI
+#undef FIELD
+    return list;
+}
+
+namespace {
+QString colorText(const QColor &c)
+{
+    return c.name(c.alpha() == 255 ? QColor::HexRgb : QColor::HexArgb);
+}
+} // namespace
+
+QJsonObject Theme::toJson() const
+{
+    Theme copy = *this;
+    QJsonObject colors;
+    for (const Field &f : fields())
+        colors.insert(QLatin1String(f.key), colorText(f.ref(copy)));
+    QJsonObject o;
+    o.insert(QStringLiteral("name"), name);
+    o.insert(QStringLiteral("base"), dark ? QStringLiteral("dark") : QStringLiteral("light"));
+    o.insert(QStringLiteral("colors"), colors);
+    return o;
+}
+
+Theme Theme::fromJson(const QJsonObject &obj)
+{
+    const bool light = obj.value(QStringLiteral("base")).toString() == QLatin1String("light");
+    Theme t = light ? light_() : dark_();
+    const QString name = obj.value(QStringLiteral("name")).toString().trimmed();
+    if (!name.isEmpty())
+        t.name = name;
+    const QJsonObject colors = obj.value(QStringLiteral("colors")).toObject();
+    for (const Field &f : fields()) {
+        const QJsonValue v = colors.value(QLatin1String(f.key));
+        if (!v.isString())
+            continue;
+        const QColor c(v.toString().trimmed());
+        if (c.isValid())
+            f.ref(t) = c;
+    }
     return t;
 }
 
 Theme Theme::byName(const QString &name)
 {
-    return name == QLatin1String("light") ? light_() : dark_();
+    return ThemeManager::instance().theme(name);
 }
 
 QColor Theme::gitColor(GitKind kind) const
@@ -177,7 +299,7 @@ QScrollBar::handle:hover { background: %7; }
 QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
 QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 QFrame#explorerNotice { background: %5; border: 1px solid %10; border-radius: 10px; }
-QFrame#explorerNotice[error="true"] { border: 1px solid #e5534b; }
+QFrame#explorerNotice[error="true"] { border: 1px solid %16; }
 QFrame#explorerNotice QLabel { background: transparent; color: %2; }
 QToolButton#noticeAction { background: %13; color: %9; border: none; border-radius: 6px; padding: 3px 11px; font-weight: 600; }
 QToolButton#noticeAction:hover { background: %9; color: %11; }
@@ -200,5 +322,6 @@ QMessageBox, QInputDialog { background: %1; }
              accent.lighter(dark ? 115 : 108).name(), // 12
              QColor(accent.red(), accent.green(), accent.blue(), dark ? 48 : 36).name(QColor::HexArgb), // 13
              dark ? QStringLiteral(":/new-icons/x-dark.svg") : QStringLiteral(":/new-icons/x-light.svg"), // 14
-             frame.name()); // 15
+             frame.name(),       // 15
+             danger.name());     // 16
 }

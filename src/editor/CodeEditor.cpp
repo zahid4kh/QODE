@@ -253,7 +253,7 @@ void CodeEditor::applyTheme()
     m_guideActive.setAlpha(230);
     m_bracketOk = QColor(t.accent.red(), t.accent.green(), t.accent.blue(), t.dark ? 80 : 60);
     m_bracketBad = QColor(t.gitConflict.red(), t.gitConflict.green(), t.gitConflict.blue(), t.dark ? 110 : 80);
-    m_matchBg = t.dark ? QColor(QStringLiteral("#614d1f")) : QColor(QStringLiteral("#f5e08a"));
+    m_matchBg = t.findMatchBg;
     QPalette p = palette();
     p.setColor(QPalette::Base, t.editorBg);
     p.setColor(QPalette::Text, t.editorFg);

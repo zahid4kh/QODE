@@ -59,12 +59,9 @@ void TerminalView::applySettings()
     const Theme t = Theme::byName(SettingsManager::instance().theme());
     m_bg = t.termBg;
     m_fg = t.termFg;
-    static const char *darkAnsi[16] = {"#3f4451", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#abb2bf",
-                                        "#5c6370", "#ef7a85", "#a9d98a", "#f0d08b", "#72bfff", "#d689ee", "#67c7d3", "#ffffff"};
-    static const char *lightAnsi[16] = {"#383a42", "#e45649", "#50a14f", "#c18401", "#4078f2", "#a626a4", "#0184bc", "#a0a1a7",
-                                         "#4f525e", "#e45649", "#50a14f", "#c18401", "#4078f2", "#a626a4", "#0184bc", "#ffffff"};
     for (int i = 0; i < 16; ++i)
-        m_ansi[i] = QColor(QLatin1String(t.dark ? darkAnsi[i] : lightAnsi[i]));
+        m_ansi[i] = t.ansi[i];
+    m_sel = t.selection;
     QPalette p = palette();
     p.setColor(QPalette::Base, m_bg);
     setPalette(p);
@@ -146,7 +143,7 @@ void TerminalView::paintEvent(QPaintEvent *)
     const QPoint selA = qMakePair(m_selStart.y(), m_selStart.x()) <= qMakePair(m_selEnd.y(), m_selEnd.x()) ? m_selStart : m_selEnd;
     const QPoint selB = selA == m_selStart ? m_selEnd : m_selStart;
     const bool hasSel = selectionActive();
-    const QColor selColor = QColor(SettingsManager::instance().theme() == QLatin1String("light") ? "#cfe0f7" : "#3a4a66");
+    const QColor selColor = m_sel;
 
     for (int r = 0; r < rows; ++r) {
         const int abs = first + r;

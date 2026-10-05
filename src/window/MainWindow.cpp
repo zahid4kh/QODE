@@ -46,6 +46,8 @@
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
+#include "settings/ThemeManager.h"
+#include "dialogs/ThemeEditorDialog.h"
 #include "terminal/TerminalPanel.h"
 
 #include <QAction>
@@ -53,6 +55,7 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QColorDialog>
+#include <QDesktopServices>
 #include <QDir>
 #include <QDragEnterEvent>
 #include <QFileDialog>
@@ -72,6 +75,7 @@
 #include <QMimeData>
 #include <QMenu>
 #include <QPointer>
+#include <QUrl>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
@@ -434,9 +438,8 @@ void MainWindow::createActions()
     {
         // Green outlined play button; recoloured with the theme since green must differ on light/dark.
         auto paint = [this] {
-            const bool dark = SettingsManager::instance().theme() != QLatin1String("light");
             m_runAct->setIcon(Icons::tinted(QStringLiteral(":/new-icons/play.svg"),
-                                            QColor(dark ? QStringLiteral("#4ec969") : QStringLiteral("#1a8f3c"))));
+                                            Theme::byName(SettingsManager::instance().theme()).success));
         };
         paint();
         connect(&SettingsManager::instance(), &SettingsManager::themeChanged, m_runAct, paint);
@@ -466,19 +469,6 @@ void MainWindow::createActions()
     m_indentGuidesAct = make(tr("Indent Guides"));
     m_indentGuidesAct->setCheckable(true);
     m_indentGuidesAct->setChecked(SettingsManager::instance().indentGuides());
-    m_darkThemeAct = make(tr("Dark"));
-    m_lightThemeAct = make(tr("Light"));
-    m_darkThemeAct->setCheckable(true);
-    m_lightThemeAct->setCheckable(true);
-    auto *themeGroup = new QActionGroup(this);
-    themeGroup->addAction(m_darkThemeAct);
-    themeGroup->addAction(m_lightThemeAct);
-    (SettingsManager::instance().theme() == QLatin1String("light") ? m_lightThemeAct : m_darkThemeAct)->setChecked(true);
-    // A project can carry its own theme, so the menu follows whatever becomes active.
-    connect(&SettingsManager::instance(), &SettingsManager::themeChanged, this, [this](const QString &t) {
-        (t == QLatin1String("light") ? m_lightThemeAct : m_darkThemeAct)->setChecked(true);
-    });
-
     m_nextTabAct = make(tr("Next Tab"), QKeySequence(C | K::Key_Tab));
     m_prevTabAct = make(tr("Previous Tab"), QKeySequence(C | S | K::Key_Backtab));
     m_splitRightAct = make(tr("Split Editor Right"), QKeySequence(C | K::Key_Backslash));
@@ -602,8 +592,6 @@ void MainWindow::createActions()
     connect(m_blameGutterAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setBlameGutter(on); });
     connect(m_stickyAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setStickyScroll(on); });
     connect(m_indentGuidesAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setIndentGuides(on); });
-    connect(m_darkThemeAct, &QAction::triggered, this, [] { SettingsManager::instance().setTheme(QStringLiteral("dark")); });
-    connect(m_lightThemeAct, &QAction::triggered, this, [] { SettingsManager::instance().setTheme(QStringLiteral("light")); });
     connect(m_splitRightAct, &QAction::triggered, this, [this] { m_editors->splitCurrent(Qt::Horizontal); });
     connect(m_splitDownAct, &QAction::triggered, this, [this] { m_editors->splitCurrent(Qt::Vertical); });
     connect(m_nextTabAct, &QAction::triggered, m_editors, &EditorManager::nextTab);
@@ -755,8 +743,26 @@ void MainWindow::createMenus()
     view->addAction(m_hiddenFilesAct);
     view->addAction(m_breadcrumbsAct);
     QMenu *theme = view->addMenu(tr("Theme"));
-    theme->addAction(m_darkThemeAct);
-    theme->addAction(m_lightThemeAct);
+    // Rebuilt on open: user themes come and go with the files in the themes folder.
+    connect(theme, &QMenu::aboutToShow, this, [this, theme] {
+        theme->clear();
+        auto *group = new QActionGroup(theme);
+        const QString active = SettingsManager::instance().theme();
+        for (const ThemeManager::Info &info : ThemeManager::instance().themes()) {
+            QAction *a = theme->addAction(info.name);
+            a->setCheckable(true);
+            a->setActionGroup(group);
+            a->setChecked(info.id == active);
+            const QString id = info.id;
+            connect(a, &QAction::triggered, this, [id] { SettingsManager::instance().setTheme(id); });
+        }
+        theme->addSeparator();
+        theme->addAction(tr("Edit Themes…"), this, &MainWindow::showThemeEditor);
+        theme->addAction(tr("Open Themes Folder"), this, [] {
+            QDir().mkpath(ThemeManager::instance().themesDir());
+            QDesktopServices::openUrl(QUrl::fromLocalFile(ThemeManager::instance().themesDir()));
+        });
+    });
     view->addSeparator();
     view->addAction(m_fullscreenAct);
 
@@ -1818,6 +1824,16 @@ void MainWindow::configureRun()
         if (!path.isEmpty())
             s.setRunCommand(key, dlg.command());
     }
+}
+
+void MainWindow::showThemeEditor()
+{
+    if (!m_themeEditor)
+        m_themeEditor = new ThemeEditorDialog(this);
+    m_themeEditor->setAttribute(Qt::WA_DeleteOnClose);
+    m_themeEditor->show();
+    m_themeEditor->raise();
+    m_themeEditor->activateWindow();
 }
 
 void MainWindow::runCurrentFile()

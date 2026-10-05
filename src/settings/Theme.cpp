@@ -107,6 +107,60 @@ Theme Theme::light_()
 }
 
 
+Theme Theme::darcula_()
+{
+    // JetBrains Darcula: UI from darcula.theme.json, syntax from the bundled editor scheme, terminal from the
+    // published ANSI palette. Git text colours are the scheme's legible greens/blues (its gutter fills are too dark
+    // to read as text).
+    Theme t;
+    t.name = QStringLiteral("Darcula");
+    t.dark = true;
+    t.frame = "#3c3f41";
+    t.window = "#3c3f41";
+    t.panel = "#3c3f41";
+    t.editorBg = "#2b2b2b";
+    t.editorFg = "#a9b7c6";
+    t.gutterBg = "#313335";
+    t.gutterFg = "#606366";
+    t.gutterActiveFg = "#a4a3a3";
+    t.currentLine = "#323232";
+    t.selection = "#214283";
+    t.border = "#515151";
+    t.accent = "#4a88c7";
+    t.textMuted = "#808080";
+    t.keyword = "#cc7832";
+    t.type = "#a9b7c6";
+    t.string = "#6a8759";
+    t.comment = "#808080";
+    t.number = "#6897bb";
+    t.preprocessor = "#bbb529";
+    t.function = "#ffc66d";
+    t.tag = "#e8bf6a";
+    t.attribute = "#bababa";
+    t.termBg = "#202020";
+    t.termFg = "#adadad";
+    t.gitAdded = "#629755";
+    t.gitModified = "#6897bb";
+    t.gitDeleted = "#bc3f3c";
+    t.gitUntracked = "#a5c261";
+    t.gitRenamed = "#33c2c1";
+    t.gitConflict = "#ff6b68";
+    t.gitIgnored = "#808080";
+    t.diffAddBg = "#36563a";
+    t.diffDelBg = "#623539";
+    t.diffFillBg = "#313335";
+    t.success = "#008f50";
+    t.warning = "#ac7920";
+    t.danger = "#e74848";
+    t.idle = "#777777";
+    t.findMatchBg = "#32593d";
+    static const char *ansi[16] = {"#000000", "#fa5355", "#126e00", "#c2c300", "#4581eb", "#fa54ff", "#33c2c1", "#adadad",
+                                   "#555555", "#fb7172", "#67ff4f", "#ffff00", "#6d9df1", "#fb82ff", "#60d3d1", "#eeeeee"};
+    for (int i = 0; i < 16; ++i)
+        t.ansi[i] = QColor(QLatin1String(ansi[i]));
+    return t;
+}
+
 const QList<Theme::Field> &Theme::fields()
 {
 #define FIELD(member, key, label, group) {key, label, group, [](Theme &t) -> QColor & { return t.member; }}

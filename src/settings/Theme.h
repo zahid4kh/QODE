@@ -36,6 +36,7 @@ struct Theme {
 
     static Theme dark_();
     static Theme light_();
+    static Theme darcula_();
     static Theme byName(const QString &name);
 
     QColor gitColor(GitKind kind) const;

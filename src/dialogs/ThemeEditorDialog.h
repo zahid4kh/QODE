@@ -21,7 +21,6 @@ public:
     explicit ThemeEditorDialog(QWidget *parent = nullptr);
 
 protected:
-    void closeEvent(QCloseEvent *e) override;
     void reject() override;
 
 private:

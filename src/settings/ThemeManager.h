@@ -9,8 +9,8 @@
 
 #include "Theme.h"
 
-// Knows every theme: the built-in "dark" and "light" plus the JSON files in <config>/themes. A theme's id is
-// "dark" / "light" or the file's base name; SettingsManager stores that id. While the theme editor is open a
+// Knows every theme: the built-in "dark", "light" and "darcula" plus the JSON files in <config>/themes. A theme's id is
+// a built-in id or the file's base name; SettingsManager stores that id. While the theme editor is open a
 // preview theme stands in for whichever theme is active, so the whole window follows the edits live.
 class ThemeManager : public QObject {
     Q_OBJECT
@@ -23,6 +23,7 @@ public:
     };
 
     static ThemeManager &instance();
+    static bool isBuiltin(const QString &id);
 
     QList<Info> themes() const;
     bool contains(const QString &id) const;

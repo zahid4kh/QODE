@@ -8,6 +8,11 @@
 #include <QJsonDocument>
 #include <QSaveFile>
 
+bool ThemeManager::isBuiltin(const QString &id)
+{
+    return id == QLatin1String("dark") || id == QLatin1String("light") || id == QLatin1String("darcula");
+}
+
 ThemeManager &ThemeManager::instance()
 {
     static ThemeManager m;
@@ -41,7 +46,7 @@ void ThemeManager::reload()
     QStringList watched;
     for (const QFileInfo &fi : dir.entryInfoList({QStringLiteral("*.json")}, QDir::Files, QDir::Name | QDir::IgnoreCase)) {
         const QString id = fi.completeBaseName();
-        if (id == QLatin1String("dark") || id == QLatin1String("light"))
+        if (isBuiltin(id))
             continue;
         QFile f(fi.absoluteFilePath());
         if (!f.open(QIODevice::ReadOnly))
@@ -80,6 +85,7 @@ QList<ThemeManager::Info> ThemeManager::themes() const
     QList<Info> out;
     out.append({QStringLiteral("dark"), QStringLiteral("Dark"), true, true});
     out.append({QStringLiteral("light"), QStringLiteral("Light"), true, false});
+    out.append({QStringLiteral("darcula"), QStringLiteral("Darcula"), true, true});
     for (const QString &id : m_order) {
         const Theme &t = m_user.value(id);
         out.append({id, t.name, false, t.dark});
@@ -89,7 +95,7 @@ QList<ThemeManager::Info> ThemeManager::themes() const
 
 bool ThemeManager::contains(const QString &id) const
 {
-    return id == QLatin1String("dark") || id == QLatin1String("light") || m_user.contains(id);
+    return isBuiltin(id) || m_user.contains(id);
 }
 
 Theme ThemeManager::theme(const QString &id) const
@@ -98,6 +104,8 @@ Theme ThemeManager::theme(const QString &id) const
         return m_preview;
     if (id == QLatin1String("light"))
         return Theme::light_();
+    if (id == QLatin1String("darcula"))
+        return Theme::darcula_();
     const auto it = m_user.constFind(id);
     return it != m_user.constEnd() ? it.value() : Theme::dark_();
 }
@@ -122,7 +130,7 @@ QString ThemeManager::uniqueId(const QString &name) const
 
 QString ThemeManager::save(const Theme &theme, const QString &id)
 {
-    const QString useId = (id.isEmpty() || id == QLatin1String("dark") || id == QLatin1String("light")) ? uniqueId(theme.name) : id;
+    const QString useId = (id.isEmpty() || isBuiltin(id)) ? uniqueId(theme.name) : id;
     QDir().mkpath(themesDir());
     QSaveFile f(themesDir() + QLatin1Char('/') + useId + QStringLiteral(".json"));
     if (!f.open(QIODevice::WriteOnly))
@@ -139,7 +147,7 @@ QString ThemeManager::save(const Theme &theme, const QString &id)
 
 bool ThemeManager::remove(const QString &id)
 {
-    if (id == QLatin1String("dark") || id == QLatin1String("light") || !m_user.contains(id))
+    if (isBuiltin(id) || !m_user.contains(id))
         return false;
     if (!QFile::remove(themesDir() + QLatin1Char('/') + id + QStringLiteral(".json")))
         return false;

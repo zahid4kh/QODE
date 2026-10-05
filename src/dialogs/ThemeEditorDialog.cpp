@@ -3,7 +3,6 @@
 #include "settings/SettingsManager.h"
 #include "settings/ThemeManager.h"
 
-#include <QCloseEvent>
 #include <QColorDialog>
 #include <QComboBox>
 #include <QDesktopServices>
@@ -114,7 +113,7 @@ ThemeEditorDialog::ThemeEditorDialog(QWidget *parent)
     connect(m_saveAs, &QPushButton::clicked, this, [this] { save(true); });
     connect(m_delete, &QPushButton::clicked, this, &ThemeEditorDialog::removeCurrent);
     connect(m_revert, &QPushButton::clicked, this, [this] { load(m_id); });
-    connect(close, &QPushButton::clicked, this, &QDialog::close);
+    connect(close, &QPushButton::clicked, this, &QDialog::reject);
     connect(folder, &QPushButton::clicked, this, [] {
         QDir().mkpath(ThemeManager::instance().themesDir());
         QDesktopServices::openUrl(QUrl::fromLocalFile(ThemeManager::instance().themesDir()));
@@ -230,7 +229,7 @@ void ThemeEditorDialog::load(const QString &id)
     // theme() answers with the preview while one runs, so end it first.
     ThemeManager::instance().clearPreview();
     m_working = ThemeManager::instance().theme(id);
-    m_builtin = (id == QLatin1String("dark") || id == QLatin1String("light"));
+    m_builtin = ThemeManager::isBuiltin(id);
     m_dirty = false;
     m_themes->setCurrentIndex(m_themes->findData(id));
     m_base->setCurrentIndex(m_working.dark ? 0 : 1);
@@ -334,18 +333,12 @@ void ThemeEditorDialog::finish()
     ThemeManager::instance().clearPreview();
 }
 
-void ThemeEditorDialog::closeEvent(QCloseEvent *e)
-{
-    if (!confirmDiscard()) {
-        e->ignore();
-        return;
-    }
-    m_dirty = false;
-    finish();
-    QDialog::closeEvent(e);
-}
-
+// Every way of closing (Close button, Esc, window X) ends up here: QDialog::closeEvent calls reject().
 void ThemeEditorDialog::reject()
 {
-    close();
+    if (!confirmDiscard())
+        return;
+    m_dirty = false;
+    finish();
+    QDialog::reject();
 }

@@ -11,6 +11,7 @@
 #include "dialogs/NewProjectDialog.h"
 #include "dialogs/RunConfigDialog.h"
 #include "webdev/DevServerBar.h"
+#include "project/GradleProject.h"
 #include "project/QmakeProject.h"
 #include "media/MarkdownPreview.h"
 #include "tasks/TasksPanel.h"
@@ -1777,11 +1778,28 @@ void MainWindow::configureRun()
                       "Save to use it for all %2 files of this project.").arg(qmake.proFileName().toHtmlEscaped(), key.toHtmlEscaped());
         }
     }
+    // A Gradle application (Compose Desktop, `application` plugin): Run means the project's run task.
+    if (command.isEmpty() && GradleProject::isGradleFileKey(key)) {
+        const GradleProject gradle = GradleProject::detect(m_projects->project().root);
+        if (gradle.isValid()) {
+            command = gradle.runCommand();
+            note = tr("<b>%1</b> project detected: <b>%2</b> starts the application. "
+                      "Change the command if you run it differently; save to use it for all %3 files of this project.")
+                       .arg(gradle.kind().toHtmlEscaped(), command.toHtmlEscaped(), key.toHtmlEscaped());
+        }
+    }
     RunConfigDialog dlg(path, command, this);
     dlg.setNote(note);
     dlg.setProjectRoot(m_projects->project().root);
-    if (dlg.exec() == QDialog::Accepted)
+    if (dlg.exec() == QDialog::Accepted) {
         s.setRunCommand(key, dlg.command());
+        // A Gradle run is the same for every source file of the project: do not ask again for the next file type.
+        if (!note.isEmpty() && dlg.command() == command && GradleProject::isGradleFileKey(key)) {
+            for (const QString &k : {QStringLiteral("kt"), QStringLiteral("kts"), QStringLiteral("java"), QStringLiteral("gradle")})
+                if (s.runCommand(k).isEmpty())
+                    s.setRunCommand(k, command);
+        }
+    }
 }
 
 void MainWindow::runCurrentFile()

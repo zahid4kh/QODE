@@ -51,6 +51,7 @@ SOURCES += \
     src/project/ProjectFiles.cpp \
     src/project/ProjectManager.cpp \
     src/project/QmakeProject.cpp \
+    src/project/GradleProject.cpp \
     src/project/ProjectModel.cpp \
     src/project/PythonEnv.cpp \
     src/media/MarkdownPreview.cpp \
@@ -131,6 +132,7 @@ HEADERS += \
     src/project/ProjectFiles.h \
     src/project/ProjectManager.h \
     src/project/QmakeProject.h \
+    src/project/GradleProject.h \
     src/project/ProjectModel.h \
     src/project/PythonEnv.h \
     src/media/MarkdownPreview.h \

@@ -2,6 +2,7 @@
 
 #include <QDialog>
 
+class QCheckBox;
 class QLabel;
 class QLineEdit;
 
@@ -16,6 +17,9 @@ public:
     // An explanation shown above the command (HTML), e.g. why it was prefilled.
     void setNote(const QString &html);
     void setProjectRoot(const QString &root);
+    // Offers (or, when `checked`, applies) running the whole project with this command regardless of the open file.
+    void setProjectWide(bool checked);
+    bool projectWide() const;
 
     // Settings key for a file: its extension (or its whole name for files like "Makefile").
     static QString keyFor(const QString &filePath);
@@ -26,10 +30,13 @@ public:
 
 private:
     void updatePreview();
+    void updateIntro();
 
     QString m_file;
     QLineEdit *m_command;
     QLabel *m_preview;
     QLabel *m_note;
+    QLabel *m_intro;
+    QCheckBox *m_wide;
     QString m_root;
 };

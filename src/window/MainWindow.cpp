@@ -428,9 +428,9 @@ void MainWindow::createActions()
     m_venvAct->setChecked(SettingsManager::instance().autoActivateVenv());
     connect(m_venvAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setAutoActivateVenv(on); });
     m_runAct = make(tr("Run File"), QKeySequence(K::Key_F5));
-    m_runAct->setToolTip(tr("Run this file (F5)"));
+    m_runAct->setToolTip(tr("Run the project, or this file (F5)"));
     m_runConfigAct = make(tr("Run Configuration…"), {}, QStringLiteral(":/new-icons/cog.svg"));
-    m_runConfigAct->setToolTip(tr("Set the command that runs this type of file"));
+    m_runConfigAct->setToolTip(tr("Set the command that runs the project or this type of file"));
     {
         // Green outlined play button; recoloured with the theme since green must differ on light/dark.
         auto paint = [this] {
@@ -850,10 +850,10 @@ void MainWindow::updateRunToolbar()
     }
     m_serverBarAct->setVisible(web);
     m_runAct->setText(web ? tr("Start / Restart Dev Server") : tr("Run File"));
-    m_runAct->setToolTip(web ? tr("Start the dev server, or restart it (F5)") : tr("Run this file (F5)"));
+    m_runAct->setToolTip(web ? tr("Start the dev server, or restart it (F5)") : tr("Run the project, or this file (F5)"));
     m_runConfigAct->setText(web ? tr("Dev Server Settings…") : tr("Run Configuration…"));
     m_runConfigAct->setToolTip(web ? tr("Package manager, script and port of the dev server")
-                                   : tr("Set the command that runs this type of file"));
+                                   : tr("Set the command that runs the project or this type of file"));
 }
 
 void MainWindow::createStatusBar()
@@ -1603,8 +1603,9 @@ void MainWindow::updateActions()
         m_runAct->setEnabled(true);
         m_runConfigAct->setEnabled(true);
     } else {
-        m_runAct->setEnabled(!currentFilePath().isEmpty() || (hasDoc && m_editors->currentDocument()->isUntitled()));
-        m_runConfigAct->setEnabled(!currentFilePath().isEmpty());
+        const bool project = m_projects->hasProject();
+        m_runAct->setEnabled(project || !currentFilePath().isEmpty() || (hasDoc && m_editors->currentDocument()->isUntitled()));
+        m_runConfigAct->setEnabled(project || !currentFilePath().isEmpty());
     }
 
     const bool repo = m_git->isRepo();
@@ -1753,52 +1754,69 @@ void MainWindow::showTerminal()
     m_terminalAct->setChecked(true);
 }
 
+namespace {
+// Run settings key of the command that runs the whole project (every other key is a file type).
+const QString kProjectRunKey = QStringLiteral("@project");
+} // namespace
+
+// The command a recognised project type runs with (Gradle application, qmake application), or an empty string.
+static QString detectedRunCommand(const QString &root, QString *note)
+{
+    if (root.isEmpty())
+        return {};
+    const GradleProject gradle = GradleProject::detect(root);
+    if (gradle.isValid()) {
+        if (note)
+            *note = MainWindow::tr("<b>%1</b> project detected: <b>%2</b> starts the application.")
+                        .arg(gradle.kind().toHtmlEscaped(), gradle.runCommand().toHtmlEscaped());
+        return gradle.runCommand();
+    }
+    const QmakeProject qmake = QmakeProject::detect(root);
+    if (qmake.isValid() && qmake.isApp()) {
+        if (note)
+            *note = MainWindow::tr("Qt project <b>%1</b> detected: this command builds it with qmake in <b>build/</b> and runs the result.")
+                        .arg(qmake.proFileName().toHtmlEscaped());
+        return qmake.runCommand();
+    }
+    return {};
+}
+
 void MainWindow::configureRun()
 {
     if (m_serverBar->isAvailable()) {
         m_serverBar->configure();
         return;
     }
-    const QString path = currentFilePath();
-    if (path.isEmpty())
+    if (!m_projects->hasProject() && currentFilePath().isEmpty())
         return;
+    const QString path = currentFilePath();
+    const QString root = m_projects->project().root;
     const QString key = RunConfigDialog::keyFor(path);
     SettingsManager &s = SettingsManager::instance();
-    QString command = s.runCommand(key);
+    const QString projectCmd = s.runCommand(kProjectRunKey);
+    const QString fileCmd = path.isEmpty() ? QString() : s.runCommand(key);
     QString note;
-    // A qmake application project: building the whole project is what Run means for its C++ sources.
-    static const QSet<QString> qmakeKeys = {QStringLiteral("cpp"), QStringLiteral("cc"), QStringLiteral("cxx"), QStringLiteral("c"),
-                                            QStringLiteral("h"), QStringLiteral("hpp"), QStringLiteral("hh"), QStringLiteral("ui"),
-                                            QStringLiteral("qrc"), QStringLiteral("pro"), QStringLiteral("pri")};
-    if (command.isEmpty() && qmakeKeys.contains(key)) {
-        const QmakeProject qmake = QmakeProject::detect(m_projects->project().root);
-        if (qmake.isValid() && qmake.isApp()) {
-            command = qmake.runCommand();
-            note = tr("Qt project <b>%1</b> detected: this command builds it with qmake in <b>build/</b> and runs the result. "
-                      "Save to use it for all %2 files of this project.").arg(qmake.proFileName().toHtmlEscaped(), key.toHtmlEscaped());
-        }
-    }
-    // A Gradle application (Compose Desktop, `application` plugin): Run means the project's run task.
-    if (command.isEmpty() && GradleProject::isGradleFileKey(key)) {
-        const GradleProject gradle = GradleProject::detect(m_projects->project().root);
-        if (gradle.isValid()) {
-            command = gradle.runCommand();
-            note = tr("<b>%1</b> project detected: <b>%2</b> starts the application. "
-                      "Change the command if you run it differently; save to use it for all %3 files of this project.")
-                       .arg(gradle.kind().toHtmlEscaped(), command.toHtmlEscaped(), key.toHtmlEscaped());
-        }
-    }
+    const QString detected = projectCmd.isEmpty() ? detectedRunCommand(root, &note) : QString();
+    // A recognised project runs as a whole; a file type keeps its own command until the user picks project-wide.
+    const bool wide = !projectCmd.isEmpty() || (fileCmd.isEmpty() && !detected.isEmpty());
+    const QString command = !projectCmd.isEmpty() ? projectCmd : !fileCmd.isEmpty() ? fileCmd : detected;
+    if (fileCmd.isEmpty() && projectCmd.isEmpty() && !detected.isEmpty())
+        note += tr(" Change it if you run the project differently.");
+    else
+        note.clear();
+
     RunConfigDialog dlg(path, command, this);
     dlg.setNote(note);
-    dlg.setProjectRoot(m_projects->project().root);
-    if (dlg.exec() == QDialog::Accepted) {
-        s.setRunCommand(key, dlg.command());
-        // A Gradle run is the same for every source file of the project: do not ask again for the next file type.
-        if (!note.isEmpty() && dlg.command() == command && GradleProject::isGradleFileKey(key)) {
-            for (const QString &k : {QStringLiteral("kt"), QStringLiteral("kts"), QStringLiteral("java"), QStringLiteral("gradle")})
-                if (s.runCommand(k).isEmpty())
-                    s.setRunCommand(k, command);
-        }
+    dlg.setProjectRoot(root);
+    dlg.setProjectWide(wide);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    if (dlg.projectWide()) {
+        s.setRunCommand(kProjectRunKey, dlg.command());
+    } else {
+        s.setRunCommand(kProjectRunKey, QString());
+        if (!path.isEmpty())
+            s.setRunCommand(key, dlg.command());
     }
 }
 
@@ -1814,26 +1832,37 @@ void MainWindow::runCurrentFile()
             return;
         }
     }
-    Document *doc = m_editors->currentDocument();
-    if (!doc)
-        return;
-    if (doc->isUntitled() && !m_editors->saveCurrent())
-        return;
-    const QString path = currentFilePath();
-    if (path.isEmpty())
-        return;
     SettingsManager &s = SettingsManager::instance();
-    const QString key = RunConfigDialog::keyFor(path);
-    if (s.runCommand(key).isEmpty()) {
-        // First run of this file type: ask for the command, then carry on.
+    const QString root = m_projects->project().root;
+    QString path = currentFilePath();
+    Document *doc = m_editors->currentDocument();
+    if (doc && doc->isUntitled() && !m_editors->saveCurrent())
+        return;
+    path = currentFilePath();
+
+    // No command yet for this file or project: ask for one (prefilled for recognised project types).
+    if (s.runCommand(kProjectRunKey).isEmpty() && (path.isEmpty() || s.runCommand(RunConfigDialog::keyFor(path)).isEmpty())) {
+        if (path.isEmpty() && detectedRunCommand(root, nullptr).isEmpty())
+            return;
         configureRun();
-        if (s.runCommand(key).isEmpty())
+        if (s.runCommand(kProjectRunKey).isEmpty() && (path.isEmpty() || s.runCommand(RunConfigDialog::keyFor(path)).isEmpty()))
             return;
     }
-    if (doc->isModified() && !m_editors->saveCurrent())
+
+    const QString projectCmd = s.runCommand(kProjectRunKey);
+    if (!projectCmd.isEmpty()) {
+        // The project command builds/runs everything, so every open file has to be on disk.
+        if (!m_editors->saveAll())
+            return;
+        showTerminal();
+        m_terminal->runCommand(RunConfigDialog::expand(projectCmd, path, root));
+        m_terminal->focusTerminal();
+        return;
+    }
+    if (doc && doc->isModified() && !m_editors->saveCurrent())
         return;
     showTerminal();
-    m_terminal->runCommand(RunConfigDialog::expand(s.runCommand(key), path, m_projects->project().root));
+    m_terminal->runCommand(RunConfigDialog::expand(s.runCommand(RunConfigDialog::keyFor(path)), path, root));
     m_terminal->focusTerminal();
 }
 

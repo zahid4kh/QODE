@@ -1,5 +1,6 @@
 #include "RunConfigDialog.h"
 
+#include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QFileInfo>
 #include <QFormLayout>
@@ -74,9 +75,10 @@ RunConfigDialog::RunConfigDialog(const QString &filePath, const QString &command
     m_preview->setWordWrap(true);
     m_preview->setTextInteractionFlags(Qt::TextSelectableByMouse);
 
-    auto *intro = new QLabel(tr("Command run in the terminal when you press Run for <b>%1</b> files.")
-                                 .arg(key.toHtmlEscaped()), this);
-    intro->setWordWrap(true);
+    m_intro = new QLabel(this);
+    m_intro->setWordWrap(true);
+    m_wide = new QCheckBox(tr("Run the whole project with this command, whichever file is open"), this);
+    connect(m_wide, &QCheckBox::toggled, this, &RunConfigDialog::updateIntro);
     m_note = new QLabel(this);
     m_note->setWordWrap(true);
     m_note->hide();
@@ -93,7 +95,8 @@ RunConfigDialog::RunConfigDialog(const QString &filePath, const QString &command
     ok->setDefault(true);
 
     auto *layout = new QVBoxLayout(this);
-    layout->addWidget(intro);
+    layout->addWidget(m_intro);
+    layout->addWidget(m_wide);
     layout->addWidget(m_note);
     layout->addLayout(form);
     layout->addWidget(vars);
@@ -103,7 +106,25 @@ RunConfigDialog::RunConfigDialog(const QString &filePath, const QString &command
     connect(m_command, &QLineEdit::textChanged, this, &RunConfigDialog::updatePreview);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    updateIntro();
     updatePreview();
+}
+
+void RunConfigDialog::updateIntro()
+{
+    m_intro->setText(m_wide->isChecked()
+                         ? tr("Command run in the terminal, from the project folder, when you press Run in this project.")
+                         : tr("Command run in the terminal when you press Run for <b>%1</b> files.").arg(keyFor(m_file).toHtmlEscaped()));
+}
+
+void RunConfigDialog::setProjectWide(bool checked)
+{
+    m_wide->setChecked(checked);
+}
+
+bool RunConfigDialog::projectWide() const
+{
+    return m_wide->isChecked();
 }
 
 QString RunConfigDialog::command() const

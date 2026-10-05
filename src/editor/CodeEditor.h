@@ -4,6 +4,7 @@
 #include "git/GitDiff.h"
 #include "git/GitTypes.h"
 #include "lsp/LspTypes.h"
+#include "refactor/MoveRefactor.h"
 
 #include <QElapsedTimer>
 #include <QPlainTextEdit>
@@ -95,6 +96,8 @@ public:
     void setCompletionCommandRunner(CompletionCommandRunner runner) { m_commandRunner = std::move(runner); }
     // Applies server text edits (0-based line / UTF-16 column, positions as of the text the server saw) as one undo step.
     bool applyTextEdits(const QVector<LspTextEdit> &edits);
+    // Replaces character ranges (offsets into the document text, ascending, not overlapping) as one undo step.
+    bool applyOffsetEdits(const QVector<MoveRefactor::TextEdit> &edits);
 
     // --- Emmet ---------------------------------------------------------------------------------
     // 0 = off, 1 = HTML, 2 = JSX. Tab after an abbreviation (`ul>li*3`) expands it like a snippet.

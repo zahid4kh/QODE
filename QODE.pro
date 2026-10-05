@@ -22,6 +22,14 @@ DEFINES += QODE_VERSION=\\\"$$VERSION\\\"
 INCLUDEPATH += $$PWD/src
 
 SOURCES += \
+    src/refactor/MoveRefactor.cpp \
+    src/refactor/MoveController.cpp \
+    src/explorer/ExplorerTree.cpp \
+    src/refactor/RefactorWeb.cpp \
+    src/refactor/RefactorPython.cpp \
+    src/refactor/RefactorJvm.cpp \
+    src/refactor/RefactorNative.cpp \
+    src/refactor/RefactorRust.cpp \
     src/webdev/WebProject.cpp \
     src/webdev/DevServer.cpp \
     src/webdev/DevServerBar.cpp \
@@ -98,6 +106,10 @@ SOURCES += \
     src/window/MainWindow.cpp
 
 HEADERS += \
+    src/refactor/MoveRefactor.h \
+    src/refactor/MoveController.h \
+    src/explorer/ExplorerTree.h \
+    src/refactor/RefactorCtx.h \
     src/webdev/WebProject.h \
     src/webdev/DevServer.h \
     src/webdev/DevServerBar.h \

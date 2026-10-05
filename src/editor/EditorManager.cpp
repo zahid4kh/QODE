@@ -1026,6 +1026,20 @@ void EditorManager::applySaveSettings()
 }
 
 // Silent save for auto save: never opens a dialog, and never overwrites a file that changed on disk.
+bool EditorManager::saveQuietly(Document *doc)
+{
+    if (!doc || doc->isUntitled() || !doc->isModified())
+        return false;
+    QString err;
+    if (!doc->save(&err)) {
+        emit statusMessage(tr("Could not save %1: %2").arg(doc->fileName(), err));
+        return false;
+    }
+    watch(doc->filePath());
+    emit documentSaved(doc);
+    return true;
+}
+
 bool EditorManager::autoSaveDocument(Document *doc)
 {
     if (!doc || !doc->isModified() || doc->isUntitled() || m_prompting)

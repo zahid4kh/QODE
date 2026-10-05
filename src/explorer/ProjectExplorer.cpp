@@ -1,5 +1,6 @@
 #include "ProjectExplorer.h"
 
+#include "ExplorerTree.h"
 #include "GitItemDelegate.h"
 #include "dialogs/NewFileDialog.h"
 #include "filesystem/FileManager.h"
@@ -11,6 +12,13 @@
 
 #include <QApplication>
 #include <QClipboard>
+#include <QEvent>
+#include <QFrame>
+#include <QGridLayout>
+#include <QScrollBar>
+#include <QStyle>
+#include <QTimer>
+#include <QToolButton>
 #include <QDir>
 #include <QFileInfo>
 #include <QFileSystemModel>
@@ -35,13 +43,11 @@ ProjectExplorer::ProjectExplorer(QWidget *parent)
     m_proxy->setSourceModel(m_fsModel);
     m_proxy->setSortCaseSensitivity(Qt::CaseInsensitive);
 
-    m_tree = new QTreeView(this);
+    m_tree = new ExplorerTree(this);
     m_tree->setModel(m_proxy);
     m_tree->setHeaderHidden(true);
     m_tree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
-    m_tree->setDragEnabled(true);
-    m_tree->setDragDropMode(QAbstractItemView::DragOnly);
     m_tree->setSortingEnabled(true);
     m_tree->sortByColumn(0, Qt::AscendingOrder);
     m_tree->setAnimated(false);
@@ -69,6 +75,7 @@ ProjectExplorer::ProjectExplorer(QWidget *parent)
     connect(m_fsModel, &QFileSystemModel::fileRenamed, this, &ProjectExplorer::contentsChanged);
 
     connect(&SettingsManager::instance(), &SettingsManager::themeChanged, m_tree->viewport(), qOverload<>(&QWidget::update));
+    connect(m_tree, &ExplorerTree::moveRequested, this, &ProjectExplorer::moveRequested);
     connect(m_tree, &QTreeView::doubleClicked, this, &ProjectExplorer::onDoubleClicked);
     connect(m_tree, &QTreeView::customContextMenuRequested, this, &ProjectExplorer::showContextMenu);
 }
@@ -89,6 +96,8 @@ void ProjectExplorer::setGitRepository(GitRepository *repo)
 void ProjectExplorer::setProjectRoot(const QString &root)
 {
     m_root = root;
+    m_tree->setProjectRoot(root);
+    hideNotice();
     const bool has = !root.isEmpty();
     m_tree->setVisible(has);
     m_placeholder->setVisible(!has);
@@ -296,4 +305,153 @@ void ProjectExplorer::addGitActions(QMenu *menu, const QString &path)
     QAction *ignore = git->addAction(tr("Add to .gitignore"), this, [this, path] { emit gitIgnoreRequested(path); });
     ignore->setEnabled(!m_git->isIgnored(path) && (!own || own->untracked) && path != m_git->root());
     menu->addSeparator();
+}
+
+// --- notices ---------------------------------------------------------------------
+
+void ProjectExplorer::notifyMoved(const QString &from, const QString &to)
+{
+    emit pathRenamed(from, to);
+}
+
+void ProjectExplorer::resizeEvent(QResizeEvent *e)
+{
+    QWidget::resizeEvent(e);
+    layoutNotice();
+}
+
+void ProjectExplorer::layoutNotice()
+{
+    if (!m_notice || !m_notice->isVisible())
+        return;
+    const int w = qMax(160, width() - 16);
+    m_notice->setFixedWidth(w);
+    m_notice->layout()->activate();
+    m_notice->setFixedHeight(m_notice->layout()->totalHeightForWidth(w));
+    m_notice->move(8, height() - m_notice->height() - 8);
+    m_notice->raise();
+}
+
+void ProjectExplorer::hideNotice()
+{
+    if (m_noticeTimer)
+        m_noticeTimer->stop();
+    if (m_notice)
+        m_notice->hide();
+    m_currentNotice = {};
+}
+
+void ProjectExplorer::showNotice(const Notice &n)
+{
+    if (!m_notice) {
+        m_notice = new QFrame(this);
+        m_notice->setObjectName(QStringLiteral("explorerNotice"));
+        auto *grid = new QGridLayout(m_notice);
+        grid->setContentsMargins(12, 9, 8, 9);
+        grid->setHorizontalSpacing(6);
+        grid->setVerticalSpacing(8);
+        m_noticeText = new QLabel(m_notice);
+        m_noticeText->setWordWrap(true);
+        m_noticeText->setTextFormat(Qt::PlainText);
+        m_noticeText->setTextInteractionFlags(Qt::NoTextInteraction);
+        grid->addWidget(m_noticeText, 0, 0, 1, 3);
+        m_noticeClose = new QToolButton(m_notice);
+        m_noticeClose->setObjectName(QStringLiteral("noticeSecondary"));
+        m_noticeClose->setText(QStringLiteral("✕"));
+        m_noticeClose->setToolTip(tr("Dismiss"));
+        grid->addWidget(m_noticeClose, 0, 3, Qt::AlignTop);
+        m_noticeAction = new QToolButton(m_notice);
+        m_noticeAction->setObjectName(QStringLiteral("noticeAction"));
+        grid->addWidget(m_noticeAction, 1, 0);
+        m_noticeDetails = new QToolButton(m_notice);
+        m_noticeDetails->setObjectName(QStringLiteral("noticeSecondary"));
+        m_noticeDetails->setText(tr("Details"));
+        m_noticeDetails->setPopupMode(QToolButton::InstantPopup);
+        grid->addWidget(m_noticeDetails, 1, 1);
+        grid->setColumnStretch(2, 1);
+        m_noticeTimer = new QTimer(this);
+        m_noticeTimer->setSingleShot(true);
+        connect(m_noticeTimer, &QTimer::timeout, this, &ProjectExplorer::hideNotice);
+        connect(m_noticeClose, &QToolButton::clicked, this, &ProjectExplorer::hideNotice);
+        connect(m_noticeAction, &QToolButton::clicked, this, [this] {
+            const auto action = m_currentNotice.action;
+            hideNotice();
+            if (action)
+                action();
+        });
+    }
+    m_currentNotice = n;
+    m_notice->setProperty("error", n.error);
+    m_notice->style()->unpolish(m_notice);
+    m_notice->style()->polish(m_notice);
+    m_noticeText->setText(n.text);
+    m_noticeAction->setText(n.actionLabel);
+    m_noticeAction->setVisible(!n.actionLabel.isEmpty() && n.action);
+    QMenu *old = m_noticeDetails->menu();
+    m_noticeDetails->setMenu(nullptr);
+    delete old;
+    if (!n.details.isEmpty()) {
+        auto *menu = new QMenu(m_noticeDetails);
+        for (const auto &d : n.details) {
+            if (d.first.isEmpty()) {
+                menu->addSeparator();
+                continue;
+            }
+            QAction *a = menu->addAction(d.first);
+            if (d.second)
+                connect(a, &QAction::triggered, this, d.second);
+            else
+                a->setEnabled(false);
+        }
+        m_noticeDetails->setMenu(menu);
+    }
+    m_noticeDetails->setVisible(!n.details.isEmpty());
+    m_notice->show();
+    layoutNotice();
+    if (n.timeoutMs > 0)
+        m_noticeTimer->start(n.timeoutMs);
+    else
+        m_noticeTimer->stop();
+}
+
+void ProjectExplorer::revealPaths(const QStringList &paths)
+{
+    m_revealPaths = paths;
+    m_revealTries = 0;
+    if (!m_revealTimer) {
+        m_revealTimer = new QTimer(this);
+        m_revealTimer->setInterval(90);
+        connect(m_revealTimer, &QTimer::timeout, this, [this] {
+            ++m_revealTries;
+            QModelIndexList found;
+            for (const QString &p : std::as_const(m_revealPaths)) {
+                // open the folders above it so the model lists the new entry
+                QStringList chain;
+                for (QString d = QFileInfo(p).absolutePath(); d.startsWith(m_root); d = QFileInfo(d).absolutePath()) {
+                    chain.prepend(d);
+                    if (d == m_root)
+                        break;
+                }
+                for (const QString &d : std::as_const(chain)) {
+                    const QModelIndex di = m_proxy->mapFromSource(m_fsModel->index(d));
+                    if (di.isValid())
+                        m_tree->expand(di);
+                }
+                const QModelIndex idx = m_proxy->mapFromSource(m_fsModel->index(p));
+                if (idx.isValid())
+                    found << idx;
+            }
+            if (found.size() == m_revealPaths.size() || m_revealTries >= 25) {
+                m_revealTimer->stop();
+                if (found.isEmpty())
+                    return;
+                m_tree->clearSelection();
+                for (const QModelIndex &i : std::as_const(found))
+                    m_tree->selectionModel()->select(i, QItemSelectionModel::Select | QItemSelectionModel::Rows);
+                m_tree->setCurrentIndex(found.first());
+                m_tree->scrollTo(found.first(), QAbstractItemView::EnsureVisible);
+            }
+        });
+    }
+    m_revealTimer->start();
 }

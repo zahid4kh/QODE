@@ -34,6 +34,7 @@
 #include "editor/EditorManager.h"
 #include "explorer/FileIcons.h"
 #include "explorer/ProjectExplorer.h"
+#include "refactor/MoveController.h"
 #include "filesystem/FileManager.h"
 #include "media/MediaPanel.h"
 #include "project/ProjectFiles.h"
@@ -190,6 +191,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_explorer, &ProjectExplorer::closeProjectRequested, this, &MainWindow::closeProject);
     connect(m_explorer, &ProjectExplorer::fileActivated, m_editors, &EditorManager::openFile);
     connect(m_explorer, &ProjectExplorer::fileCreated, m_editors, &EditorManager::openFile);
+    m_mover = new MoveController(m_explorer, m_editors, this);
+    connect(m_explorer, &ProjectExplorer::moveRequested, m_mover, &MoveController::move);
     connect(m_explorer, &ProjectExplorer::pathRenamed, m_editors, &EditorManager::pathRenamed);
     connect(m_explorer, &ProjectExplorer::pathDeleted, m_editors, &EditorManager::closeDocumentsUnder);
     connect(m_explorer, &ProjectExplorer::contentsChanged, m_projectFiles, &ProjectFiles::invalidate);
@@ -1500,6 +1503,7 @@ void MainWindow::onProjectOpened(const Project &p)
     m_tasks->setBookmarks(m_bookmarks);
     SettingsManager::instance().addRecentProject(p.root);
     m_explorer->setProjectRoot(p.root);
+    m_mover->setProjectRoot(p.root);
     m_projectFiles->setRoot(p.root);
     m_editors->setProjectRoot(p.root);
     m_searchPanel->setProjectRoot(p.root);
@@ -1537,6 +1541,7 @@ void MainWindow::onProjectClosed()
     m_bookmarks.clear();
     m_tasks->setBookmarks(m_bookmarks);
     m_explorer->setProjectRoot({});
+    m_mover->setProjectRoot({});
     m_projectFiles->setRoot({});
     m_editors->setProjectRoot({});
     m_searchPanel->setProjectRoot({});

@@ -46,6 +46,8 @@ public:
     bool saveCurrent();
     bool saveCurrentAs();
     bool saveAll();
+    // Writes a document that a refactoring changed: no formatting, trimming or other save actions.
+    bool saveQuietly(Document *doc);
     // Fallback when no formatter program exists for a file: asks the language server (set by MainWindow). Returns true when
     // the server formatted the document (edits applied, possibly none).
     void setLspFormatter(std::function<bool(Document *, CodeEditor *)> f) { m_lspFormatter = std::move(f); }

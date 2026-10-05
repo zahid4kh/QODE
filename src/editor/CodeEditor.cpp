@@ -2959,6 +2959,22 @@ bool CodeEditor::applyTextEdits(const QVector<LspTextEdit> &list)
     return true;
 }
 
+bool CodeEditor::applyOffsetEdits(const QVector<MoveRefactor::TextEdit> &edits)
+{
+    if (isReadOnly() || edits.isEmpty())
+        return false;
+    QTextCursor c(document());
+    c.beginEditBlock();
+    for (int i = edits.size() - 1; i >= 0; --i) { // back to front keeps the earlier offsets valid
+        const MoveRefactor::TextEdit &e = edits.at(i);
+        c.setPosition(e.start);
+        c.setPosition(e.start + e.length, QTextCursor::KeepAnchor);
+        c.insertText(e.text);
+    }
+    c.endEditBlock();
+    return true;
+}
+
 void CodeEditor::insertCompletion(const LspCompletionItem &item, int anchor, int cur)
 {
     QTextDocument *doc = document();

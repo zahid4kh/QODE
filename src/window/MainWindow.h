@@ -32,6 +32,7 @@ class BranchButton;
 class QToolButton;
 class TerminalPanel;
 class ProjectFiles;
+class MoveController;
 class SearchPanel;
 class TasksPanel;
 struct SearchOptions;
@@ -136,6 +137,7 @@ private:
 
     ProjectManager *m_projects;
     ProjectFiles *m_projectFiles;
+    MoveController *m_mover = nullptr;
     QStringList m_recentFiles; // most recently active first
     GitRepository *m_git;
     LspManager *m_lsp;

@@ -1,0 +1,27 @@
+{
+  "id": "compose-desktop",
+  "order": 20,
+  "category": "Kotlin",
+  "name": "Compose Desktop",
+  "description": "A Compose Multiplatform desktop app: Material 3, a dark-mode switch, Koin, packaging for Deb / MSI / EXE / DMG and hot reload. Includes the Gradle wrapper.",
+  "mixins": ["gradle-wrapper"],
+  "requires": ["jdk17"],
+  "options": [
+    {"key": "appName", "label": "App name", "type": "text", "default": "{{name}}", "required": true},
+    {"key": "package", "label": "Package name", "type": "package", "default": "com.example.{{nameId}}"},
+    {"key": "version", "label": "Version", "type": "version", "default": "1.0.0", "hint": "MAJOR.MINOR.PATCH, major at least 1 (needed by the Windows and macOS installers)"},
+    {"key": "maintainer", "label": "Maintainer", "type": "text", "default": "{{gitIdentity}}", "hint": "Name <email>, used for the .deb package", "required": true},
+    {"key": "icon", "label": "App icon", "type": "image", "default": "", "hint": "PNG, SVG or JPG, 512×512 or larger recommended. Converted to PNG (Linux, window) and ICO (Windows)."},
+    {"key": "extendedIcons", "label": "Material icons extended", "type": "bool", "default": "true", "hint": "Large dependency; untick for a faster first build"}
+  ],
+  "imageOutputs": {
+    "icon": [
+      {"path": "icons/linux.png", "format": "png", "size": 512},
+      {"path": "icons/windows.ico", "format": "ico", "sizes": [16, 32, 48, 64, 128, 256]},
+      {"path": "src/main/composeResources/drawable/app_icon.png", "format": "png", "size": 256},
+      {"path": "icons/source.{ext}", "format": "copy"}
+    ]
+  },
+  "executable": ["gradlew"],
+  "openFiles": ["src/main/kotlin/{{packagePath}}/App.kt", "src/main/kotlin/{{packagePath}}/Main.kt"]
+}

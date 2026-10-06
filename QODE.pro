@@ -54,6 +54,7 @@ SOURCES += \
     src/project/QmakeProject.cpp \
     src/project/JvmProject.cpp \
     src/project/VersionCatalog.cpp \
+    src/project/ProjectTemplates.cpp \
     src/project/GradleProject.cpp \
     src/project/ProjectModel.cpp \
     src/project/PythonEnv.cpp \
@@ -141,6 +142,7 @@ HEADERS += \
     src/project/QmakeProject.h \
     src/project/JvmProject.h \
     src/project/VersionCatalog.h \
+    src/project/ProjectTemplates.h \
     src/project/GradleProject.h \
     src/project/ProjectModel.h \
     src/project/PythonEnv.h \

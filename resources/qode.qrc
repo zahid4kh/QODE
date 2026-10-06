@@ -79,5 +79,34 @@
         <file>fonts/PlusJakartaSans-Regular.ttf</file>
         <file>fonts/PlusJakartaSans-SemiBold.ttf</file>
         <file>fonts/PlusJakartaSans-SemiBoldItalic.ttf</file>
+        <file>templates/_shared/versions.json</file>
+        <file>templates/_shared/gradle-wrapper/gradlew</file>
+        <file>templates/_shared/gradle-wrapper/gradlew.bat</file>
+        <file>templates/_shared/gradle-wrapper/gradle/wrapper/gradle-wrapper.jar</file>
+        <file>templates/_shared/gradle-wrapper/gradle/wrapper/gradle-wrapper.properties</file>
+        <file>templates/compose-desktop/template.json</file>
+        <file>templates/compose-desktop/files/README.md</file>
+        <file>templates/compose-desktop/files/build.gradle.kts</file>
+        <file>templates/compose-desktop/files/dot_gitignore</file>
+        <file>templates/compose-desktop/files/gradle.properties</file>
+        <file>templates/compose-desktop/files/settings.gradle.kts</file>
+        <file>templates/compose-desktop/files/gradle/libs.versions.toml</file>
+        <file>templates/compose-desktop/files/src/main/kotlin/__packagePath__/App.kt</file>
+        <file>templates/compose-desktop/files/src/main/kotlin/__packagePath__/AppModule.kt</file>
+        <file>templates/compose-desktop/files/src/main/kotlin/__packagePath__/Main.kt</file>
+        <file>templates/compose-desktop/files/src/main/kotlin/__packagePath__/MainViewModel.kt</file>
+        <file>templates/compose-desktop/files/src/main/kotlin/__packagePath__/theme/Color.kt</file>
+        <file>templates/compose-desktop/files/src/main/kotlin/__packagePath__/theme/Theme.kt</file>
+        <file>templates/compose-desktop/files/src/main/kotlin/__packagePath__/theme/Type.kt</file>
+        <file>templates/kotlin-console/template.json</file>
+        <file>templates/kotlin-console/files/README.md</file>
+        <file>templates/kotlin-console/files/build.gradle.kts</file>
+        <file>templates/kotlin-console/files/dot_gitignore</file>
+        <file>templates/kotlin-console/files/gradle.properties</file>
+        <file>templates/kotlin-console/files/settings.gradle.kts</file>
+        <file>templates/kotlin-console/files/gradle/libs.versions.toml</file>
+        <file>templates/kotlin-console/files/src/main/kotlin/__packagePath__/Main.kt</file>
+        <file>templates/kotlin-console/files/src/main/resources/dot_gitkeep</file>
+        <file>templates/kotlin-console/files/src/test/kotlin/__packagePath__/MainTest.kt</file>
     </qresource>
 </RCC>

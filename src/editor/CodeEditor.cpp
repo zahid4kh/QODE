@@ -683,6 +683,44 @@ void CodeEditor::removeLines(const QVector<int> &lines)
     c.endEditBlock();
 }
 
+namespace {
+
+// Server hover text made readable: links to source files (jar:///…, file:///…, jdt://…: hundreds of characters that
+// only eat the length budget and cannot be followed from a tooltip) become plain text, compiler-internal annotations
+// leave the signature, and a trailing signature block (Kotlin puts it after the documentation) moves to the top.
+QString tidyHoverMarkdown(const QString &markdown)
+{
+    static const QRegularExpression link(QStringLiteral(R"(\[([^\]\n]*)\]\(([^)\s]*)\))"));
+    QString md;
+    int last = 0;
+    auto it = link.globalMatch(markdown);
+    while (it.hasNext()) {
+        const auto m = it.next();
+        md += markdown.mid(last, m.capturedStart() - last);
+        const QString url = m.captured(2);
+        md += url.startsWith(QLatin1String("http://")) || url.startsWith(QLatin1String("https://")) ? m.captured(0) : m.captured(1);
+        last = m.capturedEnd();
+    }
+    md += markdown.mid(last);
+
+    static const QRegularExpression noise(QStringLiteral(R"(^@(?:StabilityInferred|SourceDebugExtension|ComposableTarget|Metadata|Stable|Immutable)\b.*\n)"),
+                                          QRegularExpression::MultilineOption);
+    md.remove(noise);
+
+    static const QRegularExpression fence(QStringLiteral(R"((?:^|\n)(`{3,})[^\n]*\n.*?\n\1[ \t]*(?:\n|$))"), QRegularExpression::DotMatchesEverythingOption);
+    QRegularExpressionMatch lastFence;
+    auto fi = fence.globalMatch(md);
+    while (fi.hasNext())
+        lastFence = fi.next();
+    if (lastFence.hasMatch() && lastFence.capturedStart() > 0 && md.mid(lastFence.capturedEnd()).trimmed().isEmpty()) {
+        const QString block = lastFence.captured(0).trimmed();
+        md = block + QStringLiteral("\n\n") + md.left(lastFence.capturedStart()).trimmed();
+    }
+    return md.trimmed();
+}
+
+} // namespace
+
 void CodeEditor::showHover(const QString &markdown)
 {
     if (m_hoverPos < 0 || markdown.isEmpty() || !viewport()->underMouse())
@@ -690,9 +728,12 @@ void CodeEditor::showHover(const QString &markdown)
     if (cursorForPosition(viewport()->mapFromGlobal(QCursor::pos())).position() != m_hoverPos)
         return; // the mouse moved on
     constexpr int kMaxChars = 1800;
-    QString md = markdown;
-    if (md.size() > kMaxChars)
-        md = md.left(kMaxChars) + QStringLiteral("\n\n…");
+    QString md = tidyHoverMarkdown(markdown);
+    if (md.size() > kMaxChars) {
+        // Cut at a line end, never inside a line (a half link or half sentence looks like garbage).
+        const int cut = md.lastIndexOf(QLatin1Char('\n'), kMaxChars);
+        md = md.left(cut > kMaxChars / 2 ? cut : kMaxChars) + QStringLiteral("\n\n…");
+    }
     QTextDocument doc;
     doc.setMarkdown(md);
     QString html = doc.toHtml();

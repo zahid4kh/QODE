@@ -1,0 +1,17 @@
+{
+  "id": "kotlin-console",
+  "order": 10,
+  "category": "Kotlin",
+  "name": "Console Application",
+  "description": "A Gradle (Kotlin DSL) command-line app with a unit test and a version catalog. Includes the Gradle wrapper, so no Gradle install is needed.",
+  "mixins": ["gradle-wrapper"],
+  "requires": ["jdk17"],
+  "options": [
+    {"key": "package", "label": "Package", "type": "package", "default": "com.example.{{nameId}}"},
+    {"key": "jdk", "label": "JDK toolchain", "type": "choice", "choices": ["17", "21", "25"], "default": "21"},
+    {"key": "coroutines", "label": "Add kotlinx-coroutines", "type": "bool", "default": "false"},
+    {"key": "serialization", "label": "Add kotlinx-serialization (JSON)", "type": "bool", "default": "false"}
+  ],
+  "executable": ["gradlew"],
+  "openFiles": ["src/main/kotlin/{{packagePath}}/Main.kt"]
+}

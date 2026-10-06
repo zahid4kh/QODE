@@ -252,6 +252,12 @@ JvmProject JvmProject::detect(const QString &root)
             }
             if (m.compose) {
                 add(100, QStringLiteral("Run Compose Desktop app"), tool + QLatin1Char(' ') + pre + QStringLiteral("run"), QStringLiteral("Compose Desktop"));
+                // Compose 1.10+ bundles hot reload; the task needs the main class spelled out.
+                if (!m.mainClass.isEmpty())
+                    add(99, QStringLiteral("Run Compose Desktop app with hot reload"),
+                        tool + QLatin1Char(' ') + (pre.isEmpty() ? QStringLiteral(":") : pre) + QStringLiteral("hotRun --mainClass ")
+                            + (m.mainClass.contains(QLatin1Char('$')) ? shellQuote(m.mainClass) : m.mainClass) + QStringLiteral(" --auto"),
+                        QStringLiteral("Compose Desktop"));
             } else if (m.spring) {
                 add(90, QStringLiteral("Run Spring Boot app"), base + pre + QStringLiteral("bootRun"), QStringLiteral("Spring Boot"));
             } else if (m.quarkus) {

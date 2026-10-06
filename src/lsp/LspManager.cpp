@@ -994,8 +994,13 @@ void LspManager::unusedImports(Document *doc, std::function<void(const QVector<i
                    }
                    for (int i = qMax(first, 0); first >= 0 && i < last && i < lines.size(); ++i) {
                        const QString t = lines.at(i).trimmed();
-                       if (t.startsWith(QLatin1String("import ")) && !kept.contains(t))
-                           unused.append(i);
+                       if (!t.startsWith(QLatin1String("import ")) || kept.contains(t))
+                           continue;
+                       // Five or more imports from one package come back folded into `import pkg.*`: still in use.
+                       const int dot = t.lastIndexOf(QLatin1Char('.'));
+                       if (dot > 0 && !t.contains(QLatin1String(" as ")) && kept.contains(t.left(dot) + QStringLiteral(".*")))
+                           continue;
+                       unused.append(i);
                    }
                    done(unused);
                });
@@ -1211,6 +1216,107 @@ void LspManager::runCodeAction(Document *doc, const LspCodeAction &action, std::
                [done, ok](const QJsonValue &, const QJsonObject &err) { done(ok && err.isEmpty()); });
 }
 
+// Documentation comment and declaration found in a source file at a definition's line: the fallback for servers whose hover
+// is empty for a symbol they can still navigate to (the Kotlin server does this for Compose's Button, Switch, Card ...).
+static QString sourceSummary(const QString &path, int line)
+{
+    if (!path.endsWith(QLatin1String(".kt")) && !path.endsWith(QLatin1String(".java")))
+        return {};
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return {};
+    const QStringList lines = QString::fromUtf8(f.readAll()).split(QLatin1Char('\n'));
+    if (line < 0 || line >= lines.size())
+        return {};
+
+    // Annotations and modifiers on lines above the name belong to the declaration.
+    int start = line;
+    while (start > 0) {
+        const QString prev = lines[start - 1].trimmed();
+        if (prev.startsWith(QLatin1Char('@')) || (prev.endsWith(QLatin1Char(',')) && start - 1 > 0 && lines[start - 2].trimmed().startsWith(QLatin1Char('@'))))
+            --start;
+        else
+            break;
+    }
+    // Signature: up to the body ('{' or '=' outside the parentheses) or a limit.
+    QStringList sig;
+    int depth = 0;
+    bool done = false;
+    for (int i = start; i < lines.size() && i < start + 40 && !done; ++i) {
+        const QString &l = lines[i];
+        QString kept;
+        for (int k = 0; k < l.size() && !done; ++k) {
+            const QChar ch = l[k];
+            if (ch == QLatin1Char('(') || ch == QLatin1Char('<'))
+                ++depth;
+            else if (ch == QLatin1Char(')') || (ch == QLatin1Char('>') && k > 0 && l[k - 1] != QLatin1Char('-')))
+                --depth;
+            else if (depth <= 0 && (ch == QLatin1Char('{') || (ch == QLatin1Char('=') && k + 1 < l.size() && l[k + 1] != QLatin1Char('=')) ))
+                done = true;
+            if (!done)
+                kept += ch;
+        }
+        sig << (kept.trimmed().isEmpty() ? QString() : kept);
+        if (!done && depth <= 0 && i >= line && !kept.trimmed().isEmpty() && !kept.trimmed().endsWith(QLatin1Char(',')) && !kept.trimmed().endsWith(QLatin1Char('(')))
+            done = true;
+    }
+    while (!sig.isEmpty() && sig.last().trimmed().isEmpty())
+        sig.removeLast();
+    if (sig.isEmpty())
+        return {};
+
+    // KDoc / Javadoc ending right above.
+    QStringList doc;
+    int e = start - 1;
+    if (e >= 0 && lines[e].trimmed().endsWith(QLatin1String("*/"))) {
+        int b = e;
+        while (b > 0 && !lines[b].contains(QLatin1String("/*")))
+            --b;
+        for (int i = b; i <= e; ++i) {
+            QString t = lines[i].trimmed();
+            if (t.startsWith(QLatin1String("/**")))
+                t = t.mid(3);
+            else if (t.startsWith(QLatin1String("/*")))
+                t = t.mid(2);
+            if (t.endsWith(QLatin1String("*/")))
+                t.chop(2);
+            if (t.startsWith(QLatin1Char('*')))
+                t = t.mid(1);
+            t = t.trimmed();
+            if (t.startsWith(QLatin1String("@sample")) || t.startsWith(QLatin1String("@see")) || t.startsWith(QLatin1String("@suppress")))
+                continue;
+            if (t.startsWith(QLatin1String("@param ")) || t.startsWith(QLatin1String("@property ")))
+                t = QStringLiteral("- `") + t.section(QLatin1Char(' '), 1, 1) + QStringLiteral("`: ") + t.section(QLatin1Char(' '), 2);
+            else if (t.startsWith(QLatin1String("@return")))
+                t = QStringLiteral("**Returns** ") + t.mid(7).trimmed();
+            doc << t;
+        }
+        while (!doc.isEmpty() && doc.first().isEmpty())
+            doc.removeFirst();
+        while (!doc.isEmpty() && doc.last().isEmpty())
+            doc.removeLast();
+    }
+
+    // Common indentation off the signature.
+    int indent = 1 << 20;
+    for (const QString &l : std::as_const(sig))
+        if (!l.trimmed().isEmpty()) {
+            int n = 0;
+            while (n < l.size() && l[n].isSpace())
+                ++n;
+            indent = qMin(indent, n);
+        }
+    for (QString &l : sig)
+        l = l.mid(qMin(indent, int(l.size())));
+
+    QString out = doc.join(QLatin1Char('\n'));
+    out.remove(QRegularExpression(QStringLiteral(R"(!\[[^\]]*\]\([^)]*\))")));
+    if (!out.isEmpty())
+        out += QStringLiteral("\n\n");
+    return out + QStringLiteral("```") + (path.endsWith(QLatin1String(".kt")) ? QStringLiteral("kotlin") : QStringLiteral("java")) + QLatin1Char('\n')
+           + sig.join(QLatin1Char('\n')) + QStringLiteral("\n```");
+}
+
 void LspManager::hover(Document *doc, int line, int column, std::function<void(const QString &)> done)
 {
     QString uri;
@@ -1232,7 +1338,7 @@ void LspManager::hover(Document *doc, int line, int column, std::function<void(c
     gather->texts = QStringList(clients.size());
     for (int i = 0; i < clients.size(); ++i)
         clients[i]->request(QStringLiteral("textDocument/hover"), positionParams(uri, line, column),
-                            [gather, done, i](const QJsonValue &result, const QJsonObject &error) {
+                            [this, gather, done, i, docGuard = QPointer<Document>(doc), line, column](const QJsonValue &result, const QJsonObject &error) {
                                 if (error.isEmpty() && result.isObject())
                                     gather->texts[i] = markupText(result.toObject().value(QStringLiteral("contents"))).trimmed();
                                 if (--gather->pending == 0) {
@@ -1240,7 +1346,18 @@ void LspManager::hover(Document *doc, int line, int column, std::function<void(c
                                     for (const QString &t : std::as_const(gather->texts))
                                         if (!t.isEmpty())
                                             parts << t;
-                                    done(parts.join(QStringLiteral("\n\n")));
+                                    if (!parts.isEmpty()) {
+                                        done(parts.join(QStringLiteral("\n\n")));
+                                        return;
+                                    }
+                                    // Nothing from any server: document what the definition points at.
+                                    if (!docGuard) {
+                                        done({});
+                                        return;
+                                    }
+                                    definition(docGuard, line, column, [done](const QVector<LspLocation> &where) {
+                                        done(where.isEmpty() ? QString() : sourceSummary(where.first().path, where.first().line));
+                                    });
                                 }
                             });
 }

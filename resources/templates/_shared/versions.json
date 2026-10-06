@@ -1,0 +1,9 @@
+{
+  "gradleVersion": "8.14.3",
+  "kotlinVersion": "2.2.21",
+  "composePluginVersion": "1.10.0",
+  "coroutinesVersion": "1.10.2",
+  "serializationVersion": "1.9.0",
+  "koinVersion": "4.1.0",
+  "foojayVersion": "1.0.0"
+}

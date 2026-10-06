@@ -1,0 +1,22 @@
+[versions]
+kotlin = "{{kotlinVersion}}"
+{{#if coroutines}}
+kotlinxCoroutines = "{{coroutinesVersion}}"
+{{/if}}
+{{#if serialization}}
+kotlinxSerialization = "{{serializationVersion}}"
+{{/if}}
+
+[libraries]
+{{#if coroutines}}
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+{{/if}}
+{{#if serialization}}
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+{{/if}}
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+{{#if serialization}}
+kotlin-plugin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+{{/if}}

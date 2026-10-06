@@ -13,6 +13,7 @@
 #include "dialogs/RunConfigDialog.h"
 #include "webdev/DevServerBar.h"
 #include "project/JvmProject.h"
+#include "project/ProjectTemplates.h"
 #include "project/VersionCatalog.h"
 #include "project/QmakeProject.h"
 #include "media/MarkdownPreview.h"
@@ -1512,8 +1513,33 @@ void MainWindow::newProject()
         return;
     QString err;
     SettingsManager::instance().setLastDirectory(dlg.location());
-    if (!m_projects->createProject(dlg.projectName(), dlg.location(), &err))
-        QMessageBox::warning(this, tr("Unable to create project"), err);
+
+    const ProjectTemplates::Template *tpl = ProjectTemplates::find(dlg.templateId());
+    if (!tpl) {
+        if (!m_projects->createProject(dlg.projectName(), dlg.location(), &err))
+            QMessageBox::warning(this, tr("Unable to create project"), err);
+        return;
+    }
+
+    const QString dest = QDir(dlg.location()).filePath(dlg.projectName());
+    const ProjectTemplates::Result made = ProjectTemplates::instantiate(*tpl, dlg.values(), dest);
+    if (!made.ok) {
+        QMessageBox::warning(this, tr("Unable to create project"), made.error);
+        return;
+    }
+    if (dlg.initGit()) {
+        QProcess git;
+        git.setWorkingDirectory(dest);
+        git.start(QStringLiteral("git"), {QStringLiteral("init"), QStringLiteral("-q")});
+        if (!git.waitForFinished(5000) || git.exitCode() != 0)
+            QMessageBox::warning(this, tr("Git"), tr("The project was created, but \"git init\" failed."));
+    }
+    if (!m_projects->openProject(dest, &err)) {
+        QMessageBox::warning(this, tr("Unable to open project"), err);
+        return;
+    }
+    for (const QString &file : made.openFiles)
+        m_editors->openFile(file);
 }
 
 void MainWindow::openProject()

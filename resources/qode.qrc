@@ -108,5 +108,44 @@
         <file>templates/kotlin-console/files/src/main/kotlin/__packagePath__/Main.kt</file>
         <file>templates/kotlin-console/files/src/main/resources/dot_gitkeep</file>
         <file>templates/kotlin-console/files/src/test/kotlin/__packagePath__/MainTest.kt</file>
+        <file>templates/cpp-console/template.json</file>
+        <file>templates/cpp-console/files/CMakeLists.txt</file>
+        <file>templates/cpp-console/files/README.md</file>
+        <file>templates/cpp-console/files/compile.sh</file>
+        <file>templates/cpp-console/files/compile_flags.txt</file>
+        <file>templates/cpp-console/files/dot_clang-format</file>
+        <file>templates/cpp-console/files/dot_gitignore</file>
+        <file>templates/cpp-console/files/run.sh</file>
+        <file>templates/cpp-console/files/include/dot_gitkeep</file>
+        <file>templates/cpp-console/files/include/greeting.h</file>
+        <file>templates/cpp-console/files/src/greeting.cpp</file>
+        <file>templates/cpp-console/files/src/main.cpp</file>
+        <file>templates/cpp-console/files/tests/test_main.cpp</file>
+        <file>templates/c-console/template.json</file>
+        <file>templates/c-console/files/CMakeLists.txt</file>
+        <file>templates/c-console/files/README.md</file>
+        <file>templates/c-console/files/compile.sh</file>
+        <file>templates/c-console/files/compile_flags.txt</file>
+        <file>templates/c-console/files/dot_clang-format</file>
+        <file>templates/c-console/files/dot_gitignore</file>
+        <file>templates/c-console/files/run.sh</file>
+        <file>templates/c-console/files/include/dot_gitkeep</file>
+        <file>templates/c-console/files/include/greeting.h</file>
+        <file>templates/c-console/files/src/greeting.c</file>
+        <file>templates/c-console/files/src/main.c</file>
+        <file>templates/c-console/files/tests/test_main.c</file>
+        <file>templates/qt-widgets/template.json</file>
+        <file>templates/qt-widgets/files/CMakeLists.txt</file>
+        <file>templates/qt-widgets/files/README.md</file>
+        <file>templates/qt-widgets/files/__nameId__.pro</file>
+        <file>templates/qt-widgets/files/compile.sh</file>
+        <file>templates/qt-widgets/files/dot_clang-format</file>
+        <file>templates/qt-widgets/files/dot_gitignore</file>
+        <file>templates/qt-widgets/files/run.sh</file>
+        <file>templates/qt-widgets/files/resources/app.qrc</file>
+        <file>templates/qt-widgets/files/resources/icon.svg</file>
+        <file>templates/qt-widgets/files/src/MainWindow.cpp</file>
+        <file>templates/qt-widgets/files/src/MainWindow.h</file>
+        <file>templates/qt-widgets/files/src/main.cpp</file>
     </qresource>
 </RCC>

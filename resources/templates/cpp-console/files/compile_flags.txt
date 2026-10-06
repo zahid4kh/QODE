@@ -1,0 +1,4 @@
+-std=c++{{std}}
+-Wall
+-Wextra
+-Iinclude

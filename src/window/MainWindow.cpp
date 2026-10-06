@@ -1504,6 +1504,11 @@ void MainWindow::newWindow()
     QProcess::startDetached(QCoreApplication::applicationFilePath(), {QStringLiteral("--new-window")});
 }
 
+namespace {
+// Run settings key of the command that runs the whole project (every other key is a file type).
+const QString kProjectRunKey = QStringLiteral("@project");
+} // namespace
+
 void MainWindow::newProject()
 {
     NewProjectDialog dlg(SettingsManager::instance().lastDirectory(), this);
@@ -1538,6 +1543,8 @@ void MainWindow::newProject()
         QMessageBox::warning(this, tr("Unable to open project"), err);
         return;
     }
+    if (!made.runCommand.isEmpty())
+        SettingsManager::instance().setRunCommand(kProjectRunKey, made.runCommand);
     for (const QString &file : made.openFiles)
         m_editors->openFile(file);
 }
@@ -1860,11 +1867,6 @@ void MainWindow::showTerminal()
     m_vsplit->setSizes({total - h, h});
     m_terminalAct->setChecked(true);
 }
-
-namespace {
-// Run settings key of the command that runs the whole project (every other key is a file type).
-const QString kProjectRunKey = QStringLiteral("@project");
-} // namespace
 
 // The command a recognised project type runs with (Gradle application, qmake application), or an empty string.
 static QString detectedRunCommand(const QString &root, QString *note, QList<QPair<QString, QString>> *configs = nullptr)

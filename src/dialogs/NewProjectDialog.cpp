@@ -2,6 +2,7 @@
 
 #include "filesystem/FileManager.h"
 #include "lsp/LspServers.h"
+#include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
 
@@ -18,8 +19,10 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPixmap>
+#include <QProcess>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QScrollArea>
 #include <QStandardPaths>
 #include <QVBoxLayout>
 
@@ -37,11 +40,13 @@ NewProjectDialog::NewProjectDialog(const QString &defaultLocation, QWidget *pare
     : QDialog(parent)
 {
     setWindowTitle(tr("New Project"));
-    setMinimumSize(780, 520);
+    setMinimumSize(860, 600);
+    resize(900, 660);
+    applyStyle();
 
     m_list = new QListWidget(this);
-    m_list->setFixedWidth(210);
-    m_list->setFrameShape(QFrame::NoFrame);
+    m_list->setFixedWidth(220);
+    m_list->setObjectName(QStringLiteral("templateList"));
     m_list->setIconSize(QSize(16, 16));
 
     auto addHeader = [&](const QString &text) {
@@ -67,6 +72,7 @@ NewProjectDialog::NewProjectDialog(const QString &defaultLocation, QWidget *pare
     }
 
     m_title = new QLabel(this);
+    m_title->setObjectName(QStringLiteral("dialogTitle"));
     QFont tf = m_title->font();
     tf.setBold(true);
     tf.setPointSizeF(tf.pointSizeF() + 3);
@@ -103,17 +109,32 @@ NewProjectDialog::NewProjectDialog(const QString &defaultLocation, QWidget *pare
     m_create->setDefault(true);
 
     auto *right = new QVBoxLayout;
+    right->setSpacing(8);
     right->addWidget(m_title);
     right->addWidget(m_description);
     right->addSpacing(8);
-    right->addLayout(m_form);
-    right->addWidget(m_requirement);
-    right->addWidget(m_git);
-    right->addStretch(1);
+    // The options sit in a scroll area: long hints keep their height instead of being squeezed together.
+    auto *formHost = new QWidget;
+    formHost->setObjectName(QStringLiteral("formHost"));
+    auto *formBox = new QVBoxLayout(formHost);
+    formBox->setContentsMargins(0, 0, 8, 0);
+    formBox->addLayout(m_form);
+    formBox->addWidget(m_requirement);
+    formBox->addWidget(m_git);
+    formBox->addStretch(1);
+    auto *scroll = new QScrollArea(this);
+    scroll->setObjectName(QStringLiteral("formScroll"));
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setWidget(formHost);
+    right->addWidget(scroll, 1);
     right->addWidget(m_hint);
     right->addWidget(buttons);
 
     auto *root = new QHBoxLayout(this);
+    root->setContentsMargins(18, 18, 18, 16);
+    root->setSpacing(18);
     root->addWidget(m_list);
     root->addLayout(right, 1);
 
@@ -129,6 +150,42 @@ NewProjectDialog::NewProjectDialog(const QString &defaultLocation, QWidget *pare
 
     m_list->setCurrentRow(0);
     m_name->setFocus();
+}
+
+// A visible frame (the dialog sits on a window of the same colour), a tinted template list and themed inputs.
+void NewProjectDialog::applyStyle()
+{
+    const Theme t = Theme::byName(SettingsManager::instance().theme());
+    QColor frame = t.border;
+    frame.setRed((t.border.red() + t.textMuted.red()) / 2);
+    frame.setGreen((t.border.green() + t.textMuted.green()) / 2);
+    frame.setBlue((t.border.blue() + t.textMuted.blue()) / 2);
+    // A stylesheet-drawn combo box loses its arrow: give it a recoloured chevron (the stylesheet needs a file).
+    const QString arrow = QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation))
+                              .filePath(QStringLiteral("qode-chevron-%1.png").arg(t.textMuted.name().mid(1)));
+    if (!QFileInfo::exists(arrow))
+        Icons::pixmap(QStringLiteral(":/new-icons/chevron-down.svg"), t.textMuted, 12, 2.0).save(arrow);
+    setStyleSheet(QStringLiteral(
+                      "NewProjectDialog { background: %1; border: 2px solid %2; }"
+                      "QLabel#dialogTitle { color: %3; }"
+                      "QScrollArea#formScroll, QWidget#formHost { background: transparent; }"
+                      "QListWidget#templateList { background: %4; border: 1px solid %5; border-radius: 8px; padding: 6px; outline: 0; }"
+                      "QListWidget#templateList::item { padding: 6px 10px; border-radius: 6px; color: %3; }"
+                      "QListWidget#templateList::item:hover { background: %6; }"
+                      "QListWidget#templateList::item:selected { background: %7; color: %8; }"
+                      "QListWidget#templateList::item:disabled { color: %9; background: transparent; padding-top: 12px; }"
+                      "QLineEdit, QComboBox { background: %10; border: 1px solid %5; border-radius: 6px; padding: 5px 9px; color: %3; }"
+                      "QLineEdit:focus, QComboBox:focus { border-color: %7; }"
+                      "QComboBox::drop-down { border: 0; width: 26px; }"
+                      "QComboBox::down-arrow { image: url(%11); width: 12px; height: 12px; }"
+                      "QComboBox QAbstractItemView { background: %10; border: 1px solid %5; color: %3; selection-background-color: %7; selection-color: %8; outline: 0; }"
+                      "QPushButton { background: %4; color: %3; border: 1px solid %5; border-radius: 6px; padding: 6px 14px; }"
+                      "QPushButton:hover { background: %6; }"
+                      "QPushButton:disabled { color: %9; }"
+                      "QPushButton:default { background: %7; color: %8; border-color: %7; }"
+                      "QPushButton:default:disabled { background: %4; color: %9; border-color: %5; }")
+                      .arg(t.window.name(), frame.name(), t.editorFg.name(), t.panel.name(), t.border.name(), t.selection.name(),
+                           t.accent.name(), t.onAccent().name(), t.textMuted.name(), t.editorBg.name(), arrow));
 }
 
 QString NewProjectDialog::projectName() const { return m_name->text().trimmed(); }
@@ -298,21 +355,7 @@ void NewProjectDialog::rebuildOptions()
     m_updating = false;
     refreshDefaults();
 
-    // Prerequisites only warn: the project is still created and the tool can be installed afterwards.
-    QStringList warnings;
-    for (const QString &req : t->requires) {
-        static const QRegularExpression jdk(QStringLiteral(R"(^jdk(\d+)$)"));
-        const auto m = jdk.match(req);
-        if (m.hasMatch()) {
-            const int need = m.captured(1).toInt();
-            if (LspServers::findJava(need).executable.isEmpty())
-                warnings << tr("A JDK %1 or newer was not found. Gradle needs one to build and run the project: install it or set JAVA_HOME. The project is still created.").arg(need);
-        }
-    }
-    const Theme theme = Theme::byName(SettingsManager::instance().theme());
-    m_requirement->setStyleSheet(QStringLiteral("color: %1;").arg(theme.warning.name()));
-    m_requirement->setText(warnings.join(QLatin1Char('\n')));
-    m_requirement->setVisible(!warnings.isEmpty());
+    updateRequirements();
 }
 
 // Options the user has not touched follow the project name (package com.example.<name>, app name = project name).
@@ -333,10 +376,82 @@ void NewProjectDialog::refreshDefaults()
     m_updating = false;
 }
 
+namespace {
+// Package that provides a tool, for the hint (Debian/Ubuntu names; other distributions name them alike).
+QString packageFor(const QString &tool)
+{
+    if (tool == QLatin1String("g++") || tool == QLatin1String("gcc") || tool == QLatin1String("make"))
+        return QStringLiteral("build-essential");
+    if (tool == QLatin1String("clang++") || tool == QLatin1String("clang"))
+        return QStringLiteral("clang");
+    return tool;
+}
+
+// Qt 6 headers next to a qmake6 (what both the qmake and the CMake template need to build).
+bool qt6Installed()
+{
+    static const bool ok = [] {
+        const QString qmake = QStandardPaths::findExecutable(QStringLiteral("qmake6"));
+        if (qmake.isEmpty())
+            return false;
+        QProcess p;
+        p.start(qmake, {QStringLiteral("-query"), QStringLiteral("QT_INSTALL_HEADERS")});
+        if (!p.waitForFinished(3000))
+            return false;
+        const QString dir = QString::fromUtf8(p.readAllStandardOutput()).trimmed();
+        return QFileInfo(dir + QStringLiteral("/QtWidgets")).isDir();
+    }();
+    return ok;
+}
+} // namespace
+
+// Prerequisites only warn: the project is still created and the tool can be installed afterwards.
+void NewProjectDialog::updateRequirements()
+{
+    QStringList warnings;
+    const ProjectTemplates::Template *t = ProjectTemplates::find(m_templateId);
+    const ProjectTemplates::Values vals = values();
+    QStringList missingTools;
+    if (t) {
+        for (QString req : t->needs) {
+            const int q = req.indexOf(QLatin1Char('?'));
+            if (q >= 0) {
+                const QString cond = req.mid(q + 1);
+                req.truncate(q);
+                const int eq = cond.indexOf(QLatin1Char('='));
+                if (eq > 0 && vals.value(cond.left(eq)) != cond.mid(eq + 1))
+                    continue;
+            }
+            static const QRegularExpression jdk(QStringLiteral(R"(^jdk(\d+)$)"));
+            const auto m = jdk.match(req);
+            if (m.hasMatch()) {
+                const int need = m.captured(1).toInt();
+                if (LspServers::findJava(need).executable.isEmpty())
+                    warnings << tr("A JDK %1 or newer was not found. Gradle needs one to build and run the project: install it or set JAVA_HOME. The project is still created.").arg(need);
+            } else if (req == QLatin1String("qt6")) {
+                if (!qt6Installed())
+                    warnings << tr("Qt 6 development files were not found (on Debian/Ubuntu: sudo apt install qt6-base-dev). The project is still created.");
+            } else if (req.startsWith(QLatin1String("tool:"))) {
+                const QString tool = ProjectTemplates::expand(*t, req.mid(5), vals);
+                if (QStandardPaths::findExecutable(tool).isEmpty() && !missingTools.contains(tool))
+                    missingTools << tool;
+            }
+        }
+    }
+    for (const QString &tool : std::as_const(missingTools))
+        warnings << tr("%1 was not found. Install it with your package manager (for example: sudo apt install %2). The project is still created.")
+                        .arg(tool, packageFor(tool));
+    const Theme theme = Theme::byName(SettingsManager::instance().theme());
+    m_requirement->setStyleSheet(QStringLiteral("color: %1;").arg(theme.warning.name()));
+    m_requirement->setText(warnings.join(QLatin1Char('\n')));
+    m_requirement->setVisible(!warnings.isEmpty());
+}
+
 void NewProjectDialog::validate()
 {
     if (m_updating)
         return;
+    updateRequirements();
     QString msg;
     if (!projectName().isEmpty())
         msg = FileManager::validateName(projectName());

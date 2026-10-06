@@ -39,9 +39,14 @@ public:
         QString description;
         int order = 0;
         QStringList mixins;
-        QStringList requires;   // e.g. "jdk17": a Java runtime of at least that major version
+        // Tools the project needs, checked by the dialog (a warning, never a block): "jdk17" = a Java runtime of at least that
+        // major version, "tool:<exe>" = an executable on PATH (<exe> may hold {{placeholders}}), "qt6" = Qt 6 development files.
+        // A "?key=value" suffix applies the entry only while that option has that value.
+        QStringList needs;
         QStringList executable; // files that get the executable bit
         QStringList openFiles;  // opened after creation (relative, may hold placeholders)
+        QString runCommand;     // stored as the project's run command ("./run.sh"), empty = leave it to the detectors
+        QMap<QString, QString> when; // file or folder (relative, rendered) -> option key, "!key" = only when unset
         QList<Option> options;
         QMap<QString, QList<ImageOutput>> imageOutputs; // by the key of an image option
     };
@@ -52,6 +57,7 @@ public:
         bool ok = false;
         QString error;
         QStringList openFiles; // absolute paths
+        QString runCommand;
     };
 
     static const QList<Template> &all();

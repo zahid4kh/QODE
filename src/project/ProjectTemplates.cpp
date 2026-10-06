@@ -40,6 +40,17 @@ bool truthy(const QString &v)
     return !v.isEmpty() && v != QLatin1String("false") && v != QLatin1String("0");
 }
 
+// "key" (set), "!key", "key=value", "!key=value".
+bool condition(const ProjectTemplates::Values &vars, QString expr)
+{
+    const bool negate = expr.startsWith(QLatin1Char('!'));
+    if (negate)
+        expr.remove(0, 1);
+    const int eq = expr.indexOf(QLatin1Char('='));
+    const bool on = eq < 0 ? truthy(vars.value(expr)) : vars.value(expr.left(eq)) == expr.mid(eq + 1);
+    return on != negate;
+}
+
 bool isBinaryName(const QString &name)
 {
     static const QSet<QString> bin = {QStringLiteral("jar"), QStringLiteral("png"), QStringLiteral("ico"), QStringLiteral("icns"),
@@ -103,10 +114,23 @@ QString substitute(const QString &text, const ProjectTemplates::Values &vars, QS
     return out + text.mid(last);
 }
 
+// False when the manifest's "when" table switches the file (or a folder above it) off for these values.
+bool wanted(const ProjectTemplates::Template &t, const QString &rel, const ProjectTemplates::Values &vars)
+{
+    for (auto it = t.when.begin(); it != t.when.end(); ++it) {
+        const QString path = substitute(it.key(), vars, nullptr);
+        if (rel != path && !rel.startsWith(path + QLatin1Char('/')))
+            continue;
+        if (!condition(vars, it.value()))
+            return false;
+    }
+    return true;
+}
+
 // Renders one text file: conditional line blocks, then placeholders. False (with `error`) on an unbalanced block.
 bool renderFile(const QString &text, const ProjectTemplates::Values &vars, QString *out, QString *error, QStringList *missing)
 {
-    static const QRegularExpression ifRe(QStringLiteral(R"(^\s*\{\{#if\s+(!?)(\w+)\}\}\s*$)"));
+    static const QRegularExpression ifRe(QStringLiteral(R"(^\s*\{\{#if\s+(!?\w+(?:=[\w.+-]+)?)\}\}\s*$)"));
     static const QRegularExpression endRe(QStringLiteral(R"(^\s*\{\{/if\}\}\s*$)"));
     const QStringList lines = text.split(QLatin1Char('\n'));
     QStringList result;
@@ -115,12 +139,13 @@ bool renderFile(const QString &text, const ProjectTemplates::Values &vars, QStri
     for (const QString &line : lines) {
         const auto im = ifRe.match(line);
         if (im.hasMatch()) {
-            const QString key = im.captured(2);
+            QString key = im.captured(1);
+            if (key.startsWith(QLatin1Char('!')))
+                key.remove(0, 1);
+            key = key.left(key.indexOf(QLatin1Char('=')) < 0 ? key.size() : key.indexOf(QLatin1Char('=')));
             if (!vars.contains(key) && missing && !missing->contains(key))
                 missing->append(key);
-            bool on = truthy(vars.value(key));
-            if (!im.captured(1).isEmpty())
-                on = !on;
+            const bool on = condition(vars, im.captured(1));
             stack.append(active);
             active = active && on;
             continue;
@@ -347,9 +372,13 @@ const QList<ProjectTemplates::Template> &ProjectTemplates::all()
                 return l;
             };
             t.mixins = strings("mixins");
-            t.requires = strings("requires");
+            t.needs = strings("requires");
             t.executable = strings("executable");
             t.openFiles = strings("openFiles");
+            t.runCommand = o.value(QStringLiteral("runCommand")).toString();
+            const QJsonObject when = o.value(QStringLiteral("when")).toObject();
+            for (auto w = when.begin(); w != when.end(); ++w)
+                t.when.insert(w.key(), w.value().toString());
             for (const QJsonValue &v : o.value(QStringLiteral("options")).toArray()) {
                 const QJsonObject oo = v.toObject();
                 Option op;
@@ -496,6 +525,8 @@ ProjectTemplates::Result ProjectTemplates::instantiate(const Template &t, const 
             QString rel;
             if (!renderPath(src.mid(root.size() + 1), vars, &rel))
                 return fail(QStringLiteral("Template file name \"%1\" is invalid.").arg(src));
+            if (!wanted(t, rel, vars))
+                continue;
             const QString target = tmp + QLatin1Char('/') + rel;
             QByteArray data;
             QFile in(src);
@@ -556,6 +587,7 @@ ProjectTemplates::Result ProjectTemplates::instantiate(const Template &t, const 
     if (!QDir().rename(tmp, destDir))
         return fail(QStringLiteral("Could not move the new project into %1.").arg(destDir));
 
+    r.runCommand = substitute(t.runCommand, vars, nullptr);
     for (const QString &f : t.openFiles)
         r.openFiles << destDir + QLatin1Char('/') + substitute(f, vars, nullptr);
     r.ok = true;

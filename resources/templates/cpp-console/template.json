@@ -1,0 +1,25 @@
+{
+  "id": "cpp-console",
+  "order": 10,
+  "category": "C / C++",
+  "name": "C++ Console Application",
+  "description": "A small C++ program with a compile script and a run script you can edit, or CMake if you prefer. clangd works right away. No build system to learn: compile.sh builds every .cpp under src/.",
+  "requires": ["tool:{{compiler}}", "tool:cmake?buildSystem=CMake"],
+  "options": [
+    {"key": "buildSystem", "label": "Build system", "type": "choice", "choices": ["Scripts", "CMake"], "default": "Scripts", "hint": "Scripts: plain compile.sh / run.sh you can read and change. CMake: the same scripts drive cmake for you."},
+    {"key": "std", "label": "C++ standard", "type": "choice", "choices": ["17", "20", "23"], "default": "20"},
+    {"key": "compiler", "label": "Compiler", "type": "choice", "choices": ["g++", "clang++"], "default": "g++"},
+    {"key": "tests", "label": "Add a tests folder", "type": "bool", "default": "false", "hint": "tests/test_main.cpp with plain assert(); run it with ./compile.sh test"},
+    {"key": "ccache", "label": "Use ccache when installed", "type": "bool", "default": "true", "hint": "ccache remembers what the compiler produced, so rebuilding code that did not change is nearly instant. Skipped automatically if ccache is not installed."},
+    {"key": "mold", "label": "Use mold linker when installed", "type": "bool", "default": "true", "hint": "mold is a very fast drop-in replacement for the system linker. It cuts the link step of larger programs from seconds to a blink. Skipped automatically if mold is not installed."},
+    {"key": "clangFormat", "label": "Add a .clang-format file", "type": "bool", "default": "true", "hint": "Format Document uses it (LLVM style, 4 spaces)."}
+  ],
+  "when": {
+    "CMakeLists.txt": "buildSystem=CMake",
+    "tests": "tests",
+    ".clang-format": "clangFormat"
+  },
+  "executable": ["compile.sh", "run.sh"],
+  "runCommand": "./run.sh",
+  "openFiles": ["src/main.cpp"]
+}

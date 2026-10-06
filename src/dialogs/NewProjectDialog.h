@@ -33,6 +33,8 @@ public:
 private:
     void browse();
     void validate();
+    void applyStyle();
+    void updateRequirements();
     void templateChosen();
     void rebuildOptions();
     void refreshDefaults();

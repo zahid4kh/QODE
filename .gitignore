@@ -14,3 +14,4 @@ docs/.next
 
 # Planning notes
 plans/
+resources/templates/**/.gradle/

@@ -1,3 +1,12 @@
+qode (0.6.0) unstable; urgency=low
+
+  * Project templates in File > New Project: Kotlin Console, Compose Desktop, C, C++ and Qt 6 Widgets.
+  * Java language server (jdtls), JVM run configurations and build-file sync.
+  * Gradle version catalog completion, JSON themes with a live theme editor, Darcula theme.
+  * Drag-and-drop moves in the explorer with import/include updates.
+
+ -- Zahid Khalilov <halilzahid@gmail.com>  Tue, 06 Oct 2026 12:00:00 +0200
+
 qode (0.5.0) unstable; urgency=low
 
   * Fix compiler warnings; no functional changes since 0.4.0.

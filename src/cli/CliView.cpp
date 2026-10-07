@@ -65,17 +65,39 @@ const TerminalScreen::Line *CliView::Block::line(int i) const
 {
     if (i < 0)
         return nullptr;
-    if (i < head.size())
-        return &head.at(i);
-    i -= int(head.size());
-    const int middle = live ? liveRows : int(body.size());
+    if (i < dHead.size())
+        return &dHead.at(i);
+    i -= int(dHead.size());
+    const int middle = live ? liveRows : int(dBody.size());
     if (i < middle) {
         if (live)
             return i < live->totalLines() ? &live->lineAt(i) : nullptr;
-        return &body.at(i);
+        return &dBody.at(i);
     }
     i -= middle;
-    return i < foot.size() ? &foot.at(i) : nullptr;
+    return i < dFoot.size() ? &dFoot.at(i) : nullptr;
+}
+
+// Soft-wraps stored lines to `cols`: trailing blanks are dropped, longer lines continue on the next row.
+void CliView::Block::rewrap(int cols)
+{
+    auto wrap = [cols](const QVector<Line> &in, QVector<Line> &out) {
+        out.clear();
+        for (const Line &line : in) {
+            int len = int(line.size());
+            while (len > 0 && line.at(len - 1).ch == U' ' && line.at(len - 1).bg == 0 && !(line.at(len - 1).attr & TerminalScreen::Inverse))
+                --len;
+            if (len <= cols) {
+                out.append(line.mid(0, len));
+                continue;
+            }
+            for (int i = 0; i < len; i += cols)
+                out.append(line.mid(i, qMin(cols, len - i)));
+        }
+    };
+    wrap(head, dHead);
+    wrap(body, dBody);
+    wrap(foot, dFoot);
 }
 
 // --- Construction ---------------------------------------------------------------------------
@@ -187,9 +209,11 @@ void CliView::recalc()
     m_visRows = rows;
     if (m_session->state() != CliSession::State::Stopped)
         m_session->resize(cols, rows);
-    for (Block *b : m_blocks)
+    for (Block *b : m_blocks) {
+        b->rewrap(cols); // finished output follows the new width
         if (b->live)
             b->live->resize(cols, rows);
+    }
     rebuildInput();
     relayout();
 }
@@ -344,6 +368,7 @@ CliView::Block *CliView::addBlock(const QString &headerAnsi, bool raw, bool slas
     b->raw = raw;
     b->slash = slash;
     b->head = Ansi::toLines(headerAnsi, m_cols);
+    b->rewrap(m_cols);
     b->live = new TerminalScreen(m_cols, m_visRows, this);
     connect(b->live, &TerminalScreen::changed, this, [this, b] { onLiveChanged(b); });
     if (raw)
@@ -358,6 +383,7 @@ void CliView::addNotice(const QString &ansi)
 {
     auto *b = new Block;
     b->body = Ansi::toLines(ansi, m_cols);
+    b->rewrap(m_cols);
     m_blocks.append(b);
     m_follow = true;
     rebuildInput();
@@ -413,6 +439,7 @@ void CliView::freezeBlock(Block *b, int status, qint64 ms)
         else if (ms >= 1000)
             b->foot = Ansi::toLines(Ansi::paint(QStringLiteral("✓"), Ansi::Green) + Ansi::dim(QStringLiteral(" ") + formatDuration(ms)), m_cols);
     }
+    b->rewrap(m_cols);
     if (m_clearAfter) {
         m_clearAfter = false;
         wipe();
@@ -1507,11 +1534,14 @@ void CliView::paintStatusBar(QPainter &p)
     p.setPen(m_muted);
     const QString left = QStringLiteral("·  ") + state + (m_branch.isEmpty() ? QString() : QStringLiteral("  ·  ⎇ ") + m_branch);
     p.drawText(QPointF(x, base), left);
+    const qreal leftEnd = x + QFontMetricsF(m_font).horizontalAdvance(left);
 
     QString hint = QStringLiteral("/help");
     if (!m_toggleText.isEmpty())
         hint += QStringLiteral("   ·   %1 editor").arg(m_toggleText);
-    p.drawText(QPointF(viewport()->width() - m_padX - QFontMetricsF(m_font).horizontalAdvance(hint), base), hint);
+    const qreal hintWidth = QFontMetricsF(m_font).horizontalAdvance(hint);
+    if (viewport()->width() - m_padX - hintWidth > leftEnd + 2 * m_cw) // a narrow window drops the hint instead of overlapping
+        p.drawText(QPointF(viewport()->width() - m_padX - hintWidth, base), hint);
 }
 
 void CliView::paintEvent(QPaintEvent *)
@@ -1552,7 +1582,7 @@ void CliView::paintEvent(QPaintEvent *)
     if (rawMode() && m_running->live && m_running->live->cursorVisible()) {
         const int bi = int(m_blocks.indexOf(m_running));
         TerminalScreen *s = m_running->live;
-        cursorRow = m_starts.value(bi) + int(m_running->head.size()) + s->scrollbackSize() + s->cursorRow();
+        cursorRow = m_starts.value(bi) + int(m_running->dHead.size()) + s->scrollbackSize() + s->cursorRow();
         cursorCol = s->cursorCol();
     } else if (inputVisible() && !m_searching) {
         cursorRow = m_blockRows + m_cursorRow;

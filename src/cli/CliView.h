@@ -71,12 +71,14 @@ private:
     using Line = TerminalScreen::Line;
 
     struct Block {
-        QVector<Line> head, body, foot;
+        QVector<Line> head, body, foot;   // as produced (cells laid out for the width at the time)
+        QVector<Line> dHead, dBody, dFoot; // the same re-wrapped for the current width: what is shown
+        void rewrap(int cols);
         TerminalScreen *live = nullptr; // output while it is still arriving
         int liveRows = 0;
         bool raw = false;               // a shell command: keys go to the program
         bool slash = false;
-        int rows() const { return int(head.size()) + (live ? liveRows : int(body.size())) + int(foot.size()); }
+        int rows() const { return int(dHead.size()) + (live ? liveRows : int(dBody.size())) + int(dFoot.size()); }
         const Line *line(int i) const;
         ~Block() { delete live; }
     };

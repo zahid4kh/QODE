@@ -19,6 +19,9 @@ public:
 
     static QString defaultShell();
 
+    // Optional: run `program args` instead of the user's shell with `-i`, with extra environment variables.
+    void setLaunch(const QString &program, const QStringList &args, const QProcessEnvironment &extraEnv = {});
+
     bool start(const QString &workingDirectory, int cols, int rows, QString *error);
     void write(const QByteArray &data);
     void resize(int cols, int rows);
@@ -43,5 +46,8 @@ private:
     QTimer *m_killTimer;
     QByteArray m_writeBuffer;
     QString m_shell;
+    QString m_program;
+    QStringList m_args;
+    QProcessEnvironment m_extraEnv;
     int m_master = -1;
 };

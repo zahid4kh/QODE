@@ -54,6 +54,13 @@ QString ShellProcess::defaultShell()
     return QStringLiteral("/bin/sh");
 }
 
+void ShellProcess::setLaunch(const QString &program, const QStringList &args, const QProcessEnvironment &extraEnv)
+{
+    m_program = program;
+    m_args = args;
+    m_extraEnv = extraEnv;
+}
+
 bool ShellProcess::isRunning() const
 {
     return m_process->state() != QProcess::NotRunning;
@@ -88,17 +95,18 @@ bool ShellProcess::start(const QString &workingDirectory, int cols, int rows, QS
     ::fcntl(m_master, F_SETFL, ::fcntl(m_master, F_GETFL) | O_NONBLOCK);
     resize(cols, rows);
 
-    m_shell = defaultShell();
+    m_shell = m_program.isEmpty() ? defaultShell() : m_program;
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.insert(QStringLiteral("TERM"), QStringLiteral("xterm-256color"));
     env.insert(QStringLiteral("COLORTERM"), QStringLiteral("truecolor"));
     env.insert(QStringLiteral("TERM_PROGRAM"), QStringLiteral("QODE"));
     env.remove(QStringLiteral("COLUMNS"));
     env.remove(QStringLiteral("LINES"));
+    env.insert(m_extraEnv);
     m_process->setProcessEnvironment(env);
     m_process->setWorkingDirectory(workingDirectory);
     m_process->setProgram(m_shell);
-    m_process->setArguments({QStringLiteral("-i")});
+    m_process->setArguments(m_args.isEmpty() ? QStringList{QStringLiteral("-i")} : m_args);
 
     // Runs in the forked child just before exec: only async-signal-safe calls allowed.
     const QByteArray slave = QByteArray(slaveName);

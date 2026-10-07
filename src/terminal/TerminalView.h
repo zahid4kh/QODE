@@ -21,6 +21,14 @@ public:
     void scrollToBottom();
     void applySettings();
 
+    // Bytes a terminal program expects for a key press (`appCursor`: DECCKM application cursor keys).
+    static QByteArray encodeKey(QKeyEvent *event, bool appCursor);
+    // Clipboard -> bytes for a program on the pty (bracketed text, copied files as paths, or the
+    // empty paste / Ctrl+V that makes Claude Code read an image itself).
+    static QByteArray pasteBytes(bool bracketed);
+    static QByteArray textPasteBytes(QString text, bool bracketed);
+    static bool clipboardIsImageOnly();
+
 signals:
     void input(const QByteArray &data); // bytes to send to the shell
     void sizeChanged(int cols, int rows);
@@ -52,7 +60,6 @@ private:
     void recalcSize();
     QColor resolve(quint32 color, bool foreground) const;
     QPoint cellAt(const QPoint &pos) const; // (absolute line, column)
-    QByteArray encodeKey(QKeyEvent *event) const;
     bool selectionActive() const { return m_selStart != m_selEnd; }
 
     TerminalScreen *m_screen;

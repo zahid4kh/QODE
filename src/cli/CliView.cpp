@@ -1362,6 +1362,7 @@ void CliView::rebuildInput()
     }
     m_cursorRow = qMax(0, cursorRow);
     m_cursorCol = cursorCol;
+    viewport()->update(); // cursor-only moves (Left/Right/Home/End) change nothing else that would repaint
 }
 
 // --- Layout -------------------------------------------------------------------------------------------------------------------------

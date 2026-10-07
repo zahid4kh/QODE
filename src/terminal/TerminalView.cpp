@@ -5,6 +5,8 @@
 
 #include <QApplication>
 #include <QClipboard>
+#include <QMimeData>
+#include <QUrl>
 #include <QContextMenuEvent>
 #include <QFontMetricsF>
 #include <QInputMethodEvent>
@@ -247,9 +249,29 @@ void TerminalView::copy()
 
 void TerminalView::paste()
 {
+    const QMimeData *mime = QApplication::clipboard()->mimeData();
     QString t = QApplication::clipboard()->text();
-    if (t.isEmpty())
+    if (t.isEmpty() && mime && mime->hasUrls()) {
+        // Files copied in a file manager paste as their paths.
+        QStringList paths;
+        for (const QUrl &u : mime->urls())
+            paths << (u.isLocalFile() ? u.toLocalFile() : u.toString());
+        t = paths.join(QLatin1Char(' '));
+    }
+    if (t.isEmpty()) {
+        // Image (or other non-text) clipboard: programs such as Claude Code read the image from the
+        // clipboard themselves when they see an empty paste or a Ctrl+V.
+        if (mime && mime->hasImage() && m_shellActive) {
+            scrollToBottom();
+            emit input(m_screen->bracketedPaste() ? QByteArrayLiteral("\x1b[200~\x1b[201~") : QByteArrayLiteral("\x16"));
+        }
         return;
+    }
+    sendPaste(t);
+}
+
+void TerminalView::sendPaste(QString t)
+{
     t.replace(QStringLiteral("\r\n"), QStringLiteral("\r")).replace(QLatin1Char('\n'), QLatin1Char('\r'));
     QByteArray data = t.toUtf8();
     if (m_screen->bracketedPaste())
@@ -268,7 +290,7 @@ void TerminalView::mousePressEvent(QMouseEvent *e)
         // X11-style primary selection paste.
         const QString t = QApplication::clipboard()->text(QClipboard::Selection);
         if (!t.isEmpty())
-            emit input(t.toUtf8());
+            sendPaste(t);
     }
     setFocus();
 }
@@ -494,7 +516,16 @@ void TerminalView::keyPressEvent(QKeyEvent *e)
     }
     if ((m == (Qt::ControlModifier | Qt::ShiftModifier) && key == Qt::Key_V) ||
         (m == Qt::ControlModifier && key == Qt::Key_V) || (m == Qt::ShiftModifier && key == Qt::Key_Insert)) {
-        paste();
+        // Ctrl+V with an image on the clipboard goes to the program as a plain Ctrl+V (what Claude Code
+        // listens for); everything else is a normal paste.
+        const QMimeData *mime = QApplication::clipboard()->mimeData();
+        if (m == Qt::ControlModifier && key == Qt::Key_V && m_shellActive && mime && mime->hasImage() &&
+            !mime->hasText() && !mime->hasUrls()) {
+            scrollToBottom();
+            emit input(QByteArrayLiteral("\x16"));
+        } else {
+            paste();
+        }
         return;
     }
     // Scrollback navigation

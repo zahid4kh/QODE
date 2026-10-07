@@ -15,6 +15,7 @@ public:
     QString selectedText() const;
     void copy();
     void paste();
+    void sendPaste(QString text);
     void selectAll();
     void clearSelection();
     void scrollToBottom();

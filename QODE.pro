@@ -100,6 +100,12 @@ SOURCES += \
     src/terminal/TerminalScreen.cpp \
     src/terminal/ShellProcess.cpp \
     src/terminal/TerminalView.cpp \
+    src/cli/Ansi.cpp \
+    src/cli/CliSession.cpp \
+    src/cli/CliCall.cpp \
+    src/cli/CliCommands.cpp \
+    src/cli/CliBuiltins.cpp \
+    src/cli/CliView.cpp \
     src/terminal/Terminal.cpp \
     src/terminal/TerminalPanel.cpp \
     src/lsp/LspClient.cpp \
@@ -189,6 +195,10 @@ HEADERS += \
     src/terminal/TerminalScreen.h \
     src/terminal/ShellProcess.h \
     src/terminal/TerminalView.h \
+    src/cli/Ansi.h \
+    src/cli/CliSession.h \
+    src/cli/CliCommands.h \
+    src/cli/CliView.h \
     src/terminal/Terminal.h \
     src/terminal/TerminalPanel.h \
     src/lsp/LspClient.h \

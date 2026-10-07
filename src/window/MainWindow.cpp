@@ -52,6 +52,7 @@
 #include "settings/ThemeManager.h"
 #include "dialogs/ThemeEditorDialog.h"
 #include "terminal/TerminalPanel.h"
+#include "cli/CliView.h"
 
 #include <QAction>
 #include <QActionGroup>
@@ -176,7 +177,23 @@ MainWindow::MainWindow(QWidget *parent)
     m_hsplit->setStretchFactor(1, 1);
     m_hsplit->setStretchFactor(2, 0);
     m_hsplit->widget(2)->hide(); // shown when an image or video is opened
-    setCentralWidget(m_hsplit);
+    m_central = new QStackedWidget(this);
+    m_central->addWidget(m_hsplit);
+    m_cli = new CliView(this);
+    m_central->addWidget(m_cli);
+    setCentralWidget(m_central);
+    m_cli->setStartupCommandProvider([this](const QString &shell) {
+        if (!m_projects->hasProject() || !SettingsManager::instance().autoActivateVenv())
+            return QString();
+        return PythonEnv::activationCommand(m_projects->project().root, shell);
+    });
+    connect(m_cli, &CliView::leaveRequested, this, [this] { setTerminalOnly(false); });
+    connect(m_cli, &CliView::openFileRequested, this, [this](const QString &path, int line) {
+        if (line > 0)
+            m_editors->openFileAt(path, line);
+        else
+            m_editors->openFile(path);
+    });
 
     m_lsp = new LspManager(this);
     m_editors->setLspFormatter([this](Document *doc, CodeEditor *ed) {
@@ -456,6 +473,10 @@ void MainWindow::createActions()
     m_explorerAct->setChecked(true);
     m_terminalAct = make(tr("Terminal"), QKeySequence(C | K::Key_J), QStringLiteral(":/new-icons/terminal.svg"));
     m_terminalAct->setCheckable(true);
+    m_cliAct = make(tr("Terminal Only Mode"), QKeySequence(C | A | K::Key_J), QStringLiteral(":/new-icons/file-terminal.svg"));
+    m_cliAct->setCheckable(true);
+    m_cliAct->setStatusTip(tr("Replace the editor with a full-window terminal (needs an open project)"));
+    addAction(m_cliAct); // keeps the shortcut alive while the menu bar is hidden
     m_venvAct = make(tr("Auto-Activate Python venv"));
     m_venvAct->setCheckable(true);
     m_venvAct->setChecked(SettingsManager::instance().autoActivateVenv());
@@ -606,6 +627,8 @@ void MainWindow::createActions()
         m_hsplit->setSizes(sizes);
     });
     connect(m_terminalAct, &QAction::triggered, this, &MainWindow::toggleTerminal);
+    connect(m_cliAct, &QAction::triggered, this, [this](bool on) { setTerminalOnly(on); });
+    m_cli->setToggleShortcut(m_cliAct->shortcut().toString(QKeySequence::NativeText));
     connect(m_runAct, &QAction::triggered, this, &MainWindow::runCurrentFile);
     connect(m_runConfigAct, &QAction::triggered, this, &MainWindow::configureRun);
     connect(m_fullscreenAct, &QAction::triggered, this, [this] { setWindowState(windowState() ^ Qt::WindowFullScreen); });
@@ -753,6 +776,7 @@ void MainWindow::createMenus()
     view->addAction(m_explorerAct);
     view->addAction(m_terminalAct);
     view->addAction(m_newTerminalAct);
+    view->addAction(m_cliAct);
     view->addAction(m_venvAct);
     view->addSeparator();
     view->addAction(m_runAct);
@@ -827,6 +851,7 @@ void MainWindow::createToolBar()
     tb->addSeparator();
     tb->addAction(m_scmAct);
     tb->addAction(m_terminalAct);
+    tb->addAction(m_cliAct);
     tb->addSeparator();
     m_mainToolBar = tb;
     // A web project runs its dev server instead of single files: the server controls replace the two run buttons.
@@ -997,6 +1022,12 @@ void MainWindow::saveSession()
 // What "layout" means for a project: panel visibility and sizes plus how the editors are split.
 QJsonObject MainWindow::currentLayout() const
 {
+    if (m_cliActive) {
+        // Terminal Only mode hides the real window (so its widgets report "not visible"): keep the layout from before.
+        QJsonObject saved = m_cliSavedLayout;
+        saved.insert(QStringLiteral("terminalOnly"), true);
+        return saved;
+    }
     const bool sideShown = m_explorerAct->isChecked();
     const int sideWidth = sideShown && m_side->isVisible() ? m_hsplit->sizes().value(0) : m_sideWidth;
     const bool termShown = m_terminal->isVisible();
@@ -1011,6 +1042,7 @@ QJsonObject MainWindow::currentLayout() const
     o.insert(QStringLiteral("terminalVisible"), termShown);
     o.insert(QStringLiteral("terminalHeight"), termHeight);
     o.insert(QStringLiteral("editors"), m_editors->layoutState());
+    o.insert(QStringLiteral("terminalOnly"), false);
     return o;
 }
 
@@ -1018,6 +1050,8 @@ void MainWindow::applyLayout(const QJsonObject &o)
 {
     if (o.isEmpty())
         return; // a project without a saved layout keeps whatever the window looks like
+    if (m_cliActive)
+        setTerminalOnly(false); // the layout below is about the real window
     m_sideWidth = o.value(QStringLiteral("sideWidth")).toInt(m_sideWidth);
     m_terminalHeight = o.value(QStringLiteral("terminalHeight")).toInt(m_terminalHeight);
     QList<bool> sections;
@@ -1050,6 +1084,8 @@ void MainWindow::applyLayout(const QJsonObject &o)
         const int h = qBound(80, m_terminalHeight, qMax(80, total - 100));
         m_vsplit->setSizes({total - h, h});
     }
+    if (o.value(QStringLiteral("terminalOnly")).toBool())
+        QTimer::singleShot(0, this, [this] { setTerminalOnly(true); });
 }
 
 void MainWindow::restoreSession()
@@ -1625,6 +1661,9 @@ void MainWindow::onProjectOpened(const Project &p)
     m_tasks->setProjectRoot(p.root);
     m_media->setProjectRoot(p.root);
     m_git->setWorkDirectory(p.root);
+    m_cli->setProject(p.root, p.name);
+    if (m_cliActive)
+        m_cli->activate();
     // The shell always starts in the project root.
     m_terminal->setWorkingDirectory(p.root);
     m_terminal->setSavedTabs(SettingsManager::instance().terminalTabs());
@@ -1664,6 +1703,8 @@ void MainWindow::onProjectClosed()
     hideMedia();
     m_media->setProjectRoot({});
     m_git->setWorkDirectory({});
+    setTerminalOnly(false);
+    m_cli->setProject({}, {});
     m_terminal->setWorkingDirectory(QDir::homePath());
     m_terminal->stop();
     updateTitle();
@@ -1701,6 +1742,7 @@ void MainWindow::updateActions()
     const bool hasProject = m_projects->hasProject();
     const bool hasDoc = m_editors->currentDocument() != nullptr;
     m_closeProjectAct->setEnabled(hasProject);
+    m_cliAct->setEnabled(hasProject);
     m_projNewFileAct->setEnabled(hasProject);
     m_projNewFolderAct->setEnabled(hasProject);
     m_saveAct->setEnabled(hasDoc);
@@ -1988,6 +2030,37 @@ void MainWindow::runCurrentFile()
     showTerminal();
     m_terminal->runCommand(RunConfigDialog::expand(s.runCommand(RunConfigDialog::keyFor(path)), path, root));
     m_terminal->focusTerminal();
+}
+
+void MainWindow::setTerminalOnly(bool on)
+{
+    if (on == m_cliActive) {
+        m_cliAct->setChecked(m_cliActive);
+        return;
+    }
+    if (on) {
+        if (!m_projects->hasProject()) {
+            m_cliAct->setChecked(false);
+            statusBar()->showMessage(tr("Terminal Only mode needs an open project"), 4000);
+            return;
+        }
+        m_cliSavedLayout = currentLayout();
+        m_cliActive = true;
+        menuBar()->hide();
+        m_mainToolBar->hide();
+        statusBar()->hide();
+        m_cli->setProject(m_projects->project().root, m_projects->project().name);
+        m_central->setCurrentWidget(m_cli);
+        m_cli->activate();
+    } else {
+        m_cliActive = false;
+        menuBar()->show();
+        m_mainToolBar->show();
+        statusBar()->show();
+        m_central->setCurrentWidget(m_hsplit);
+        m_editors->focusEditor();
+    }
+    m_cliAct->setChecked(m_cliActive);
 }
 
 void MainWindow::toggleTerminal()

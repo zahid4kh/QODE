@@ -188,12 +188,7 @@ MainWindow::MainWindow(QWidget *parent)
         return PythonEnv::activationCommand(m_projects->project().root, shell);
     });
     connect(m_cli, &CliView::leaveRequested, this, [this] { setTerminalOnly(false); });
-    connect(m_cli, &CliView::openFileRequested, this, [this](const QString &path, int line) {
-        if (line > 0)
-            m_editors->openFileAt(path, line);
-        else
-            m_editors->openFile(path);
-    });
+    connect(m_cli, &CliView::openFileRequested, this, &MainWindow::showTerminalEditor);
 
     m_lsp = new LspManager(this);
     m_editors->setLspFormatter([this](Document *doc, CodeEditor *ed) {
@@ -208,6 +203,18 @@ MainWindow::MainWindow(QWidget *parent)
     m_lsp->setApplyEditHandler([this](const QJsonObject &edit) { return applyWorkspaceEdit(edit); });
     createActions();
     createMenus();
+    // Terminal Only mode hides the menu bar; actions in hidden menus lose their shortcuts unless the window owns them too.
+    std::function<void(QMenu *)> adopt = [&](QMenu *m) {
+        for (QAction *a : m->actions()) {
+            if (QMenu *sub = a->menu())
+                adopt(sub);
+            else if (!a->shortcut().isEmpty())
+                addAction(a);
+        }
+    };
+    for (QAction *top : menuBar()->actions())
+        if (top->menu())
+            adopt(top->menu());
     createToolBar();
     createStatusBar();
 
@@ -627,7 +634,20 @@ void MainWindow::createActions()
         m_hsplit->setSizes(sizes);
     });
     connect(m_terminalAct, &QAction::triggered, this, &MainWindow::toggleTerminal);
-    connect(m_cliAct, &QAction::triggered, this, [this](bool on) { setTerminalOnly(on); });
+    connect(m_cliAct, &QAction::triggered, this, [this](bool on) {
+        if (m_cliEditing) { // the shortcut returns from the editor screen to the prompt first
+            leaveTerminalEditor();
+            m_cliAct->setChecked(true);
+            return;
+        }
+        setTerminalOnly(on);
+    });
+    connect(m_editors, &EditorManager::countChanged, this, [this](int count) {
+        updateCliFiles();
+        if (m_cliEditing && count == 0)
+            leaveTerminalEditor();
+    });
+    connect(m_editors, &EditorManager::documentStateChanged, this, &MainWindow::updateCliFiles);
     m_cli->setToggleShortcut(m_cliAct->shortcut().toString(QKeySequence::NativeText));
     connect(m_runAct, &QAction::triggered, this, &MainWindow::runCurrentFile);
     connect(m_runConfigAct, &QAction::triggered, this, &MainWindow::configureRun);
@@ -2052,7 +2072,10 @@ void MainWindow::setTerminalOnly(bool on)
         m_cli->setProject(m_projects->project().root, m_projects->project().name);
         m_central->setCurrentWidget(m_cli);
         m_cli->activate();
+        updateCliFiles();
     } else {
+        if (m_cliEditing)
+            leaveTerminalEditor();
         m_cliActive = false;
         menuBar()->show();
         m_mainToolBar->show();
@@ -2061,6 +2084,70 @@ void MainWindow::setTerminalOnly(bool on)
         m_editors->focusEditor();
     }
     m_cliAct->setChecked(m_cliActive);
+}
+
+void MainWindow::updateCliFiles()
+{
+    int modified = 0;
+    for (Document *d : m_editors->documents())
+        if (d->isModified())
+            ++modified;
+    m_cli->setOpenFiles(m_editors->documents().size(), modified);
+}
+
+// Terminal Only mode, editing: the normal editor area fills the window (tabs, git gutter, language servers, search)
+// with only a thin keys line in the status bar; the side panel, bottom terminal and previews stay hidden.
+void MainWindow::showTerminalEditor(const QString &path, int line)
+{
+    if (!m_cliActive)
+        return;
+    if (!path.isEmpty()) {
+        if (line > 0)
+            m_editors->openFileAt(path, line);
+        else
+            m_editors->openFile(path);
+    }
+    if (m_editors->documents().isEmpty())
+        return; // nothing opened (an image, or the file could not be read): stay at the prompt
+    if (!m_cliEditing) {
+        m_cliEditing = true;
+        QWidget *panes[3] = {m_hsplit->widget(0), m_vsplit->widget(1), m_hsplit->widget(2)};
+        for (int i = 0; i < 3; ++i) {
+            m_cliHid[i] = !panes[i]->isHidden();
+            panes[i]->hide();
+        }
+        if (!m_cliHint) {
+            m_cliHint = new QLabel(this);
+            m_cliHint->setContentsMargins(4, 0, 4, 0);
+            statusBar()->insertWidget(0, m_cliHint, 1);
+        }
+        auto key = [](const QAction *a) { return a->shortcut().toString(QKeySequence::NativeText); };
+        m_cliHint->setText(tr("%1 Save  ·  %2 Close  ·  %3 Find  ·  %4 Line  ·  %5 Terminal")
+                               .arg(key(m_saveAct), key(m_closeFileAct), key(m_findAct), key(m_gotoLineAct), key(m_cliAct)));
+        m_cliHint->show();
+        m_fileLabel->hide(); // the tab already shows the path
+        statusBar()->show();
+        m_central->setCurrentWidget(m_hsplit);
+    }
+    m_editors->focusEditor();
+}
+
+void MainWindow::leaveTerminalEditor()
+{
+    if (!m_cliEditing)
+        return;
+    m_cliEditing = false;
+    QWidget *panes[3] = {m_hsplit->widget(0), m_vsplit->widget(1), m_hsplit->widget(2)};
+    for (int i = 0; i < 3; ++i)
+        if (m_cliHid[i])
+            panes[i]->show();
+    if (m_cliHint)
+        m_cliHint->hide();
+    m_fileLabel->show();
+    statusBar()->hide();
+    m_central->setCurrentWidget(m_cli);
+    m_cli->activate();
+    updateCliFiles();
 }
 
 void MainWindow::toggleTerminal()

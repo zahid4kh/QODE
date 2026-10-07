@@ -28,6 +28,7 @@ public:
     virtual void changeDirectory(const QString &directory, std::function<void(int, const QString &)> done) = 0;
     virtual void leaveMode() = 0;
     virtual void openInEditor(const QString &path, int line) = 0;
+    virtual int openFileCount() const = 0;     // files open in the editor (tabs)
     virtual QString toggleShortcut() const = 0; // text of the shortcut that leaves the mode
 };
 

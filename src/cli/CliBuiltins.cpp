@@ -434,7 +434,11 @@ void cmdOpen(CliCall &c)
 void cmdEdit(CliCall &c)
 {
     if (c.args.isEmpty()) {
-        c.error(QStringLiteral("usage: /edit <file>[:line]"));
+        if (c.host.openFileCount() == 0) {
+            c.error(QStringLiteral("usage: /edit <file>[:line]   (nothing is open to resume)"));
+            return;
+        }
+        c.host.openInEditor(QString(), 0); // back to the files that are already open
         return;
     }
     QString path;
@@ -457,7 +461,6 @@ void cmdEdit(CliCall &c)
         }
     }
     c.host.openInEditor(path, line);
-    c.host.leaveMode();
 }
 
 // --- /find and /grep -----------------------------------------------------------------
@@ -722,7 +725,7 @@ void helpOverview(CliCall &c)
 {
     const CliCommands &reg = CliCommands::instance();
     auto heading = [&](const QString &t) { c.println(QLatin1Char('\n') + paint(t, Yellow, true)); };
-    auto key = [&](const QString &k, const QString &d) { c.println(QStringLiteral("  ") + paint(pad(k, 20), Cyan, true) + d); };
+    auto key = [&](const QString &k, const QString &d) { c.println(QStringLiteral("  ") + paint(pad(k, 24), Cyan, true) + d); };
 
     c.println(paint(QStringLiteral("QODE Terminal Mode"), Blue, true) + dim(QStringLiteral("  ·  help")));
     c.println(dim(QStringLiteral("A full-window terminal for this project — no file tree, tabs or previews.")));
@@ -757,13 +760,23 @@ void helpOverview(CliCall &c)
     key(QStringLiteral("Ctrl+L"), QStringLiteral("clear the screen"));
     key(QStringLiteral("PageUp / PageDown"), QStringLiteral("scroll the output (or use the mouse wheel)"));
     key(QStringLiteral("Ctrl+Shift+C / V"), QStringLiteral("copy the selection / paste"));
-    key(c.host.toggleShortcut(), QStringLiteral("back to the editor (same as /editor)"));
+    key(c.host.toggleShortcut(), QStringLiteral("leave terminal mode (same as /editor); while editing: back to the prompt"));
+
+    heading(QStringLiteral("Editing (after /edit)"));
+    key(QStringLiteral("Ctrl+S"), QStringLiteral("save (format and cleanup on save follow your settings)"));
+    key(QStringLiteral("Ctrl+W"), QStringLiteral("close the file; the last one returns to the prompt"));
+    key(QStringLiteral("Ctrl+Tab"), QStringLiteral("next file (thin tab line at the top)"));
+    key(QStringLiteral("Ctrl+F / Ctrl+H"), QStringLiteral("find / replace"));
+    key(QStringLiteral("Ctrl+G"), QStringLiteral("go to line"));
+    key(QStringLiteral("Alt+F3 / Shift+Alt+F3"), QStringLiteral("next / previous git change (markers show in the gutter)"));
+    key(QStringLiteral("F12 / F2"), QStringLiteral("go to definition / rename (language server)"));
+    key(c.host.toggleShortcut(), QStringLiteral("back to this prompt; /edit resumes your files"));
 
     heading(QStringLiteral("Good to know"));
     c.println(QStringLiteral("  • ") + paint(QStringLiteral("/help <command>"), Cyan) + QStringLiteral(" shows details and examples for one command."));
     c.println(QStringLiteral("  • Your shell stays alive when you switch back to the editor, and is where you left it when you return."));
     c.println(QStringLiteral("  • ") + paint(QStringLiteral("/grep"), Cyan) + QStringLiteral(" and ") + paint(QStringLiteral("/find"), Cyan) +
-              QStringLiteral(" print file:line locations; ") + paint(QStringLiteral("/edit file:line"), Cyan) + QStringLiteral(" opens one in the editor."));
+              QStringLiteral(" print file:line locations; ") + paint(QStringLiteral("/edit file:line"), Cyan) + QStringLiteral(" jumps to one."));
 }
 
 void cmdHelp(CliCall &c)
@@ -829,8 +842,8 @@ void registerCliBuiltins(QList<CliCommand> &cmds)
     add(QStringLiteral("open"), files, QStringLiteral("/open <file>[:line]"), QStringLiteral("print a file with syntax colours"),
         QStringLiteral("Shows up to 500 lines with line numbers. With :line it shows a window around that line and marks it.\nExample: /open src/main.cpp:42"),
         cmdOpen, Arg::Path);
-    add(QStringLiteral("edit"), files, QStringLiteral("/edit <file>[:line]"), QStringLiteral("open a file in the editor (leaves terminal mode)"),
-        QStringLiteral("Switches back to the normal editor with the file open, at the line if you give one.\nA file that does not exist yet is created empty.\nExample: /edit src/main.cpp:42"),
+    add(QStringLiteral("edit"), files, QStringLiteral("/edit [file[:line]]"), QStringLiteral("edit a file full-screen, right here"),
+        QStringLiteral("Opens a full-window editor with syntax colours, git change markers in the gutter, search and language-server help.\nSeveral files can be open at once (thin tab line); Ctrl+Alt+J returns to this prompt and /edit alone resumes them.\nA file that does not exist yet is created empty.\nExample: /edit src/main.cpp:42\n\nWhile editing:\n  Ctrl+S save · Ctrl+W close file · Ctrl+Tab next file · Ctrl+F find · Ctrl+H replace · Ctrl+G go to line\n  Alt+F3 / Shift+Alt+F3 next / previous git change · F12 definition · Shift+Alt+F format · Ctrl+Alt+J back"),
         cmdEdit, Arg::Path);
     add(QStringLiteral("find"), files, QStringLiteral("/find <words>"), QStringLiteral("find project files by name (fuzzy)"),
         QStringLiteral("Every word has to match somewhere in the path; the best matches come first. Respects .gitignore.\nExample: /find term view"),
@@ -853,8 +866,8 @@ void registerCliBuiltins(QList<CliCommand> &cmds)
         QStringLiteral("The theme applies to the whole of QODE, not just this screen."), cmdTheme, Arg::Theme);
     add(QStringLiteral("info"), session, QStringLiteral("/info"), QStringLiteral("project, directory and shell in use"), {}, cmdInfo);
     add(QStringLiteral("restart"), session, QStringLiteral("/restart"), QStringLiteral("start a fresh shell (resets cd, variables, jobs)"), {}, cmdRestart);
-    add(QStringLiteral("editor"), session, QStringLiteral("/editor"), QStringLiteral("return to the normal editor"),
-        QStringLiteral("The shell keeps running; coming back to terminal mode resumes it."), cmdEditor, Arg::None, 0,
+    add(QStringLiteral("editor"), session, QStringLiteral("/editor"), QStringLiteral("leave terminal mode for the normal editor window"),
+        QStringLiteral("Brings back the file tree, tabs and panels. The shell keeps running; coming back to terminal mode resumes it."), cmdEditor, Arg::None, 0,
         {QStringLiteral("exit"), QStringLiteral("quit")});
     add(QStringLiteral("help"), session, QStringLiteral("/help [command]"), QStringLiteral("how this mode works, all commands and keys"),
         QStringLiteral("Without an argument: an overview of the mode, every command and the keyboard shortcuts.\nWith a command name: its usage and examples."),

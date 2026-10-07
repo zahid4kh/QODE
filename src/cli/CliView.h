@@ -26,6 +26,9 @@ public:
     void activate();
     void setToggleShortcut(const QString &text);
     bool hasRunningProgram() const;
+    // Files open in the editor, shown in the prompt line (`modified` = with unsaved changes).
+    void setOpenFiles(int open, int modified);
+    int openFileCount() const override { return m_openFiles; }
     // Asked once per fresh shell (argument: shell name); a non-empty answer is run before the first prompt is used
     // (e.g. activating a Python virtualenv).
     void setStartupCommandProvider(std::function<QString(const QString &)> provider) { m_startupProvider = std::move(provider); }
@@ -154,6 +157,7 @@ private:
     bool m_startPending = false;
     bool m_started = false;
     bool m_runStartup = false;
+    int m_openFiles = 0, m_modifiedFiles = 0;
     std::function<QString(const QString &)> m_startupProvider;
 
     QString m_root, m_name;

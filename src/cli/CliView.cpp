@@ -239,6 +239,16 @@ QString CliView::shellName() const
     return m_session->shellName().isEmpty() ? QStringLiteral("shell") : m_session->shellName();
 }
 
+void CliView::setOpenFiles(int open, int modified)
+{
+    if (open == m_openFiles && modified == m_modifiedFiles)
+        return;
+    m_openFiles = open;
+    m_modifiedFiles = modified;
+    rebuildInput();
+    viewport()->update();
+}
+
 bool CliView::hasRunningProgram() const
 {
     return m_session->state() == CliSession::State::Running;
@@ -1262,6 +1272,12 @@ void CliView::rebuildInput()
             put(QStringLiteral("  ⎇ ") + m_branch, muted);
             if (m_dirty)
                 put(QStringLiteral(" ●"), packed(m_warn));
+        }
+        if (m_openFiles > 0) {
+            put(QStringLiteral("  ✎ %1 open").arg(m_openFiles), muted);
+            if (m_modifiedFiles > 0)
+                put(QStringLiteral(" · %1 unsaved").arg(m_modifiedFiles), packed(m_warn));
+            put(QStringLiteral("  (/edit resumes)"), muted);
         }
         break;
     }

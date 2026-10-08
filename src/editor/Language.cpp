@@ -229,17 +229,38 @@ LanguageDefinition css()
 
 LanguageDefinition markdown()
 {
+    // Rules apply in order and later ones win, so block-level markers come last and inline spans first.
     LanguageDefinition d;
     d.name = QStringLiteral("Markdown");
-    d.rules.append({re(QStringLiteral("^\\s*(?:[-*+]|\\d+[.)])\\s")), TokenRole::Keyword});
-    d.rules.append({re(QStringLiteral("^>.*")), TokenRole::Comment});
-    d.rules.append({re(QStringLiteral("\\*[^*\\n]+\\*|(?<!\\w)_[^_\\n]+_(?!\\w)")), TokenRole::Emphasis});
-    d.rules.append({re(QStringLiteral("\\*\\*[^*\\n]+\\*\\*|__[^_\\n]+__")), TokenRole::Strong});
-    d.rules.append({re(QStringLiteral("\\[[^\\]\\n]*\\]\\([^)\\n]*\\)")), TokenRole::Link});
-    d.rules.append({re(QStringLiteral("`[^`\\n]+`")), TokenRole::Code});
-    d.rules.append({re(QStringLiteral("^#{1,6}\\s.*")), TokenRole::Heading});
-    d.rules.append({re(QStringLiteral("^(?:-{3,}|\\*{3,}|_{3,})\\s*$")), TokenRole::Comment});
-    d.delimited.append({re(QStringLiteral("^\\s*```[^\\n]*")), re(QStringLiteral("^\\s*```")), TokenRole::Code});
+    auto add = [&d](const char *pattern, TokenRole role, int group = 0) {
+        d.rules.append({re(QString::fromLatin1(pattern)), role, group});
+    };
+    add("\\\\[\\\\`*_{}\\[\\]<>()#+\\-.!|~]", TokenRole::Number);                       // escapes: \*  \#
+    add("<[A-Za-z/][^>\\n]*>", TokenRole::Tag);                                          // inline HTML
+    add("<!--.*?-->", TokenRole::Comment);
+    add("<(?:https?|ftp|mailto):[^>\\s]+>|<[^@\\s<>]+@[^@\\s<>]+\\.[^@\\s<>]+>", TokenRole::Link); // <autolinks>
+    add("\\bhttps?://[^\\s<>)\\]]+", TokenRole::Link);                                   // bare URLs
+    add("~~[^~\\n]+~~", TokenRole::Comment);                                             // strikethrough
+    add("(?<![\\w*])\\*[^*\\s](?:[^*\\n]*[^*\\s])?\\*(?!\\*)|(?<![\\w_])_[^_\\s](?:[^_\\n]*[^_\\s])?_(?![\\w_])", TokenRole::Emphasis);
+    add("\\*\\*[^*\\s](?:[^\\n]*?[^*\\s])?\\*\\*|(?<!\\w)__[^_\\s](?:[^\\n]*?[^_\\s])?__(?!\\w)", TokenRole::Strong);
+    add("(?<!\\w)\\*{3}[^*\\n]+\\*{3}|(?<!\\w)_{3}[^_\\n]+_{3}(?!\\w)", TokenRole::Strong);
+    add("!?\\[[^\\]\\n]*\\]\\([^)\\n]*\\)", TokenRole::Link);                            // [text](url)  ![alt](src)
+    add("!?\\[[^\\]\\n]*\\]\\s?\\[[^\\]\\n]*\\]", TokenRole::Link);                      // [text][ref]
+    add("\\[[ xX]\\](?=\\s)", TokenRole::Number);                                        // task box
+    add("``[^\\n]+?``|`[^`\\n]+`", TokenRole::Code);                                     // `code`  ``a `b` c``
+    add("^\\s{0,3}\\[[^\\]\\n]+\\]:\\s.*", TokenRole::Link);                             // [ref]: url "title"
+    add("^\\s*\\|?(?:\\s*:?-{2,}:?\\s*\\|)+\\s*(?::?-{2,}:?)?\\s*$", TokenRole::Comment); // | --- | :---: |
+    add("(?<=\\s|^)\\|(?=\\s|$)", TokenRole::Comment);                                   // table pipes
+    add("^\\s*(?:[-*+]|\\d+[.)])\\s", TokenRole::Keyword);                               // list markers
+    add("^\\s*>[> ]*", TokenRole::Keyword);                                              // quote markers
+    add("^\\s{0,3}>.*", TokenRole::Comment);                                             // quoted text
+    add("^\\s{0,3}=+\\s*$|^\\s{0,3}-{2,}\\s*$", TokenRole::Heading);                     // setext underline
+    add("^\\s{0,3}(?:[-*_][ \\t]*){3,}$", TokenRole::Comment);                           // --- *** ___
+    add("^\\s{0,3}#{1,6}(?:\\s.*|$)", TokenRole::Heading);                               // # Heading
+    // Fenced code: ``` or ~~~, closed by the same character (at least as long as the opening).
+    d.delimited.append({re(QStringLiteral("^\\s*```[^\\n]*")), re(QStringLiteral("^\\s*```+\\s*$")), TokenRole::Code});
+    d.delimited.append({re(QStringLiteral("^\\s*~~~[^\\n]*")), re(QStringLiteral("^\\s*~~~+\\s*$")), TokenRole::Code});
+    d.delimited.append({re(QStringLiteral("<!--")), re(QStringLiteral("-->")), TokenRole::Comment});
     return d;
 }
 

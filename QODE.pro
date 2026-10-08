@@ -59,6 +59,7 @@ SOURCES += \
     src/project/ProjectModel.cpp \
     src/project/PythonEnv.cpp \
     src/media/MarkdownPreview.cpp \
+    src/media/MarkdownHtml.cpp \
     src/media/MediaPanel.cpp \
     src/explorer/ProjectExplorer.cpp \
     src/explorer/FileIcons.cpp \
@@ -153,6 +154,7 @@ HEADERS += \
     src/project/ProjectModel.h \
     src/project/PythonEnv.h \
     src/media/MarkdownPreview.h \
+    src/media/MarkdownHtml.h \
     src/media/MediaPanel.h \
     src/explorer/ProjectExplorer.h \
     src/explorer/FileIcons.h \

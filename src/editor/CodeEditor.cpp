@@ -279,6 +279,15 @@ void CodeEditor::attachDocument(QTextDocument *doc)
     m_minimap->invalidate();
 }
 
+void CodeEditor::setLanguage(const QString &name)
+{
+    const bool wrapChanged = (name == QLatin1String("Markdown")) != (m_language == QLatin1String("Markdown"));
+    m_language = name;
+    if (wrapChanged)
+        applySettings();
+    viewport()->update();
+}
+
 void CodeEditor::applySettings()
 {
     auto &s = SettingsManager::instance();
@@ -286,7 +295,8 @@ void CodeEditor::applySettings()
     setFont(f);
     document()->setDefaultFont(f); // setFont() does not reach the document when the widget font is unchanged
     setTabStopDistance(QFontMetricsF(f).horizontalAdvance(QLatin1Char(' ')) * s.tabSize());
-    setLineWrapMode(s.wordWrap() ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
+    // Prose never scrolls sideways: Markdown always wraps, whatever the global setting says.
+    setLineWrapMode(s.wordWrap() || m_language == QLatin1String("Markdown") ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
     m_indentGuides = s.indentGuides();
     m_stickyScroll = s.stickyScroll();
     m_blameInline = s.blameInline();

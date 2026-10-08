@@ -233,6 +233,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_editors, &EditorManager::mediaRequested, this, &MainWindow::showMedia);
     connect(m_media, &MediaPanel::closeRequested, this, &MainWindow::hideMedia);
     connect(m_md, &MarkdownPreview::closeRequested, this, &MainWindow::hideMedia);
+    connect(m_md, &MarkdownPreview::openFileRequested, this, [this](const QString &path) { m_editors->openFile(path); });
     connect(m_editors, &EditorManager::previewRequested, this, &MainWindow::togglePreview);
     connect(m_editors, &EditorManager::currentChanged, this, &MainWindow::followPreview);
     connect(m_explorer, &ProjectExplorer::pathDeleted, this, [this](const QString &path) {

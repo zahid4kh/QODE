@@ -40,7 +40,7 @@ public:
     bool replaceCurrent(const QString &replacement);
     int replaceAll(const QString &replacement);
 
-    void setLanguage(const QString &name) { m_language = name; viewport()->update(); }
+    void setLanguage(const QString &name);
     void setIndentAfterColon(bool on) { m_indentAfterColon = on; } // Python-style blocks
     // Shows `doc` and (re)applies the editor font and tab stops to it: a QTextDocument keeps its own
     // default font, so a plain setDocument() would render in the application (UI) font.

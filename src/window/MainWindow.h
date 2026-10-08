@@ -9,7 +9,6 @@
 #include <QMainWindow>
 #include <QPointer>
 
-class CliView;
 class CodeEditor;
 class DevServerBar;
 class DiffDialog;
@@ -76,10 +75,6 @@ private:
     void updateStatus();
     void updateActions();
     void toggleTerminal();
-    void setTerminalOnly(bool on);
-    void showTerminalEditor(const QString &path, int line);
-    void leaveTerminalEditor();
-    void updateCliFiles();
     void showTerminal();
     void showMedia(const QString &path);
     void togglePreview();
@@ -173,14 +168,6 @@ private:
     int m_mediaWidth = 420;
     int m_sideWidth = 250;
     QSplitter *m_vsplit;
-    QStackedWidget *m_central = nullptr; // normal window | Terminal Only mode
-    CliView *m_cli = nullptr;
-    QAction *m_cliAct = nullptr;
-    bool m_cliActive = false;
-    bool m_cliEditing = false;     // Terminal Only mode is showing the full-window editor instead of the prompt
-    bool m_cliHid[3] = {false, false, false}; // side panel, bottom terminal, right panel were hidden by it
-    QLabel *m_cliHint = nullptr;   // keys line in the status bar while editing
-    QJsonObject m_cliSavedLayout; // the normal layout, kept while Terminal Only mode hides it
     int m_terminalHeight = 240;
 
     QAction *m_newWindowAct, *m_newProjectAct, *m_openProjectAct, *m_closeProjectAct, *m_exitAct;

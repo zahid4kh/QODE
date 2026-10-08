@@ -20,7 +20,9 @@ public:
     explicit DevServerBar(QWidget *parent = nullptr);
 
     void setProjectRoot(const QString &root); // re-detects the project; stops a running server of the previous one
-    bool isAvailable() const { return m_project.valid; }
+    bool isAvailable() const { return m_project.valid && !ignored(); }
+    // Folders that belong to another run control (Expo apps): a server script there is not offered as a web server.
+    void setIgnoredDirs(const QStringList &absoluteDirs);
     bool isActive() const;
 
     void start();
@@ -53,12 +55,14 @@ private:
     Effective effective() const;
     void refresh();
     QString configuredDir() const;
+    bool ignored() const;
     void redetect(); // package.json or the lockfile changed
     void repaintIcons();
 
     DevServer *m_server;
     WebProject m_project;
     QString m_root;
+    QStringList m_ignored;
     QFileSystemWatcher *m_watcher;
     QTimer *m_redetect;
     QLabel *m_dot, *m_text;

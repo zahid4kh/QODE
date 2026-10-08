@@ -146,6 +146,20 @@ void LspManager::setProjectRoot(const QString &root)
     m_root = root;
 }
 
+void LspManager::setJsonSchemas(const QJsonArray &schemas)
+{
+    m_jsonSchemas = schemas;
+    auto it = m_servers.find(QStringLiteral("json"));
+    if (it != m_servers.end() && it->client && it->state.status == Status::Running)
+        sendJsonSchemas(it.value());
+}
+
+void LspManager::sendJsonSchemas(Server &s)
+{
+    s.client->notify(QStringLiteral("workspace/didChangeConfiguration"),
+                     QJsonObject{{QStringLiteral("settings"), QJsonObject{{QStringLiteral("json"), QJsonObject{{QStringLiteral("schemas"), m_jsonSchemas}}}}}});
+}
+
 void LspManager::shutdown()
 {
     for (auto it = m_servers.begin(); it != m_servers.end(); ++it)
@@ -290,6 +304,8 @@ void LspManager::onServerReady(const QString &id)
     setStatus(s, Status::Running, detail);
     if (s.spec->id == QLatin1String("java"))
         s.client->notify(QStringLiteral("workspace/didChangeConfiguration"), QJsonObject{{QStringLiteral("settings"), javaSettings()}});
+    if (s.spec->id == QLatin1String("json") && !m_jsonSchemas.isEmpty())
+        sendJsonSchemas(s);
     for (auto it = m_tracked.begin(); it != m_tracked.end(); ++it)
         if (it->servers().contains(id) && !it->openOn.contains(id))
             sendOpen(it.key(), it.value(), id);

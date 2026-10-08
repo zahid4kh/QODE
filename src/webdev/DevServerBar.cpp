@@ -81,10 +81,28 @@ void DevServerBar::setProjectRoot(const QString &root)
     m_root = root;
     redetect();
     if (!m_project.valid && !root.isEmpty() && !SettingsManager::instance().webServer().value(QStringLiteral("declined")).toBool()) {
-        const QStringList nested = WebProject::findNested(root);
+        QStringList nested = WebProject::findNested(root);
+        for (int i = nested.size() - 1; i >= 0; --i)
+            if (m_ignored.contains(QDir::cleanPath(root + QLatin1Char('/') + nested.at(i))))
+                nested.removeAt(i);
         if (!nested.isEmpty())
             emit nestedProjectsFound(nested);
     }
+}
+
+bool DevServerBar::ignored() const
+{
+    return !m_ignored.isEmpty() && m_ignored.contains(QDir::cleanPath(workDir()));
+}
+
+void DevServerBar::setIgnoredDirs(const QStringList &absoluteDirs)
+{
+    if (absoluteDirs == m_ignored)
+        return;
+    const bool was = isAvailable();
+    m_ignored = absoluteDirs;
+    if (was != isAvailable())
+        emit availabilityChanged(isAvailable());
 }
 
 QString DevServerBar::configuredDir() const
@@ -131,7 +149,7 @@ void DevServerBar::editEnv()
 
 void DevServerBar::redetect()
 {
-    const bool was = m_project.valid;
+    const bool was = isAvailable();
     m_project = WebProject::detect(workDir());
     // The root folder catches a package.json or lockfile appearing; the files catch edits (editors may replace them).
     const QStringList watched = m_watcher->files() + m_watcher->directories();
@@ -145,8 +163,8 @@ void DevServerBar::redetect()
                 m_watcher->addPath(dir + QLatin1Char('/') + QLatin1String(f));
     }
     refresh();
-    if (was != m_project.valid)
-        emit availabilityChanged(m_project.valid);
+    if (was != isAvailable())
+        emit availabilityChanged(isAvailable());
 }
 
 DevServerBar::Effective DevServerBar::effective() const
@@ -172,7 +190,7 @@ void DevServerBar::start()
         return;
     if (!m_server->isActive())
         redetect(); // pick up a changed package.json / lockfile
-    if (!m_server || !m_project.valid)
+    if (!m_server || !isAvailable())
         return;
     const Effective e = effective();
     m_server->start(e.command, workDir(), e.port);

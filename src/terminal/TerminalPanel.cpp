@@ -407,6 +407,12 @@ void TerminalPanel::runCommand(const QString &command)
     refreshTabs();
 }
 
+void TerminalPanel::sendInput(const QByteArray &data)
+{
+    if (Terminal *t = current())
+        t->sendInput(data);
+}
+
 void TerminalPanel::restart()
 {
     if (Terminal *t = current())

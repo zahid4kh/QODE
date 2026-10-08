@@ -488,6 +488,20 @@ void SettingsManager::setRunCommand(const QString &key, const QString &command)
     saveProject();
 }
 
+QJsonObject SettingsManager::expo() const
+{
+    return m_data.value(QStringLiteral("expo")).toObject();
+}
+
+void SettingsManager::setExpo(const QJsonObject &config)
+{
+    if (config.isEmpty())
+        m_data.remove(QStringLiteral("expo"));
+    else
+        m_data.insert(QStringLiteral("expo"), config);
+    saveProject();
+}
+
 QJsonObject SettingsManager::webServer() const
 {
     return m_data.value(QStringLiteral("webServer")).toObject();

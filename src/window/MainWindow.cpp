@@ -8,6 +8,9 @@
 #include "dialogs/LspInstallDialog.h"
 #include "dialogs/LspLogDialog.h"
 #include "dialogs/LspRemoveDialog.h"
+#include "expo/ExpoBar.h"
+#include "expo/ExpoConfigDialog.h"
+#include "expo/ExpoSchema.h"
 #include "dialogs/NpmInstallDialog.h"
 #include "dialogs/PackagesDialog.h"
 #include "dialogs/PipInstallDialog.h"
@@ -59,6 +62,7 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
+#include <QClipboard>
 #include <QCloseEvent>
 #include <QColorDialog>
 #include <QDesktopServices>
@@ -845,6 +849,26 @@ void MainWindow::createToolBar()
         updateActions();
     });
     connect(m_serverBar, &DevServerBar::stateChanged, this, &MainWindow::updateActions);
+    // An Expo app has its own run control (Android / iOS / Metro / prebuild / DevTools) and the app.json editor.
+    m_expoSchema = new ExpoSchema(this);
+    m_expoBar = new ExpoBar(this);
+    m_expoBarAct = tb->addWidget(m_expoBar);
+    connect(m_expoBar, &ExpoBar::availabilityChanged, this, &MainWindow::onExpoChanged);
+    connect(m_expoBar, &ExpoBar::commandRequested, this, &MainWindow::runExpoCommand);
+    connect(m_expoBar, &ExpoBar::devToolsRequested, this, [this] {
+        if (!m_metroStarted) {
+            statusBar()->showMessage(tr("Start Metro first (Run menu > Start Metro / Expo Go), then open DevTools"), 6000);
+            return;
+        }
+        showTerminal();
+        m_terminal->sendInput("j"); // the Expo CLI's key for the React Native DevTools
+        statusBar()->showMessage(tr("Asked Expo to open React Native DevTools (the Metro session in the terminal must be running)"), 6000);
+    });
+    connect(m_expoBar, &ExpoBar::configureRequested, this, &MainWindow::showExpoConfig);
+    connect(m_expoBar, &ExpoBar::schemaCacheRequested, this, &MainWindow::showExpoSchemaCache);
+    connect(m_expoBar, &ExpoBar::appChanged, this, &MainWindow::pushExpoSchemas);
+    connect(m_expoSchema, &ExpoSchema::ready, this, &MainWindow::pushExpoSchemas);
+    connect(m_expoSchema, &ExpoSchema::failed, this, [this](const QString &, const QString &why) { statusBar()->showMessage(why, 8000); });
     connect(m_serverBar, &DevServerBar::openFileRequested, this, [this](const QString &path) { m_editors->openFile(path); });
     connect(m_serverBar, &DevServerBar::nestedProjectsFound, this, [this](const QStringList &dirs) {
         // After the project finished opening, so the question does not hold up restoring the session.
@@ -885,10 +909,13 @@ void MainWindow::askNestedWebProject(const QStringList &dirs)
 void MainWindow::updateRunToolbar()
 {
     const bool web = m_serverBar->isAvailable();
+    const bool expo = m_expoBar && m_expoBar->isAvailable();
     m_mainToolBar->removeAction(m_runAct);
     m_mainToolBar->removeAction(m_runConfigAct);
     m_mainToolBar->removeAction(m_pythonPkgAct);
-    if (!web) {
+    if (m_expoBarAct)
+        m_expoBarAct->setVisible(expo);
+    if (!web && !expo) {
         m_mainToolBar->insertAction(m_serverBarAct, m_runAct);
         m_mainToolBar->insertAction(m_serverBarAct, m_runConfigAct);
     }
@@ -935,6 +962,119 @@ void MainWindow::restartPythonServer()
     for (const LspManager::ServerState &st : m_lsp->servers())
         if (st.id == QLatin1String("python") && (st.status == LspManager::Status::Running || st.status == LspManager::Status::Starting))
             m_lsp->restart(st.id);
+}
+
+// --- Expo -----------------------------------------------------------------------
+
+void MainWindow::onExpoChanged()
+{
+    m_serverBar->setIgnoredDirs(m_expoBar->appDirs());
+    updateRunToolbar();
+    updateActions();
+    if (!m_expoBar->isAvailable()) {
+        m_lsp->setJsonSchemas({});
+        return;
+    }
+    QSet<QString> asked;
+    for (const ExpoApp &a : m_expoBar->apps())
+        if (!a.appJson.isEmpty() && !asked.contains(a.sdk)) {
+            asked.insert(a.sdk);
+            m_expoSchema->request(a.sdk); // downloads once into ~/.cache/QODE/expo; ready() pushes it to the JSON server
+        }
+    pushExpoSchemas();
+}
+
+// The cached schema matching an app's SDK, else the newest cached one (empty when nothing is cached yet).
+static QPair<QString, QJsonObject> expoSchemaFor(const QString &sdk)
+{
+    QString use = ExpoSchema::cachedSdks().contains(sdk) ? sdk : QString();
+    if (use.isEmpty() && !ExpoSchema::cachedSdks().isEmpty())
+        use = ExpoSchema::cachedSdks().first();
+    return {use, use.isEmpty() ? QJsonObject() : ExpoSchema::load(use)};
+}
+
+// Tells the JSON language server which schema describes each app.json: completion, hover docs and validation.
+void MainWindow::pushExpoSchemas()
+{
+    QMap<QString, QJsonArray> files; // schema sdk -> file URIs
+    for (const ExpoApp &a : m_expoBar->apps())
+        if (!a.appJson.isEmpty()) {
+            const QString use = expoSchemaFor(a.sdk).first;
+            if (!use.isEmpty())
+                files[use].append(QUrl::fromLocalFile(a.appJson).toString());
+        }
+    QJsonArray schemas;
+    for (auto it = files.begin(); it != files.end(); ++it) {
+        const QJsonObject schema = ExpoSchema::load(it.key());
+        if (!schema.isEmpty())
+            schemas.append(QJsonObject{{QStringLiteral("fileMatch"), it.value()}, {QStringLiteral("schema"), schema}});
+    }
+    m_lsp->setJsonSchemas(schemas);
+}
+
+void MainWindow::runExpoCommand(const QString &command, const QString &id)
+{
+    if (!m_editors->saveAll())
+        return;
+    if (id == QLatin1String("start") || id.startsWith(QLatin1String("android")) || id == QLatin1String("ios"))
+        m_metroStarted = true; // run:android / run:ios end in the same interactive Metro session
+    showTerminal();
+    m_terminal->runCommand(command);
+    m_terminal->focusTerminal();
+}
+
+void MainWindow::showExpoConfig()
+{
+    const ExpoApp *app = m_expoBar->currentApp();
+    if (!app || app->appJson.isEmpty())
+        return;
+    if (m_expoDialog) {
+        m_expoDialog->raise();
+        m_expoDialog->activateWindow();
+        return;
+    }
+    if (!m_editors->saveAll()) // the form edits the file on disk: unsaved text in an editor tab would be overwritten
+        return;
+    m_expoDialog = new ExpoConfigDialog(*app, expoSchemaFor(app->sdk).second, this);
+    connect(m_expoDialog, &ExpoConfigDialog::openInEditorRequested, this, [this](const QString &path) { m_editors->openFile(path); });
+    connect(m_expoDialog, &ExpoConfigDialog::saved, this, [this](const QString &path) {
+        statusBar()->showMessage(tr("Saved %1").arg(QFileInfo(path).fileName()), 5000);
+        m_expoBar->setProjectRoot(m_projects->project().root); // the app name may have changed
+    });
+    m_expoDialog->show();
+}
+
+void MainWindow::showExpoSchemaCache()
+{
+    const QString dir = ExpoSchema::cacheDir();
+    const QStringList sdks = ExpoSchema::cachedSdks();
+    QMessageBox box(QMessageBox::NoIcon, tr("Expo Schema Cache"), QString(), {}, this);
+    box.setTextFormat(Qt::RichText);
+    box.setText(tr("<b>Expo app.json schema</b>"));
+    box.setInformativeText(
+        tr("QODE downloads Expo's published schema (exp.host) once per SDK and caches it here. It powers completion, hover "
+           "documentation and validation in app.json, and nothing is written into your projects.<br><br>"
+           "<b>Cached:</b> %1<br><b>Folder:</b> %2 (%3)<br><br>"
+           "<b>To remove it by hand:</b><br><code>rm -rf %2</code><br><br>"
+           "It is downloaded again the next time you open an Expo project.")
+            .arg(sdks.isEmpty() ? tr("nothing yet") : tr("SDK %1").arg(sdks.join(QStringLiteral(", "))).toHtmlEscaped(),
+                 dir.toHtmlEscaped(), QLocale().formattedDataSize(ExpoSchema::cacheSize())));
+    QPushButton *remove = box.addButton(tr("Delete Cache"), QMessageBox::DestructiveRole);
+    QPushButton *copy = box.addButton(tr("Copy Command"), QMessageBox::ActionRole);
+    box.addButton(tr("Close"), QMessageBox::RejectRole);
+    remove->setEnabled(QFileInfo::exists(dir));
+    box.exec();
+    if (box.clickedButton() == copy) {
+        QApplication::clipboard()->setText(QStringLiteral("rm -rf '%1'").arg(dir));
+        statusBar()->showMessage(tr("Copied the removal command"), 4000);
+    } else if (box.clickedButton() == remove) {
+        if (ExpoSchema::clearCache()) {
+            m_lsp->setJsonSchemas({});
+            statusBar()->showMessage(tr("Deleted the Expo schema cache"), 5000);
+        } else {
+            QMessageBox::warning(this, tr("Expo Schema Cache"), tr("Could not delete %1").arg(dir));
+        }
+    }
 }
 
 void MainWindow::showPythonPackages()
@@ -1738,7 +1878,10 @@ void MainWindow::onProjectOpened(const Project &p)
     InstanceRegistry::instance().setClaims(InstanceRegistry::Project, {p.root});
     SettingsManager::instance().setProject(p.root);
     m_lsp->setProjectRoot(p.root);
+    m_expoBar->setProjectRoot(p.root); // before the web-server bar: it must not offer `expo start` as a web server
+    m_serverBar->setIgnoredDirs(m_expoBar->appDirs());
     m_serverBar->setProjectRoot(p.root);
+    onExpoChanged();
     m_bookmarks = SettingsManager::instance().bookmarks();
     m_tasks->setBookmarks(m_bookmarks);
     SettingsManager::instance().addRecentProject(p.root);
@@ -1778,7 +1921,11 @@ void MainWindow::onProjectClosed()
     InstanceRegistry::instance().setClaims(InstanceRegistry::Project, {});
     SettingsManager::instance().setProject({});
     m_lsp->setProjectRoot({});
+    m_expoBar->setProjectRoot({});
+    m_serverBar->setIgnoredDirs({});
     m_serverBar->setProjectRoot({});
+    m_metroStarted = false;
+    onExpoChanged();
     m_bookmarks.clear();
     m_tasks->setBookmarks(m_bookmarks);
     m_explorer->setProjectRoot({});
@@ -1840,7 +1987,7 @@ void MainWindow::updateActions()
     for (QAction *a : {m_foldAct, m_unfoldAct, m_foldAllAct, m_unfoldAllAct})
         a->setEnabled(hasDoc);
     m_replaceAct->setEnabled(hasDoc);
-    if (m_serverBar && m_serverBar->isAvailable()) {
+    if ((m_serverBar && m_serverBar->isAvailable()) || (m_expoBar && m_expoBar->isAvailable())) {
         m_runAct->setEnabled(true);
         m_runConfigAct->setEnabled(true);
     } else {
@@ -2072,6 +2219,20 @@ void MainWindow::showThemeEditor()
 }
 
 void MainWindow::runCurrentFile()
+{
+    // In an Expo app F5 repeats the last toolbar configuration (Metro by default), unless this file type has its own command.
+    if (m_expoBar->isAvailable()) {
+        const QString file = currentFilePath();
+        const bool ownCommand = !file.isEmpty() && !SettingsManager::instance().runCommand(RunConfigDialog::keyFor(file)).isEmpty();
+        if (!ownCommand && (m_expoBar->appForFile(file) || !m_serverBar->isAvailable())) {
+            m_expoBar->runLast();
+            return;
+        }
+    }
+    runFile();
+}
+
+void MainWindow::runFile()
 {
     // In a web project F5 means the dev server, unless this file type has a command of its own.
     if (m_serverBar->isAvailable()) {

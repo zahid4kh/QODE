@@ -8,6 +8,8 @@
 #include "SyntaxHighlighter.h"
 #include "Snippets.h"
 #include "settings/Icons.h"
+#include <QMenu>
+#include <QContextMenuEvent>
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
 
@@ -3339,4 +3341,30 @@ void CodeEditor::paintSwatches()
         p.setBrush(Qt::NoBrush);
         p.drawRoundedRect(QRectF(box).adjusted(0.5, 0.5, -0.5, -0.5), 3, 3);
     }
+}
+
+// The stock QPlainTextEdit menu has Qt's own icons; this one uses QODE's icon set.
+void CodeEditor::contextMenuEvent(QContextMenuEvent *event)
+{
+    const Theme theme = Theme::byName(SettingsManager::instance().theme());
+    auto icon = [&](const char *name) { return Icons::tinted(QStringLiteral(":/new-icons/%1.svg").arg(QLatin1String(name)), theme.editorFg, theme.textMuted); };
+    const bool ro = isReadOnly();
+    const bool sel = textCursor().hasSelection();
+    QMenu menu(this);
+    auto add = [&](const char *ic, const QString &text, const QKeySequence &key, bool enabled, auto slot) {
+        QAction *a = menu.addAction(icon(ic), text, this, slot);
+        a->setShortcut(key);
+        a->setShortcutVisibleInContextMenu(true);
+        a->setEnabled(enabled);
+    };
+    add("undo", tr("Undo"), QKeySequence::Undo, !ro && document()->isUndoAvailable(), [this] { undo(); });
+    add("redo", tr("Redo"), QKeySequence::Redo, !ro && document()->isRedoAvailable(), [this] { redo(); });
+    menu.addSeparator();
+    add("scissors", tr("Cut"), QKeySequence::Cut, !ro && sel, [this] { cut(); });
+    add("copy", tr("Copy"), QKeySequence::Copy, sel, [this] { copy(); });
+    add("clipboard-paste", tr("Paste"), QKeySequence::Paste, !ro && canPaste(), [this] { paste(); });
+    add("circle-x", tr("Delete"), QKeySequence::Delete, !ro && sel, [this] { textCursor().removeSelectedText(); });
+    menu.addSeparator();
+    add("select-all", tr("Select All"), QKeySequence::SelectAll, !document()->isEmpty(), [this] { selectAll(); });
+    menu.exec(event->globalPos());
 }

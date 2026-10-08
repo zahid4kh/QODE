@@ -47,6 +47,12 @@
         <file>new-icons/minus.svg</file>
         <file>new-icons/file.svg</file>
         <file>new-icons/copy.svg</file>
+        <file>new-icons/circle-x.svg</file>
+        <file>new-icons/clipboard-paste.svg</file>
+        <file>new-icons/redo.svg</file>
+        <file>new-icons/scissors.svg</file>
+        <file>new-icons/select-all.svg</file>
+        <file>new-icons/undo.svg</file>
         <file>new-icons/arrow-up.svg</file>
         <file>new-icons/arrow-down.svg</file>
         <file>fonts/JetBrainsMono-Bold.ttf</file>

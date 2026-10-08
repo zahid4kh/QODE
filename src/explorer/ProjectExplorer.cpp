@@ -504,7 +504,7 @@ void ProjectExplorer::showNotice(const Notice &n)
         grid->addWidget(m_noticeText, 0, 0, 1, 3);
         m_noticeClose = new QToolButton(m_notice);
         m_noticeClose->setObjectName(QStringLiteral("noticeSecondary"));
-        m_noticeClose->setText(QStringLiteral("✕"));
+        Icons::bind(m_noticeClose, QStringLiteral(":/new-icons/x.svg"));
         m_noticeClose->setToolTip(tr("Dismiss"));
         grid->addWidget(m_noticeClose, 0, 3, Qt::AlignTop);
         m_noticeAction = new QToolButton(m_notice);

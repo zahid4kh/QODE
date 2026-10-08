@@ -170,6 +170,7 @@ signals:
     void swatchClicked(int index);   // index into the list given to setColorSwatches()
 
 protected:
+    void contextMenuEvent(QContextMenuEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;

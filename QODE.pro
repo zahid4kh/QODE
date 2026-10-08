@@ -14,7 +14,7 @@ CONFIG -= app_bundle
 
 TEMPLATE = app
 TARGET = qode
-VERSION = 0.6.0
+VERSION = 0.7.0
 LIBS += -lz # JarSource reads library source jars
 DEFINES += QT_DEPRECATED_WARNINGS QT_NO_CAST_TO_ASCII QT_NO_CAST_FROM_BYTEARRAY
 DEFINES += QODE_VERSION=\\\"$$VERSION\\\"

@@ -12,6 +12,9 @@
 
 #include <QApplication>
 #include <QClipboard>
+#include <QImage>
+#include <QMimeData>
+#include <QUrl>
 #include <QEvent>
 #include <QFrame>
 #include <QGridLayout>
@@ -76,6 +79,9 @@ ProjectExplorer::ProjectExplorer(QWidget *parent)
 
     connect(&SettingsManager::instance(), &SettingsManager::themeChanged, m_tree->viewport(), qOverload<>(&QWidget::update));
     connect(m_tree, &ExplorerTree::moveRequested, this, &ProjectExplorer::moveRequested);
+    connect(m_tree, &ExplorerTree::copyRequested, this, &ProjectExplorer::copyInto);
+    connect(m_tree, &ExplorerTree::copyShortcut, this, [this] { copyToClipboard(m_tree->selectedPaths()); });
+    connect(m_tree, &ExplorerTree::pasteShortcut, this, [this] { pasteInto(currentDirectory()); });
     connect(m_tree, &QTreeView::doubleClicked, this, &ProjectExplorer::onDoubleClicked);
     connect(m_tree, &QTreeView::customContextMenuRequested, this, &ProjectExplorer::showContextMenu);
 }
@@ -150,6 +156,82 @@ void ProjectExplorer::onDoubleClicked(const QModelIndex &idx)
     const QString p = pathFor(idx);
     if (!p.isEmpty() && QFileInfo(p).isFile())
         emit fileActivated(p);
+}
+
+void ProjectExplorer::copyToClipboard(const QStringList &paths)
+{
+    if (paths.isEmpty())
+        return;
+    auto *mime = new QMimeData;
+    QList<QUrl> urls;
+    QByteArray gnome = "copy";
+    for (const QString &p : paths) {
+        urls << QUrl::fromLocalFile(p);
+        gnome += '\n' + QUrl::fromLocalFile(p).toEncoded();
+    }
+    mime->setUrls(urls);
+    mime->setData(QStringLiteral("x-special/gnome-copied-files"), gnome);
+    mime->setText(paths.join(QLatin1Char('\n')));
+    QApplication::clipboard()->setMimeData(mime);
+}
+
+bool ProjectExplorer::clipboardHasContent() const
+{
+    const QMimeData *m = QApplication::clipboard()->mimeData();
+    if (!m)
+        return false;
+    for (const QUrl &u : m->urls())
+        if (u.isLocalFile())
+            return true;
+    return m->hasImage();
+}
+
+void ProjectExplorer::pasteInto(const QString &dir)
+{
+    if (dir.isEmpty())
+        return;
+    const QMimeData *m = QApplication::clipboard()->mimeData();
+    if (!m)
+        return;
+    QStringList files;
+    for (const QUrl &u : m->urls())
+        if (u.isLocalFile())
+            files << u.toLocalFile();
+    if (!files.isEmpty()) {
+        copyInto(files, dir);
+        return;
+    }
+    if (m->hasImage()) { // a picture copied from a browser or screenshot tool
+        const QImage img = qvariant_cast<QImage>(m->imageData());
+        const QString path = FileManager::uniquePath(dir, QStringLiteral("image.png"));
+        if (img.isNull() || !img.save(path, "PNG")) {
+            showError(tr("Unable to paste"), tr("Could not save the image to:\n%1").arg(FileManager::displayPath(path)));
+            return;
+        }
+        revealPaths({path});
+    }
+}
+
+void ProjectExplorer::copyInto(const QStringList &sources, const QString &dir)
+{
+    QStringList made;
+    QString firstError;
+    for (const QString &src : sources) {
+        QString err;
+        const QString dest = FileManager::copyInto(src, dir, &err);
+        if (dest.isEmpty()) {
+            if (firstError.isEmpty())
+                firstError = err;
+        } else {
+            made << dest;
+        }
+    }
+    if (!firstError.isEmpty())
+        showError(tr("Unable to paste"), firstError);
+    if (made.isEmpty())
+        return;
+    m_tree->expand(m_proxy->mapFromSource(m_fsModel->index(dir)));
+    revealPaths(made);
 }
 
 void ProjectExplorer::showError(const QString &title, const QString &text)
@@ -240,6 +322,8 @@ void ProjectExplorer::showContextMenu(const QPoint &pos)
         menu.addAction(tr("New File"), this, [this, dir] { createFileIn(dir); });
         menu.addAction(tr("New Folder"), this, [this, dir] { createFolderIn(dir); });
         menu.addSeparator();
+        addClipboardActions(&menu, path, dir);
+        menu.addSeparator();
         addGitActions(&menu, path);
         menu.addAction(tr("Refresh"), this, &ProjectExplorer::refresh);
         menu.addAction(tr("Open in File Manager"), this, [path] { FileManager::revealInFileManager(path); });
@@ -257,14 +341,36 @@ void ProjectExplorer::showContextMenu(const QPoint &pos)
             menu.addAction(tr("New File"), this, [this, dir] { createFileIn(dir); });
         }
         menu.addSeparator();
+        addClipboardActions(&menu, path, dir);
+        menu.addSeparator();
         addGitActions(&menu, path);
         menu.addAction(Icons::tinted(QStringLiteral(":/new-icons/pencil.svg"), Theme::byName(SettingsManager::instance().theme()).editorFg), tr("Rename"), this, [this, path] { renamePath(path); });
         menu.addAction(Icons::tinted(QStringLiteral(":/new-icons/trash-2.svg"), Theme::byName(SettingsManager::instance().theme()).editorFg), tr("Delete"), this, [this, path] { deletePath(path); });
         menu.addSeparator();
-        menu.addAction(Icons::tinted(QStringLiteral(":/new-icons/copy.svg"), Theme::byName(SettingsManager::instance().theme()).editorFg), tr("Copy Path"), this, [path] { QApplication::clipboard()->setText(path); });
         menu.addAction(tr("Reveal in File Manager"), this, [path] { FileManager::revealInFileManager(path); });
     }
     menu.exec(m_tree->viewport()->mapToGlobal(pos));
+}
+
+// Copy / Paste and the three ways to copy a path.
+void ProjectExplorer::addClipboardActions(QMenu *menu, const QString &path, const QString &dir)
+{
+    const QColor fg = Theme::byName(SettingsManager::instance().theme()).editorFg;
+    const QIcon copyIcon = Icons::tinted(QStringLiteral(":/new-icons/copy.svg"), fg);
+    const bool isRoot = path == m_root;
+    if (!isRoot) {
+        QStringList sel = m_tree->selectedPaths();
+        if (!sel.contains(path))
+            sel = {path};
+        menu->addAction(copyIcon, tr("Copy"), this, [this, sel] { copyToClipboard(sel); });
+    }
+    QAction *paste = menu->addAction(tr("Paste"), this, [this, dir] { pasteInto(dir); });
+    paste->setEnabled(clipboardHasContent());
+    menu->addSeparator();
+    menu->addAction(copyIcon, tr("Copy Path"), this, [path] { QApplication::clipboard()->setText(path); });
+    const QString rel = QDir(m_root).relativeFilePath(path);
+    menu->addAction(tr("Copy Relative Path"), this, [rel] { QApplication::clipboard()->setText(rel); });
+    menu->addAction(tr("Copy Name"), this, [path] { QApplication::clipboard()->setText(QFileInfo(path).fileName()); });
 }
 
 // Stage/unstage/discard/compare entries for the clicked file or folder.

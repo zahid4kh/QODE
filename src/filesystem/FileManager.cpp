@@ -85,6 +85,78 @@ bool renamePath(const QString &from, const QString &to, QString *error)
     return true;
 }
 
+QString uniquePath(const QString &dir, const QString &name)
+{
+    const QDir d(dir);
+    if (!QFileInfo::exists(d.filePath(name)) && !QFileInfo(d.filePath(name)).isSymLink())
+        return d.filePath(name);
+    const QFileInfo fi(name);
+    QString base = fi.completeBaseName(), suffix = fi.suffix();
+    if (base.isEmpty()) { // dot files: ".env" has no base name
+        base = name;
+        suffix.clear();
+    }
+    const QString ext = suffix.isEmpty() ? QString() : QLatin1Char('.') + suffix;
+    for (int n = 1;; ++n) {
+        const QString cand = base + QStringLiteral(" copy") + (n > 1 ? QLatin1Char(' ') + QString::number(n) : QString()) + ext;
+        if (!QFileInfo::exists(d.filePath(cand)) && !QFileInfo(d.filePath(cand)).isSymLink())
+            return d.filePath(cand);
+    }
+}
+
+static bool copyTree(const QString &from, const QString &to, QString *error)
+{
+    const QFileInfo fi(from);
+    if (fi.isSymLink()) {
+        if (!QFile::link(fi.symLinkTarget(), to)) {
+            if (error)
+                *error = QStringLiteral("Could not copy \"%1\".").arg(fi.fileName());
+            return false;
+        }
+        return true;
+    }
+    if (fi.isDir()) {
+        if (!QDir().mkpath(to)) {
+            if (error)
+                *error = QStringLiteral("Could not create \"%1\".").arg(QFileInfo(to).fileName());
+            return false;
+        }
+        const auto entries = QDir(from).entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System);
+        for (const QFileInfo &e : entries)
+            if (!copyTree(e.absoluteFilePath(), QDir(to).filePath(e.fileName()), error))
+                return false;
+        return true;
+    }
+    if (!QFile::copy(from, to)) {
+        if (error)
+            *error = QStringLiteral("Could not copy \"%1\".").arg(fi.fileName());
+        return false;
+    }
+    return true;
+}
+
+QString copyInto(const QString &source, const QString &targetDir, QString *error)
+{
+    const QFileInfo fi(source);
+    if (!fi.exists() && !fi.isSymLink()) {
+        if (error)
+            *error = QStringLiteral("\"%1\" no longer exists.").arg(fi.fileName());
+        return {};
+    }
+    const QString src = fi.absoluteFilePath();
+    if (fi.isDir() && !fi.isSymLink() && (targetDir == src || targetDir.startsWith(src + QLatin1Char('/')))) {
+        if (error)
+            *error = QStringLiteral("Can't copy \"%1\" into itself.").arg(fi.fileName());
+        return {};
+    }
+    const QString dest = uniquePath(targetDir, fi.fileName());
+    if (!copyTree(src, dest, error)) {
+        removePath(dest, nullptr); // no half-copied leftovers
+        return {};
+    }
+    return dest;
+}
+
 bool removePath(const QString &path, QString *error)
 {
     const QFileInfo fi(path);

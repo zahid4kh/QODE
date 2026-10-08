@@ -28,14 +28,24 @@ public:
         QString text;      // the pill's headline
         QString name;      // the folder shown in bold inside the text
         QStringList items; // the paths that would move
+        bool copy = false; // files dragged in from another application: copied, not moved
     };
     Verdict verdictAt(const QPoint &viewportPos) const;
     QStringList draggedPaths() const { return m_dragPaths; }
+    QStringList selectedPaths() const { return topLevelSelection(); }
     // Shows the drop feedback for `paths` hovering at `viewportPos` without a real drag (screenshots, tests); empty = off.
     void previewDrag(const QStringList &paths, const QPoint &viewportPos);
 
+public slots:
+    // Reached through Edit > Copy / Paste (Ctrl+C / Ctrl+V) while the tree has focus.
+    void copy() { emit copyShortcut(); }
+    void paste() { emit pasteShortcut(); }
+
 signals:
     void moveRequested(const QStringList &sources, const QString &targetDir);
+    void copyRequested(const QStringList &sources, const QString &targetDir); // files dropped in from outside
+    void copyShortcut();
+    void pasteShortcut();
 
 protected:
     void startDrag(Qt::DropActions supported) override;
@@ -59,6 +69,7 @@ private:
     QString m_root;
     QStringList m_dragPaths;
     bool m_dragging = false;
+    bool m_external = false; // the drag comes from another application
     Verdict m_verdict;
     QPoint m_cursor;
     QPersistentModelIndex m_hoverDir; // folder under the cursor, for spring-loading

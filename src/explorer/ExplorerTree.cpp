@@ -116,6 +116,19 @@ ExplorerTree::Verdict ExplorerTree::verdictAt(const QPoint &pos) const
     v.targetDir = QFileInfo(hit).isDir() ? hit : dirOf(hit);
     v.name = folderLabel(v.targetDir);
 
+    if (m_external) {
+        v.copy = true;
+        for (const QString &src : m_dragPaths) {
+            if (QFileInfo(src).isDir() && (v.targetDir == src || v.targetDir.startsWith(src + QLatin1Char('/')))) {
+                v.kind = Verdict::IntoItself;
+                v.text = tr("Can't copy “%1” into itself").arg(QFileInfo(src).fileName());
+                return v;
+            }
+        }
+        v.kind = Verdict::Ok;
+        v.items = m_dragPaths;
+        return v;
+    }
     for (const QString &src : m_dragPaths) {
         if (v.targetDir == src || v.targetDir.startsWith(src + QLatin1Char('/'))) {
             v.kind = Verdict::IntoItself;
@@ -214,6 +227,7 @@ void ExplorerTree::startDrag(Qt::DropActions)
 void ExplorerTree::endDrag()
 {
     m_dragging = false;
+    m_external = false;
     m_dragPaths.clear();
     m_verdict = {};
     m_hoverDir = QPersistentModelIndex();
@@ -237,9 +251,23 @@ void ExplorerTree::previewDrag(const QStringList &paths, const QPoint &pos)
 
 // --- drop target ---------------------------------------------------------------
 
+static QStringList localPaths(const QMimeData *m)
+{
+    QStringList out;
+    for (const QUrl &u : m->urls())
+        if (u.isLocalFile())
+            out << u.toLocalFile();
+    return out;
+}
+
 void ExplorerTree::dragEnterEvent(QDragEnterEvent *e)
 {
-    if (e->source() == this && e->mimeData()->hasFormat(kMime)) {
+    if (e->source() != this && !localPaths(e->mimeData()).isEmpty()) {
+        m_dragging = true;
+        m_external = true;
+        e->setDropAction(Qt::CopyAction);
+        e->accept();
+    } else if (e->source() == this && e->mimeData()->hasFormat(kMime)) {
         m_dragging = true;
         e->acceptProposedAction();
     } else {
@@ -249,7 +277,16 @@ void ExplorerTree::dragEnterEvent(QDragEnterEvent *e)
 
 void ExplorerTree::dragMoveEvent(QDragMoveEvent *e)
 {
-    if (e->source() != this || !e->mimeData()->hasFormat(kMime)) {
+    if (e->source() != this) {
+        const QStringList ext = localPaths(e->mimeData());
+        if (ext.isEmpty() || m_root.isEmpty()) {
+            e->ignore();
+            return;
+        }
+        m_external = true;
+        m_dragging = true;
+        m_dragPaths = ext;
+    } else if (!e->mimeData()->hasFormat(kMime)) {
         e->ignore();
         return;
     }
@@ -277,7 +314,7 @@ void ExplorerTree::dragMoveEvent(QDragMoveEvent *e)
         m_scroll->stop();
 
     if (m_verdict.kind == Verdict::Ok) {
-        e->setDropAction(Qt::MoveAction);
+        e->setDropAction(m_external ? Qt::CopyAction : Qt::MoveAction);
         e->accept();
     } else {
         e->ignore();
@@ -287,6 +324,11 @@ void ExplorerTree::dragMoveEvent(QDragMoveEvent *e)
 
 void ExplorerTree::dragLeaveEvent(QDragLeaveEvent *e)
 {
+    if (m_external) {
+        m_external = false;
+        m_dragging = false;
+        m_dragPaths.clear();
+    }
     m_verdict = {};
     m_hoverDir = QPersistentModelIndex();
     m_spring->stop();
@@ -302,14 +344,28 @@ void ExplorerTree::dropEvent(QDropEvent *e)
     m_scroll->stop();
     m_spring->stop();
     viewport()->update();
-    if (e->source() != this || v.kind != Verdict::Ok) {
+    if (v.kind != Verdict::Ok) {
+        m_external = false;
+        e->ignore();
+        return;
+    }
+    const QStringList items = v.items;
+    const QString target = v.targetDir;
+    if (m_external) {
+        m_external = false;
+        m_dragging = false;
+        m_dragPaths.clear();
+        e->setDropAction(Qt::CopyAction);
+        e->accept();
+        QTimer::singleShot(0, this, [this, items, target] { emit copyRequested(items, target); });
+        return;
+    }
+    if (e->source() != this) {
         e->ignore();
         return;
     }
     e->setDropAction(Qt::MoveAction);
     e->accept();
-    const QStringList items = v.items;
-    const QString target = v.targetDir;
     // Let the drag finish before anything is moved underneath it.
     QTimer::singleShot(0, this, [this, items, target] { emit moveRequested(items, target); });
 }
@@ -414,10 +470,10 @@ void ExplorerTree::paintHint(QPainter &p) const
     switch (m_verdict.kind) {
     case Verdict::Ok: {
         const QString what = m_verdict.items.size() == 1 ? tr("“%1”").arg(QFileInfo(m_verdict.items.first()).fileName()) : tr("%1 items").arg(m_verdict.items.size());
-        line1 = {{tr("Move "), false, fg}, {what, true, fg}, {tr(" into "), false, fg}, {m_verdict.name, true, m_theme.accent}};
+        line1 = {{m_verdict.copy ? tr("Copy ") : tr("Move "), false, fg}, {what, true, fg}, {tr(" into "), false, fg}, {m_verdict.name, true, m_theme.accent}};
         bool any = false;
         for (const QString &s : m_verdict.items)
-            any = any || isSource(s);
+            any = any || (!m_verdict.copy && isSource(s));
         if (any)
             line2 = tr("Imports and links update automatically");
         edge = m_theme.accent;

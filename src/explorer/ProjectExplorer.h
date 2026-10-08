@@ -46,6 +46,9 @@ public:
     void revealPaths(const QStringList &paths);               // select and scroll to them as soon as the model knows them
     void createFileIn(const QString &dir);
     void createFolderIn(const QString &dir);
+    void copyToClipboard(const QStringList &paths); // as files, so they paste here and in file managers
+    void pasteInto(const QString &dir);             // files or an image from the clipboard
+    void copyInto(const QStringList &sources, const QString &dir); // dropped or pasted files
 
 signals:
     void moveRequested(const QStringList &sources, const QString &targetDir); // dropped on a folder
@@ -71,6 +74,8 @@ private:
     QString pathFor(const QModelIndex &proxyIndex) const;
     void renamePath(const QString &path);
     void deletePath(const QString &path);
+    void addClipboardActions(QMenu *menu, const QString &path, const QString &dir);
+    bool clipboardHasContent() const;
     void showError(const QString &title, const QString &text);
     void addGitActions(QMenu *menu, const QString &path);
 

@@ -457,6 +457,21 @@ void SettingsManager::setLspFlagsText(const QString &text)
     saveProject();
 }
 
+QString SettingsManager::pythonVenv() const
+{
+    return m_data.value(QStringLiteral("pythonVenv")).toString();
+}
+
+void SettingsManager::setPythonVenv(const QString &name)
+{
+    if (name.isEmpty())
+        m_data.remove(QStringLiteral("pythonVenv"));
+    else
+        m_data.insert(QStringLiteral("pythonVenv"), name);
+    saveProject();
+    emit projectSettingsChanged();
+}
+
 QString SettingsManager::runCommand(const QString &key) const
 {
     return m_data.value(QStringLiteral("run")).toObject().value(key).toString();

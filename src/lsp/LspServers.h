@@ -15,9 +15,9 @@ struct LspServerSpec {
     bool fallbackFlags = false; // accepts initializationOptions.fallbackFlags (clangd)
     QString installHelp;    // shown when the executable is missing
     // How QODE can set the server up itself: Download = Kotlin's archive (LspInstaller), Npm = `npm install` into a private
-    // folder (NpmInstaller), Jdtls = the Eclipse JDT language server's archive (JdtlsInstaller); shared by every server
-    // with the same managedId.
-    enum class Installer { None, Download, Npm, Jdtls };
+    // folder (NpmInstaller), Jdtls = the Eclipse JDT language server's archive (JdtlsInstaller), Pip = a private virtual
+    // environment with `pip install` / `uv pip install` (PipInstaller); shared by every server with the same managedId.
+    enum class Installer { None, Download, Npm, Jdtls, Pip };
     Installer installer = Installer::None;
     bool installable = false; // installer != None
     QString managedId;        // folder under <data>/QODE/lsp/ (defaults to id)
@@ -60,6 +60,10 @@ bool jdtlsCommand(const QString &launcher, const QString &workspaceDir, QString 
 // PATH nvm / fnm set up in a shell). Empty when there is none.
 QString nodeExecutable();
 QString npmExecutable(); // next to node, else PATH
+// A Python 3 interpreter (python3 / python on PATH, then the usual folders); empty when there is none.
+QString pythonExecutable();
+// Astral's uv (PATH, then ~/.local/bin and ~/.cargo/bin); empty when it is not installed.
+QString uvExecutable();
 const QList<LspServerSpec> &all();
 const LspServerSpec *forFile(const QString &path); // the main server (never a companion)
 // The companions that handle this file and are relevant to the project at `root`.

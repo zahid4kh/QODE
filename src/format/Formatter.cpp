@@ -1,5 +1,7 @@
 #include "Formatter.h"
 
+#include "lsp/LspServers.h"
+
 #include <QFileInfo>
 #include <QList>
 #include <QProcess>
@@ -21,6 +23,7 @@ QStringList clangArgs(const QString &p)
 }
 QStringList prettierArgs(const QString &p) { return {QStringLiteral("--stdin-filepath"), p}; }
 QStringList blackArgs(const QString &) { return {QStringLiteral("-q"), QStringLiteral("-")}; }
+QStringList ruffArgs(const QString &p) { return {QStringLiteral("format"), QStringLiteral("--stdin-filename"), p, QStringLiteral("-")}; }
 QStringList noArgs(const QString &) { return {}; }
 QStringList rustfmtArgs(const QString &) { return {QStringLiteral("--emit"), QStringLiteral("stdout")}; }
 QStringList styluaArgs(const QString &) { return {QStringLiteral("-")}; }
@@ -44,6 +47,7 @@ const QList<Tool> &tools()
         {QStringLiteral("clang-format"),
          {QStringLiteral("js"), QStringLiteral("mjs"), QStringLiteral("cjs"), QStringLiteral("ts"), QStringLiteral("json")},
          clangArgs},
+        {QStringLiteral("ruff"), {QStringLiteral("py"), QStringLiteral("pyi")}, ruffArgs},
         {QStringLiteral("black"), {QStringLiteral("py"), QStringLiteral("pyi")}, blackArgs},
         {QStringLiteral("gofmt"), {QStringLiteral("go")}, noArgs},
         {QStringLiteral("rustfmt"), {QStringLiteral("rs")}, rustfmtArgs},
@@ -61,7 +65,11 @@ const Tool *find(const QString &filePath, QString *exe)
     for (const Tool &t : tools()) {
         if (!t.extensions.contains(ext))
             continue;
-        const QString path = QStandardPaths::findExecutable(t.program);
+        QString path = QStandardPaths::findExecutable(t.program);
+        if (path.isEmpty() && t.program == QLatin1String("ruff")) { // the copy QODE installed with the Python tools
+            if (const LspServerSpec *ruff = LspServers::byId(QStringLiteral("ruff")))
+                path = LspServers::managedExecutable(*ruff);
+        }
         if (!path.isEmpty()) {
             if (exe)
                 *exe = path;

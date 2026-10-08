@@ -207,6 +207,35 @@ QString npmExecutable()
     return QStandardPaths::findExecutable(QStringLiteral("npm"));
 }
 
+QString pythonExecutable()
+{
+    for (const char *name : {"python3", "python"}) {
+        const QString onPath = QStandardPaths::findExecutable(QString::fromLatin1(name));
+        if (!onPath.isEmpty())
+            return onPath;
+    }
+    for (const char *dir : {"/usr/bin", "/usr/local/bin", "/bin"}) {
+        const QFileInfo fi(QString::fromLatin1(dir) + QStringLiteral("/python3"));
+        if (fi.isFile() && fi.isExecutable())
+            return fi.absoluteFilePath();
+    }
+    return {};
+}
+
+QString uvExecutable()
+{
+    const QString onPath = QStandardPaths::findExecutable(QStringLiteral("uv"));
+    if (!onPath.isEmpty())
+        return onPath;
+    const QString home = QDir::homePath();
+    for (const QString &dir : {home + QStringLiteral("/.local/bin"), home + QStringLiteral("/.cargo/bin"), QStringLiteral("/usr/local/bin")}) {
+        const QFileInfo fi(dir + QStringLiteral("/uv"));
+        if (fi.isFile() && fi.isExecutable())
+            return fi.absoluteFilePath();
+    }
+    return {};
+}
+
 namespace {
 bool dependsOn(const QString &root, const QString &package)
 {
@@ -396,6 +425,52 @@ const QList<LspServerSpec> &all()
             "LSP > Tailwind CSS > Download and Set Up (the official @tailwindcss/language-server, installed with the other web "
             "servers by one npm install; Node.js is required).");
         l.append(tailwind);
+        // Python: one private virtual environment (PipInstaller) provides basedpyright and the ruff companion.
+        LspServerSpec python;
+        python.id = QStringLiteral("python");
+        python.displayName = QStringLiteral("Python (basedpyright)");
+        python.executables = {QStringLiteral("basedpyright-langserver")};
+        python.arguments = {QStringLiteral("--stdio")};
+        python.extensions = {QStringLiteral("py"), QStringLiteral("pyi"), QStringLiteral("pyw")};
+        python.installer = LspServerSpec::Installer::Pip;
+        python.installable = true;
+        python.managedId = QStringLiteral("python");
+        python.managedBinary = QStringLiteral("bin/basedpyright-langserver");
+        python.wantsConfiguration = true; // pythonPath (the project's venv) and the analysis settings
+        python.installHelp = QStringLiteral(
+            "The Python language server is basedpyright, a fork of Microsoft's Pyright: syntax and type errors, undefined names, "
+            "hover, go to definition, completion, rename and find references. It needs Python 3 but no Node.js (it brings its "
+            "own).\n\n"
+            "Easiest: LSP > Python > Download and Set Up. QODE creates a private virtual environment in "
+            "~/.local/share/QODE/lsp/python and installs basedpyright and ruff into it (with uv when you have it, otherwise "
+            "pip). Nothing is installed globally.\n\n"
+            "By hand: pipx install basedpyright (or pip install basedpyright in any environment), then make sure "
+            "\"basedpyright-langserver\" is on your PATH, or point QODE at it with LSP > Set Server Path.\n\n"
+            "Python 3: sudo apt install python3 python3-venv (Debian / Ubuntu), sudo dnf install python3 (Fedora), "
+            "sudo pacman -S python (Arch).\n\n"
+            "Open a project that has a virtual environment (a folder with pyvenv.cfg, such as .venv) and the server resolves "
+            "imports from its installed packages.");
+        l.append(python);
+
+        LspServerSpec ruff;
+        ruff.id = QStringLiteral("ruff");
+        ruff.displayName = QStringLiteral("Ruff (Python linter)");
+        ruff.executables = {QStringLiteral("ruff")};
+        ruff.arguments = {QStringLiteral("server")};
+        ruff.extensions = {QStringLiteral("py"), QStringLiteral("pyi"), QStringLiteral("pyw")};
+        ruff.languageIds = {{QStringLiteral("py"), QStringLiteral("python")}, {QStringLiteral("pyi"), QStringLiteral("python")},
+                            {QStringLiteral("pyw"), QStringLiteral("python")}};
+        ruff.installer = LspServerSpec::Installer::Pip;
+        ruff.installable = true;
+        ruff.managedId = QStringLiteral("python");
+        ruff.managedBinary = QStringLiteral("bin/ruff");
+        ruff.companion = true;
+        ruff.installHelp = QStringLiteral(
+            "Ruff is an extremely fast Python linter and formatter. Next to basedpyright it reports lint problems as you type "
+            "(unused imports, style, common bugs), offers quick fixes with Alt+Enter, and formats the file on save. It comes "
+            "with LSP > Ruff > Download and Set Up (the same install as the Python server).\n\n"
+            "By hand: pipx install ruff (or pip install ruff), and make sure \"ruff\" is on your PATH.");
+        l.append(ruff);
         return l;
     }();
     return specs;

@@ -11,7 +11,8 @@ class QPushButton;
 
 // "Remove language server": shows exactly what goes away and runs it with a visible log.
 // - A server QODE downloaded itself (Kotlin, Java) is deleted step by step (each command and its result is shown).
-// - The web servers (installed with npm into one private folder) are deleted the same way.
+// - The web servers (installed with npm into one private folder) are deleted the same way, and so are the Python
+//   tools (basedpyright and ruff in one private virtual environment).
 // - A system package (clangd) needs administrator rights, so the dialog shows the package manager commands and can
 //   type them into QODE's terminal, where the user enters the password.
 // Either way the dialog ends by asking to restart QODE (restartRequested).
@@ -39,6 +40,7 @@ private:
 
     void buildManaged();
     void buildNpm();
+    void buildPip();
     void buildSystem();
     void startManaged();
     void runNext();

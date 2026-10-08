@@ -105,7 +105,8 @@ void SideSections::refresh(int index)
     // A collapsed section is exactly as tall as its header, so the splitter gives the space to open ones.
     const int h = s.header->sizeHint().height();
     s.frame->setMaximumHeight(s.expanded ? QWIDGETSIZE_MAX : h);
-    s.frame->setMinimumHeight(s.expanded ? h + 60 : h);
+    // An open section never gets smaller than its body needs (e.g. the commit box must not be squashed).
+    s.frame->setMinimumHeight(s.expanded ? h + qMax(60, s.body->minimumSizeHint().height()) : h);
     refreshIcons();
 }
 

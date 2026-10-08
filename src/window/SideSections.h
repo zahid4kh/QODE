@@ -6,7 +6,7 @@
 class QSplitter;
 class QToolButton;
 
-// The left panel: a vertical stack of collapsible sections (Explorer, Source Control, ...). Clicking a header
+// The left panel: a vertical stack of collapsible sections (Explorer, Version Control, ...). Clicking a header
 // expands or collapses its section; the expanded ones share the height.
 class SideSections : public QWidget
 {

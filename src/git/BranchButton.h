@@ -4,7 +4,7 @@
 
 #include <QAbstractButton>
 
-// Flat "<branch icon> name ⌄" button used in the Source Control toolbar and the status bar. It is
+// Flat "<branch icon> name ⌄" button used in the Version Control toolbar and the status bar. It is
 // painted by hand so that icon, text and chevron share one vertical centre line.
 class BranchButton : public QAbstractButton
 {

@@ -496,6 +496,7 @@ GitPanel::GitPanel(GitRepository *repo, QWidget *parent)
     m_message = new QPlainTextEdit(commitBox);
     m_message->setPlaceholderText(tr("Message (Ctrl+Enter to commit)"));
     m_message->setFixedHeight(72);
+    m_message->setMinimumWidth(0);
     m_message->setTabChangesFocus(true);
     auto *row = new QHBoxLayout;
     m_commitBtn = new QPushButton(tr("Commit"), commitBox);
@@ -510,6 +511,7 @@ GitPanel::GitPanel(GitRepository *repo, QWidget *parent)
     row->addWidget(m_amend);
     cbl->addWidget(m_message);
     cbl->addLayout(row);
+    commitBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed); // never squashed
     cl->addWidget(commitBox);
 
     m_tree = new QTreeWidget(changes);
@@ -528,6 +530,8 @@ GitPanel::GitPanel(GitRepository *repo, QWidget *parent)
     m_noChanges = new QLabel(tr("No changes — working tree clean"), changes);
     m_noChanges->setObjectName(QStringLiteral("emptyText"));
     m_noChanges->setAlignment(Qt::AlignCenter);
+    m_tree->setMinimumHeight(72);
+    m_noChanges->setMinimumHeight(48);
     cl->addWidget(m_tree, 1);
     cl->addWidget(m_noChanges, 1);
 
@@ -622,7 +626,7 @@ void GitPanel::onRepositoryChanged()
         if (m_repo->workDirectory().isEmpty()) {
             m_messageLabel->setText(tr("No project open."));
         } else if (!m_repo->gitAvailable()) {
-            m_messageLabel->setText(tr("Git was not found on this system.\nInstall git to use source control."));
+            m_messageLabel->setText(tr("Git was not found on this system.\nInstall git to use version control."));
         } else if (!m_repo->isResolved()) {
             m_messageLabel->setText(tr("Looking for a repository…"));
         } else {

@@ -111,7 +111,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_tasks = new TasksPanel(this);
     m_editors = new EditorManager(this);
 
-    // Left side: collapsible Explorer / Source Control / Search / Tasks sections
+    // Left side: collapsible Explorer / Version Control / Search / Tasks sections
     m_side = new SideSections(this);
     auto hideTitle = [](QWidget *w) { // the section header replaces the panel's own heading
         for (QLabel *l : w->findChildren<QLabel *>(QStringLiteral("panelTitle"), Qt::FindDirectChildrenOnly))
@@ -120,7 +120,7 @@ MainWindow::MainWindow(QWidget *parent)
     for (QWidget *w : {static_cast<QWidget *>(m_explorer), static_cast<QWidget *>(m_searchPanel), static_cast<QWidget *>(m_tasks)})
         hideTitle(w);
     m_side->addSection(tr("Explorer"), m_explorer);
-    m_side->addSection(tr("Source Control"), m_gitPanel);
+    m_side->addSection(tr("Version Control"), m_gitPanel);
     m_side->addSection(tr("Search"), m_searchPanel);
     m_side->addSection(tr("Tasks"), m_tasks);
     m_side->setExpandedStates(SettingsManager::instance().sideSections());
@@ -2561,7 +2561,7 @@ void MainWindow::createGitActions()
             a->setIcon(QIcon(icon));
         return a;
     };
-    m_scmAct = make(tr("Source Control"), QKeySequence(C | S | K::Key_G), QStringLiteral(":/new-icons/git-branch.svg"));
+    m_scmAct = make(tr("Version Control"), QKeySequence(C | S | K::Key_G), QStringLiteral(":/new-icons/git-branch.svg"));
     m_gitRefreshAct = make(tr("Refresh Status"));
     m_gitFetchAct = make(tr("Fetch"));
     m_gitPullAct = make(tr("Pull"));
@@ -2698,7 +2698,7 @@ void MainWindow::onGitStatusChanged()
         m_gitStatusWidget->hide();
     }
     const int n = m_git->isRepo() ? m_git->changes().size() : 0;
-    m_side->setTitle(1, n > 0 ? tr("Source Control (%1)").arg(n) : tr("Source Control"));
+    m_side->setTitle(1, n > 0 ? tr("Version Control (%1)").arg(n) : tr("Version Control"));
 
     // Committed text changed (new commit, other branch, other repository) => re-read every open file's base.
     if (m_git->headOid() != m_lastHead || m_git->root() != m_lastRoot) {

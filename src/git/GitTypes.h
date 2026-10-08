@@ -75,7 +75,7 @@ struct GitCommitInfo {
     QString hash, shortHash, author, date, refs, subject;
 };
 
-// --- Presentation helpers shared by the explorer, the Source Control panel and the diff views ---
+// --- Presentation helpers shared by the explorer, the Version Control panel and the diff views ---
 
 inline GitKind gitKindOfCode(QChar c)
 {

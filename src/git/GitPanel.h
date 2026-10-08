@@ -18,7 +18,7 @@ class QToolButton;
 class QTreeWidget;
 class QTreeWidgetItem;
 
-// The "Source Control" view: branch/sync toolbar, commit box, staged / unstaged / conflict lists
+// The "Version Control" view: branch/sync toolbar, commit box, staged / unstaged / conflict lists
 // with hover actions, and a commit history tab.
 class GitPanel : public QWidget
 {

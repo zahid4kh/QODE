@@ -83,7 +83,7 @@ public:
     QByteArray windowState() const;
     void setWindowState(const QByteArray &state);
 
-    // Which left-panel sections are expanded (Explorer, Source Control, Search, Tasks); empty = default.
+    // Which left-panel sections are expanded (Explorer, Version Control, Search, Tasks); empty = default.
     QList<bool> sideSections() const;
     void setSideSections(const QList<bool> &expanded);
 

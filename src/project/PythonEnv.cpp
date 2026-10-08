@@ -1,7 +1,11 @@
 #include "PythonEnv.h"
 
+#include "settings/SettingsManager.h"
+
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QRegularExpression>
 #include <QStringList>
 
 namespace PythonEnv {
@@ -29,9 +33,57 @@ QString findVenv(const QString &projectRoot)
     return {};
 }
 
+QStringList findVenvs(const QString &projectRoot)
+{
+    const QDir root(projectRoot);
+    QStringList out;
+    if (projectRoot.isEmpty() || !root.exists())
+        return out;
+    for (const QString &name : {QStringLiteral(".venv"), QStringLiteral("venv"), QStringLiteral("env"),
+                                QStringLiteral(".env")})
+        if (isVenv(root, name))
+            out << name;
+    const QStringList dirs = root.entryList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden, QDir::Name);
+    for (const QString &name : dirs)
+        if (!out.contains(name) && isVenv(root, name))
+            out << name;
+    return out;
+}
+
+QString activeVenv(const QString &projectRoot)
+{
+    const QString chosen = SettingsManager::instance().pythonVenv();
+    if (!chosen.isEmpty() && !projectRoot.isEmpty() && isVenv(QDir(projectRoot), chosen))
+        return chosen;
+    return findVenv(projectRoot);
+}
+
+QString venvPython(const QString &projectRoot, const QString &venv)
+{
+    if (venv.isEmpty())
+        return {};
+    for (const char *name : {"python", "python3"}) {
+        const QFileInfo fi(QDir(projectRoot).filePath(venv + QStringLiteral("/bin/") + QString::fromLatin1(name)));
+        if (fi.exists() && fi.isExecutable())
+            return fi.absoluteFilePath();
+    }
+    return {};
+}
+
+QString venvVersion(const QString &projectRoot, const QString &venv)
+{
+    QFile f(QDir(projectRoot).filePath(venv + QStringLiteral("/pyvenv.cfg")));
+    if (venv.isEmpty() || !f.open(QIODevice::ReadOnly))
+        return {};
+    // venv writes "version = 3.12.3", uv writes "version_info = 3.12.3" (virtualenv: "version_info" too).
+    static const QRegularExpression re(QStringLiteral("^version(?:_info)?\\s*=\\s*(\\d+\\.\\d+(?:\\.\\d+)?)"),
+                                       QRegularExpression::MultilineOption);
+    return re.match(QString::fromUtf8(f.readAll())).captured(1);
+}
+
 QString activationCommand(const QString &projectRoot, const QString &shellName)
 {
-    const QString venv = findVenv(projectRoot);
+    const QString venv = activeVenv(projectRoot);
     if (venv.isEmpty())
         return {};
     QString script = QStringLiteral("activate");

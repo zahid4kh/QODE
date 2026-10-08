@@ -9,6 +9,8 @@
 #include "dialogs/LspLogDialog.h"
 #include "dialogs/LspRemoveDialog.h"
 #include "dialogs/NpmInstallDialog.h"
+#include "dialogs/PackagesDialog.h"
+#include "dialogs/PipInstallDialog.h"
 #include "dialogs/NewProjectDialog.h"
 #include "dialogs/RunConfigDialog.h"
 #include "webdev/DevServerBar.h"
@@ -44,6 +46,7 @@
 #include "project/ProjectFiles.h"
 #include "project/ProjectManager.h"
 #include "project/PythonEnv.h"
+#include "python/PythonTools.h"
 #include "search/ProjectSearch.h"
 #include "search/SearchPanel.h"
 #include "settings/Icons.h"
@@ -465,6 +468,8 @@ void MainWindow::createActions()
     m_runAct->setToolTip(tr("Run the project, or this file (F5)"));
     m_runConfigAct = make(tr("Run Configuration…"), {}, QStringLiteral(":/new-icons/cog.svg"));
     m_runConfigAct->setToolTip(tr("Set the command that runs the project or this type of file"));
+    m_pythonPkgAct = make(tr("Python Packages…"), {}, QStringLiteral(":/new-icons/package.svg"));
+    m_pythonPkgAct->setToolTip(tr("Install, upgrade and remove the packages of the project's virtual environment"));
     {
         // Green outlined play button; recoloured with the theme since green must differ on light/dark.
         auto paint = [this] {
@@ -609,6 +614,7 @@ void MainWindow::createActions()
     connect(m_terminalAct, &QAction::triggered, this, &MainWindow::toggleTerminal);
     connect(m_runAct, &QAction::triggered, this, &MainWindow::runCurrentFile);
     connect(m_runConfigAct, &QAction::triggered, this, &MainWindow::configureRun);
+    connect(m_pythonPkgAct, &QAction::triggered, this, &MainWindow::showPythonPackages);
     connect(m_fullscreenAct, &QAction::triggered, this, [this] { setWindowState(windowState() ^ Qt::WindowFullScreen); });
     connect(m_wordWrapAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setWordWrap(on); });
     connect(m_breadcrumbsAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setShowBreadcrumbs(on); });
@@ -758,6 +764,7 @@ void MainWindow::createMenus()
     view->addSeparator();
     view->addAction(m_runAct);
     view->addAction(m_runConfigAct);
+    view->addAction(m_pythonPkgAct);
     view->addSeparator();
     view->addAction(m_splitRightAct);
     view->addAction(m_splitDownAct);
@@ -880,16 +887,87 @@ void MainWindow::updateRunToolbar()
     const bool web = m_serverBar->isAvailable();
     m_mainToolBar->removeAction(m_runAct);
     m_mainToolBar->removeAction(m_runConfigAct);
+    m_mainToolBar->removeAction(m_pythonPkgAct);
     if (!web) {
         m_mainToolBar->insertAction(m_serverBarAct, m_runAct);
         m_mainToolBar->insertAction(m_serverBarAct, m_runConfigAct);
     }
+    m_mainToolBar->insertAction(m_serverBarAct, m_pythonPkgAct); // next to the run buttons; visible only with a virtual environment
     m_serverBarAct->setVisible(web);
     m_runAct->setText(web ? tr("Start / Restart Dev Server") : tr("Run File"));
     m_runAct->setToolTip(web ? tr("Start the dev server, or restart it (F5)") : tr("Run the project, or this file (F5)"));
     m_runConfigAct->setText(web ? tr("Dev Server Settings…") : tr("Run Configuration…"));
     m_runConfigAct->setToolTip(web ? tr("Package manager, script and port of the dev server")
                                    : tr("Set the command that runs the project or this type of file"));
+}
+
+// The Python Packages button sits next to Run and Run Configuration and exists only while the project has a virtual
+// environment. A timer notices one created in the terminal (or deleted) a few seconds later.
+void MainWindow::updatePythonUi()
+{
+    const QString root = m_projects->hasProject() ? m_projects->project().root : QString();
+    const QString venv = root.isEmpty() ? QString() : PythonEnv::activeVenv(root);
+    m_pythonPkgAct->setVisible(!venv.isEmpty());
+    m_pythonPkgAct->setEnabled(m_projects->hasProject());
+    if (!venv.isEmpty()) {
+        const QString version = PythonEnv::venvVersion(root, venv);
+        m_pythonPkgAct->setToolTip(tr("Python packages: install, upgrade and remove (%1%2)")
+                                       .arg(venv, version.isEmpty() ? QString() : tr(", Python %1").arg(version)));
+    }
+    if (!m_venvTimer) {
+        m_venvTimer = new QTimer(this);
+        m_venvTimer->setInterval(3000);
+        connect(m_venvTimer, &QTimer::timeout, this, &MainWindow::updatePythonUi);
+    }
+    if (root.isEmpty())
+        m_venvTimer->stop();
+    else if (!m_venvTimer->isActive())
+        m_venvTimer->start();
+    if (venv != m_activeVenv) {
+        m_activeVenv = venv;
+        restartPythonServer(); // the interpreter its imports resolve against changed
+    }
+}
+
+// The language server reads the interpreter once at start: restart it after packages or the environment changed.
+void MainWindow::restartPythonServer()
+{
+    for (const LspManager::ServerState &st : m_lsp->servers())
+        if (st.id == QLatin1String("python") && (st.status == LspManager::Status::Running || st.status == LspManager::Status::Starting))
+            m_lsp->restart(st.id);
+}
+
+void MainWindow::showPythonPackages()
+{
+    if (!m_projects->hasProject())
+        return;
+    if (m_pkgDialog) {
+        m_pkgDialog->show();
+        m_pkgDialog->raise();
+        m_pkgDialog->activateWindow();
+        return;
+    }
+    m_pkgDialog = new PackagesDialog(m_projects->project().root, this);
+    connect(m_pkgDialog, &PackagesDialog::packagesChanged, this, &MainWindow::restartPythonServer);
+    connect(m_pkgDialog, &PackagesDialog::environmentChanged, this, [this] {
+        updatePythonUi();
+        restartPythonServer();
+    });
+    connect(m_pkgDialog, &PackagesDialog::venvCreated, this, [this](const QString &name) {
+        updatePythonUi();
+        restartPythonServer();
+        statusBar()->showMessage(tr("Created the virtual environment %1").arg(name), 6000);
+        const QString shell = QFileInfo(qEnvironmentVariable("SHELL", QStringLiteral("/bin/bash"))).fileName();
+        const QString cmd = PythonEnv::activationCommand(m_projects->project().root, shell);
+        if (cmd.isEmpty())
+            return;
+        if (QMessageBox::question(m_pkgDialog, tr("Activate it?"),
+                                  tr("Activate %1 in the terminal now? New terminals activate it automatically.").arg(name)) == QMessageBox::Yes) {
+            showTerminal();
+            m_terminal->runCommand(cmd);
+        }
+    });
+    m_pkgDialog->show();
 }
 
 void MainWindow::createStatusBar()
@@ -1359,13 +1437,15 @@ void MainWindow::showCodeActions(Document *doc, CodeEditor *editor, int startLin
         return;
     }
     QPointer<CodeEditor> guard(editor);
-    m_lsp->codeActions(doc, startLine, startColumn, endLine, endColumn, [this, doc, guard](const QVector<LspCodeAction> &found) {
+    m_lsp->codeActions(doc, startLine, startColumn, endLine, endColumn, [this, doc, guard, startLine, startColumn, endLine, endColumn](const QVector<LspCodeAction> &found) {
         if (!guard)
             return;
         QVector<LspCodeAction> actions = found;
+        // An import that no installed package satisfies: offer to install it into the project's virtual environment.
+        const QStringList missing = unresolvedPythonImports(doc, startLine, startColumn, endLine, endColumn);
         auto rank = [](const LspCodeAction &a) { return a.kind.startsWith(QLatin1String("quickfix")) ? 0 : a.kind.startsWith(QLatin1String("source")) ? 1 : 2; };
         std::stable_sort(actions.begin(), actions.end(), [&](const LspCodeAction &a, const LspCodeAction &b) { return rank(a) < rank(b); });
-        if (actions.isEmpty()) {
+        if (actions.isEmpty() && missing.isEmpty()) {
             statusBar()->showMessage(tr("No quick fixes available here"), 3000);
             return;
         }
@@ -1379,6 +1459,17 @@ void MainWindow::showCodeActions(Document *doc, CodeEditor *editor, int startLin
                                            "QMenu::item { padding: 5px 22px 5px 12px; border-radius: 5px; }"
                                            "QMenu::item:selected { background: %4; }")
                                 .arg(theme.panel.name(), theme.editorFg.name(), theme.border.name(), theme.selection.name()));
+        const bool hasVenv = m_projects->hasProject() && !PythonEnv::activeVenv(m_projects->project().root).isEmpty();
+        for (const QString &package : missing) {
+            QString title = hasVenv ? tr("Install \"%1\" in the virtual environment…").arg(package)
+                                    : tr("Install \"%1\" (set up a virtual environment first)…").arg(package);
+            title.replace(QLatin1Char('&'), QStringLiteral("&&"));
+            connect(menu->addAction(title), &QAction::triggered, this, [this, package, hasVenv] {
+                showPythonPackages();
+                if (m_pkgDialog && hasVenv)
+                    m_pkgDialog->installNow({package});
+            });
+        }
         for (const LspCodeAction &a : std::as_const(actions)) {
             QString title = a.title;
             title.replace(QLatin1Char('&'), QStringLiteral("&&"));
@@ -1391,6 +1482,34 @@ void MainWindow::showCodeActions(Document *doc, CodeEditor *editor, int startLin
         }
         menu->popup(guard->viewport()->mapToGlobal(guard->cursorRect().bottomLeft() + QPoint(0, 2)));
     });
+}
+
+// The packages that would fix an "import could not be resolved" diagnostic touching the range (Python only): the module's
+// top-level name mapped to its PyPI package, skipping relative imports and modules that are the project's own.
+QStringList MainWindow::unresolvedPythonImports(Document *doc, int startLine, int startColumn, int endLine, int endColumn) const
+{
+    QStringList out;
+    if (!m_projects->hasProject())
+        return out;
+    static const QRegularExpression re(QStringLiteral("^Import \"([^\"]+)\" could not be resolved"));
+    const QString root = m_projects->project().root;
+    for (const LspDiagnostic &d : m_lsp->diagnostics(doc->filePath())) {
+        if (d.server != QLatin1String("python") || (d.code != QLatin1String("reportMissingImports") && d.code != QLatin1String("reportMissingModuleSource")))
+            continue;
+        const bool before = d.endLine < startLine || (d.endLine == startLine && d.endColumn < startColumn);
+        const bool after = d.startLine > endLine || (d.startLine == endLine && d.startColumn > endColumn);
+        const auto m = re.match(d.message);
+        if (before || after || !m.hasMatch() || m.captured(1).startsWith(QLatin1Char('.')))
+            continue;
+        const QString top = m.captured(1).section(QLatin1Char('.'), 0, 0);
+        const QDir dir(root);
+        if (dir.exists(top) || dir.exists(top + QStringLiteral(".py")) || dir.exists(QStringLiteral("src/") + top))
+            continue; // the project's own module: a path problem, not a missing package
+        const QString package = PythonTools::packageForModule(m.captured(1));
+        if (!out.contains(package))
+            out << package;
+    }
+    return out;
 }
 
 // A WorkspaceEdit from the server (import added, rename, ...): open files are edited in place as one undo step each.
@@ -1438,6 +1557,11 @@ void MainWindow::installLspServer(const QString &serverId)
         if (dlg.exec() != QDialog::Accepted)
             return;
         what = tr("Web language servers");
+    } else if (spec->installer == LspServerSpec::Installer::Pip) {
+        PipInstallDialog dlg(this);
+        if (dlg.exec() != QDialog::Accepted)
+            return;
+        what = tr("Python language tools");
     } else if (spec->installer == LspServerSpec::Installer::Jdtls) {
         JdtlsInstallDialog dlg(this);
         if (dlg.exec() != QDialog::Accepted)
@@ -1635,6 +1759,7 @@ void MainWindow::onProjectOpened(const Project &p)
         m_terminal->ensureStarted();
     updateTitle();
     updateActions();
+    updatePythonUi();
 
     // Reopen what was open in this project last time.
     auto &s = SettingsManager::instance();
@@ -1666,6 +1791,7 @@ void MainWindow::onProjectClosed()
     m_media->setProjectRoot({});
     m_git->setWorkDirectory({});
     m_terminal->setWorkingDirectory(QDir::homePath());
+    updatePythonUi();
     m_terminal->stop();
     updateTitle();
     updateActions();

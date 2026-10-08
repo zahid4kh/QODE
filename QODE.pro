@@ -84,6 +84,8 @@ SOURCES += \
     src/dialogs/JdtlsInstallDialog.cpp \
     src/dialogs/LspRemoveDialog.cpp \
     src/dialogs/NpmInstallDialog.cpp \
+    src/dialogs/PipInstallDialog.cpp \
+    src/dialogs/PackagesDialog.cpp \
     src/editor/Language.cpp \
     src/editor/SyntaxHighlighter.cpp \
     src/editor/Document.cpp \
@@ -110,6 +112,9 @@ SOURCES += \
     src/lsp/LspManager.cpp \
     src/lsp/LspServers.cpp \
     src/lsp/NpmInstaller.cpp \
+    src/lsp/PipInstaller.cpp \
+    src/python/PythonTools.cpp \
+    src/python/PackageManager.cpp \
     src/window/Island.cpp \
     src/window/SideSections.cpp \
     src/window/MainWindow.cpp
@@ -174,6 +179,8 @@ HEADERS += \
     src/dialogs/JdtlsInstallDialog.h \
     src/dialogs/LspRemoveDialog.h \
     src/dialogs/NpmInstallDialog.h \
+    src/dialogs/PipInstallDialog.h \
+    src/dialogs/PackagesDialog.h \
     src/editor/Language.h \
     src/editor/SyntaxHighlighter.h \
     src/editor/Document.h \
@@ -200,6 +207,9 @@ HEADERS += \
     src/lsp/LspManager.h \
     src/lsp/LspServers.h \
     src/lsp/NpmInstaller.h \
+    src/lsp/PipInstaller.h \
+    src/python/PythonTools.h \
+    src/python/PackageManager.h \
     src/lsp/LspTypes.h \
     src/window/Island.h \
     src/window/SideSections.h \

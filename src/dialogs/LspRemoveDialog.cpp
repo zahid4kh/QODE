@@ -4,6 +4,7 @@
 #include "lsp/JdtlsInstaller.h"
 #include "lsp/LspInstaller.h"
 #include "lsp/NpmInstaller.h"
+#include "lsp/PipInstaller.h"
 #include "lsp/LspServers.h"
 #include "settings/SettingsManager.h"
 
@@ -114,6 +115,8 @@ LspRemoveDialog::LspRemoveDialog(const QString &serverId, QWidget *parent) : QDi
         buildManaged();
     else if (spec && spec->installer == LspServerSpec::Installer::Npm)
         buildNpm();
+    else if (spec && spec->installer == LspServerSpec::Installer::Pip)
+        buildPip();
     else
         buildSystem();
 }
@@ -294,6 +297,7 @@ void LspRemoveDialog::finish(bool ok)
     log(QString());
     const LspServerSpec *spec = LspServers::byId(m_id);
     const QString removed = spec && spec->installer == LspServerSpec::Installer::Npm ? tr("web language servers")
+                            : spec && spec->installer == LspServerSpec::Installer::Pip ? tr("Python language tools")
                             : m_id == QLatin1String("java")                          ? tr("Java language server")
                                                                                      : tr("Kotlin language server");
     log(ok ? tr("Finished. Removed the %1.").arg(removed) : tr("Finished with errors. Some files could not be removed; see the messages above."));
@@ -313,6 +317,30 @@ void LspRemoveDialog::buildNpm()
                         "and no administrator rights are needed. This is the exact command that will run:"));
     m_steps.clear();
     m_steps.append({tr("Delete the installed servers (about %1)").arg(QLocale().formattedDataSize(dirSize(root))),
+                    QStringLiteral("rm -rf %1").arg(shown(root)), root, false});
+    for (const Step &s : std::as_const(m_steps)) {
+        log(QStringLiteral("# %1").arg(s.text));
+        log(QStringLiteral("$ %1").arg(s.display));
+    }
+    log(QStringLiteral("# %1").arg(tr("Forget the saved server paths (if they pointed to this install)")));
+
+    m_secondary->hide();
+    m_primary->setText(tr("Remove"));
+    m_primary->setDefault(true);
+    connect(m_primary, &QPushButton::clicked, this, &LspRemoveDialog::startManaged);
+}
+
+// --- Servers installed into a private virtual environment (Python: basedpyright and ruff) ------------------
+
+void LspRemoveDialog::buildPip()
+{
+    const QString root = PipInstaller::installRoot();
+    m_intro->setText(tr("<b>Remove the Python language tools</b> that QODE installed: the language server (basedpyright) and Ruff "
+                        "live in one private virtual environment, so both go together. Your own projects and their virtual "
+                        "environments are not touched, nothing outside your home folder is touched and no administrator rights "
+                        "are needed. This is the exact command that will run:"));
+    m_steps.clear();
+    m_steps.append({tr("Delete the installed tools (about %1)").arg(QLocale().formattedDataSize(dirSize(root))),
                     QStringLiteral("rm -rf %1").arg(shown(root)), root, false});
     for (const Step &s : std::as_const(m_steps)) {
         log(QStringLiteral("# %1").arg(s.text));

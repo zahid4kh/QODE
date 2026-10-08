@@ -136,6 +136,10 @@ public:
     QString lspFlagsText() const;
     void setLspFlagsText(const QString &text);
 
+    // The Python venv (root-relative folder name) this project works with; empty = detect automatically.
+    QString pythonVenv() const;
+    void setPythonVenv(const QString &name);
+
     QStringList recentCommands() const; // most recent first
     void setRecentCommands(const QStringList &commands);
 

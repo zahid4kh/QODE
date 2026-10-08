@@ -4,6 +4,7 @@
 #include "LspClient.h"
 #include "LspServers.h"
 #include "editor/Document.h"
+#include "project/PythonEnv.h"
 #include "project/QmakeProject.h"
 #include "settings/SettingsManager.h"
 
@@ -54,6 +55,29 @@ QJsonValue configurationFor(const QString &serverId, const QJsonObject &item, co
              QJsonObject{{QStringLiteral("disableRuleComment"), QJsonObject{{QStringLiteral("enable"), true}, {QStringLiteral("location"), QStringLiteral("separateLine")}}},
                          {QStringLiteral("showDocumentation"), QJsonObject{{QStringLiteral("enable"), true}}}}},
             {QStringLiteral("file"), file}};
+    }
+    if (serverId == QLatin1String("python")) {
+        // basedpyright asks for the sections "python" and "basedpyright"; both carry the checking options under
+        // "analysis". "python" also names the interpreter: the project's venv, so imports of installed packages resolve.
+        // Nothing is written into the project.
+        const QJsonObject analysis{{QStringLiteral("typeCheckingMode"), QStringLiteral("standard")}, // basedpyright's own default is the very noisy "recommended"
+                                   {QStringLiteral("autoImportCompletions"), true},
+                                   {QStringLiteral("autoSearchPaths"), true},
+                                   {QStringLiteral("useLibraryCodeForTypes"), true},
+                                   {QStringLiteral("diagnosticMode"), QStringLiteral("openFilesOnly")},
+                                   {QStringLiteral("disableOrganizeImports"), true}}; // Ruff organizes imports
+        QJsonObject out{{QStringLiteral("analysis"), analysis}};
+        if (section == QLatin1String("python")) {
+            const QString py = PythonEnv::venvPython(root, PythonEnv::activeVenv(root));
+            if (!py.isEmpty())
+                out.insert(QStringLiteral("pythonPath"), py);
+        } else if (section != QLatin1String("basedpyright") && section != QLatin1String("python.analysis") &&
+                   section != QLatin1String("basedpyright.analysis")) {
+            return QJsonObject();
+        } else if (section.endsWith(QLatin1String(".analysis"))) {
+            return analysis;
+        }
+        return out;
     }
     if (serverId == QLatin1String("tailwindcss")) {
         if (section == QLatin1String("editor"))
@@ -1143,12 +1167,17 @@ void LspManager::codeActions(Document *doc, int startLine, int startColumn, int 
 
 bool LspManager::formatting(Document *doc, int tabSize, bool spaces, int timeoutMs, QVector<LspTextEdit> *edits)
 {
+    // The first ready server that can format: the file's main server, else a companion (Ruff formats Python files).
     QString uri;
-    LspClient *c = readyClientFor(doc, &uri);
+    LspClient *c = nullptr;
+    for (LspClient *candidate : readyClientsFor(doc, &uri)) {
+        const QJsonValue provider = candidate->serverCapabilities().value(QStringLiteral("documentFormattingProvider"));
+        if (!provider.isUndefined() && !provider.isNull() && provider.toBool(true)) {
+            c = candidate;
+            break;
+        }
+    }
     if (!c)
-        return false;
-    const QJsonValue provider = c->serverCapabilities().value(QStringLiteral("documentFormattingProvider"));
-    if (provider.isUndefined() || provider.isNull() || provider.toBool(true) == false)
         return false;
     // Shared with the callback, which may still run after a timeout.
     struct State {

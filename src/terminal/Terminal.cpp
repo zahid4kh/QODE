@@ -201,6 +201,12 @@ void Terminal::runCommand(const QString &command)
     m_pendingTimer->start(150);
 }
 
+void Terminal::sendInput(const QByteArray &data)
+{
+    if (m_shell->isRunning())
+        m_shell->write(data);
+}
+
 void Terminal::flushPendingCommand()
 {
     m_booting = false;

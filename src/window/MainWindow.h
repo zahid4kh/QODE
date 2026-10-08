@@ -11,6 +11,9 @@
 
 class CodeEditor;
 class DevServerBar;
+class ExpoBar;
+class ExpoConfigDialog;
+class ExpoSchema;
 class DiffDialog;
 class Document;
 class QTimer;
@@ -84,8 +87,14 @@ private:
     void openRightPanel();
     void hideMedia();
     void runCurrentFile();
+    void runFile(); // the generic part of runCurrentFile (web server, project or file command)
     void configureRun();
     void updateRunToolbar();
+    void onExpoChanged();            // Expo apps appeared / vanished: toolbar, web-server bar and JSON schemas follow
+    void pushExpoSchemas();
+    void runExpoCommand(const QString &command, const QString &id);
+    void showExpoConfig();
+    void showExpoSchemaCache();
     void updatePythonUi();           // shows the Python Packages button only while the project has a virtual environment
     void showPythonPackages();
     void restartPythonServer();
@@ -188,6 +197,11 @@ private:
     QAction *m_nextTabAct, *m_prevTabAct, *m_splitRightAct, *m_splitDownAct, *m_aboutAct, *m_paletteAct, *m_quickOpenAct, *m_gotoLineAct, *m_gotoSymbolAct, *m_gotoDefinitionAct, *m_renameAct, *m_findRefsAct, *m_searchAct, *m_matchBracketAct, *m_indentGuidesAct, *m_stickyAct, *m_blameInlineAct, *m_bookmarkToggleAct, *m_bookmarkNextAct, *m_bookmarkPrevAct, *m_showBookmarksAct, *m_showTodosAct, *m_previewAct, *m_newTerminalAct, *m_blameGutterAct, *m_minimapAct, *m_breadcrumbsAct, *m_hiddenFilesAct;
     QMenu *m_recentMenu;
     DevServerBar *m_serverBar = nullptr;
+    ExpoBar *m_expoBar = nullptr;
+    QAction *m_expoBarAct = nullptr;
+    ExpoSchema *m_expoSchema = nullptr;
+    QPointer<ExpoConfigDialog> m_expoDialog;
+    bool m_metroStarted = false; // an `expo start` was launched from the toolbar this session (DevTools needs it)
     QAction *m_serverBarAct = nullptr;
     QToolBar *m_mainToolBar = nullptr;
     QAction *m_autoSaveOffAct, *m_autoSaveDelayAct, *m_autoSaveFocusAct, *m_trimAct, *m_finalNewlineAct, *m_formatOnSaveAct, *m_formatAct;

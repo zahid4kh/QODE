@@ -30,6 +30,11 @@ SOURCES += \
     src/refactor/RefactorJvm.cpp \
     src/refactor/RefactorNative.cpp \
     src/refactor/RefactorRust.cpp \
+    src/expo/JsonDoc.cpp \
+    src/expo/ExpoProject.cpp \
+    src/expo/ExpoSchema.cpp \
+    src/expo/ExpoBar.cpp \
+    src/expo/ExpoConfigDialog.cpp \
     src/webdev/WebProject.cpp \
     src/webdev/DevServer.cpp \
     src/webdev/DevServerBar.cpp \
@@ -124,6 +129,11 @@ HEADERS += \
     src/refactor/MoveController.h \
     src/explorer/ExplorerTree.h \
     src/refactor/RefactorCtx.h \
+    src/expo/JsonDoc.h \
+    src/expo/ExpoProject.h \
+    src/expo/ExpoSchema.h \
+    src/expo/ExpoBar.h \
+    src/expo/ExpoConfigDialog.h \
     src/webdev/WebProject.h \
     src/webdev/DevServer.h \
     src/webdev/DevServerBar.h \

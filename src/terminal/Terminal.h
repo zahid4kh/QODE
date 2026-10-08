@@ -30,6 +30,8 @@ public:
     void ensureStarted();
     // Types `command` into the shell (interrupting whatever is running) so its output shows in the panel.
     void runCommand(const QString &command);
+    // Writes raw input (a key press such as "j" for the program running in the shell).
+    void sendInput(const QByteArray &data);
     void restart();
     void stop();
     bool isRunning() const;

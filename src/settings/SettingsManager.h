@@ -123,6 +123,8 @@ public:
 
     QString runCommand(const QString &key) const; // per file type, see RunConfigDialog::keyFor
     void setRunCommand(const QString &key, const QString &command);
+    QJsonObject expo() const; // per-project Expo choices: {dir: relative app folder, last: run configuration id}
+    void setExpo(const QJsonObject &config);
     // Dev server of a web project: {manager, script, port, command}; missing keys mean automatic.
     QJsonObject webServer() const;
     void setWebServer(const QJsonObject &config);

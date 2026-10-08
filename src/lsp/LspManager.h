@@ -43,6 +43,9 @@ public:
     // The project folder servers are rooted at; changing it stops every server.
     void setProjectRoot(const QString &root);
     void shutdown(); // stop every server (blocking, brief)
+    // JSON schemas for the JSON server ([{fileMatch: [...], schema: {...}}], the shape of `json.schemas`): sent when the
+    // server is ready and again whenever they change (Expo's app.json schema).
+    void setJsonSchemas(const QJsonArray &schemas);
 
     void documentOpened(Document *doc);
     void documentSaved(Document *doc);
@@ -149,6 +152,7 @@ private:
     };
 
     Server *ensureServer(const LspServerSpec &spec, const QString &filePath);
+    void sendJsonSchemas(Server &s);
     void startServer(Server &s, const QString &rootPath);
     void stopServer(Server &s);
     void onServerReady(const QString &id);
@@ -171,6 +175,7 @@ private:
     void pullDiagnostics(Document *doc); // servers with diagnosticProvider (Kotlin) are asked instead of pushing
 
     QString m_root;
+    QJsonArray m_jsonSchemas;
     QHash<QString, Server> m_servers;
     QHash<Document *, Tracked> m_tracked;
     QHash<QString, QVector<LspDiagnostic>> m_diagnostics;                    // merged over all servers

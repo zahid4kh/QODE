@@ -33,6 +33,8 @@ public:
     void ensureStarted();
     // Types `command` into the current pane (interrupting whatever is running there).
     void runCommand(const QString &command);
+    // Writes raw input to the current pane (a key for the program running there).
+    void sendInput(const QByteArray &data);
     void newSession();
     void splitCurrent(Qt::Orientation orientation);
     void restart();    // the current pane

@@ -107,6 +107,106 @@ Theme Theme::light_()
 }
 
 
+Theme Theme::monoDark_()
+{
+    Theme t;
+    t.name = QStringLiteral("Monochrome Dark");
+    t.dark = true;
+    t.frame = "#0c0c0c";
+    t.window = "#161616";
+    t.panel = "#1b1b1b";
+    t.editorBg = "#121212";
+    t.editorFg = "#d4d4d4";
+    t.gutterBg = "#121212";
+    t.gutterFg = "#555555";
+    t.gutterActiveFg = "#d4d4d4";
+    t.currentLine = "#1c1c1c";
+    t.selection = "#3a3a3a";
+    t.border = "#262626";
+    t.accent = "#e6e6e6";
+    t.textMuted = "#8a8a8a";
+    t.keyword = "#c678dd";
+    t.type = "#e5c07b";
+    t.string = "#98c379";
+    t.comment = "#5c6370";
+    t.number = "#d19a66";
+    t.preprocessor = "#e06c75";
+    t.function = "#61afef";
+    t.tag = "#e06c75";
+    t.attribute = "#d19a66";
+    t.termBg = "#0e0e0e";
+    t.termFg = "#cccccc";
+    t.gitAdded = "#b5b5b5";
+    t.gitModified = "#9a9a9a";
+    t.gitDeleted = "#7a7a7a";
+    t.gitUntracked = "#c8c8c8";
+    t.gitRenamed = "#adadad";
+    t.gitConflict = "#f0f0f0";
+    t.gitIgnored = "#555555";
+    t.diffAddBg = "#262626";
+    t.diffDelBg = "#1a1a1a";
+    t.diffFillBg = "#171717";
+    t.success = "#d0d0d0";
+    t.warning = "#a0a0a0";
+    t.danger = "#ffffff";
+    t.idle = "#5a5a5a";
+    t.findMatchBg = "#4d4d4d";
+    static const char *ansi[16] = {"#3f4451", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#abb2bf", "#5c6370", "#ef7a85", "#a9d98a", "#f0d08b", "#72bfff", "#d689ee", "#67c7d3", "#ffffff"};
+    for (int i = 0; i < 16; ++i)
+        t.ansi[i] = QColor(QLatin1String(ansi[i]));
+    return t;
+}
+
+Theme Theme::monoLight_()
+{
+    Theme t;
+    t.name = QStringLiteral("Monochrome Light");
+    t.dark = false;
+    t.frame = "#a9a9a9";
+    t.window = "#bfbfbf";
+    t.panel = "#c8c8c8";
+    t.editorBg = "#cfcfcf";
+    t.editorFg = "#1a1a1a";
+    t.gutterBg = "#cfcfcf";
+    t.gutterFg = "#7c7c7c";
+    t.gutterActiveFg = "#1a1a1a";
+    t.currentLine = "#c6c6c6";
+    t.selection = "#a4a4a4";
+    t.border = "#a8a8a8";
+    t.accent = "#242424";
+    t.textMuted = "#555555";
+    t.keyword = "#8a1c88";
+    t.type = "#8a5a00";
+    t.string = "#2f6f2e";
+    t.comment = "#6a6e78";
+    t.number = "#7a4e00";
+    t.preprocessor = "#b3362b";
+    t.function = "#1f55d0";
+    t.tag = "#b3362b";
+    t.attribute = "#7a4e00";
+    t.termBg = "#d6d6d6";
+    t.termFg = "#1c1c1c";
+    t.gitAdded = "#3a3a3a";
+    t.gitModified = "#5a5a5a";
+    t.gitDeleted = "#707070";
+    t.gitUntracked = "#2a2a2a";
+    t.gitRenamed = "#4a4a4a";
+    t.gitConflict = "#000000";
+    t.gitIgnored = "#808080";
+    t.diffAddBg = "#bcbcbc";
+    t.diffDelBg = "#c6c6c6";
+    t.diffFillBg = "#c2c2c2";
+    t.success = "#2e2e2e";
+    t.warning = "#585858";
+    t.danger = "#000000";
+    t.idle = "#7a7a7a";
+    t.findMatchBg = "#9c9c9c";
+    static const char *ansi[16] = {"#1a1a1a", "#b3362b", "#2f6f2e", "#8a5a00", "#1f55d0", "#8a1c88", "#00637f", "#5a5a5a", "#4a4a4a", "#c4453a", "#3a803a", "#9a6a00", "#2f65e0", "#9a2c98", "#0a7390", "#ffffff"};
+    for (int i = 0; i < 16; ++i)
+        t.ansi[i] = QColor(QLatin1String(ansi[i]));
+    return t;
+}
+
 Theme Theme::darcula_()
 {
     // JetBrains Darcula: UI from darcula.theme.json, syntax from the bundled editor scheme, terminal from the

@@ -10,7 +10,8 @@
 
 bool ThemeManager::isBuiltin(const QString &id)
 {
-    return id == QLatin1String("dark") || id == QLatin1String("light") || id == QLatin1String("darcula");
+    return id == QLatin1String("dark") || id == QLatin1String("light") || id == QLatin1String("darcula")
+           || id == QLatin1String("mono-dark") || id == QLatin1String("mono-light");
 }
 
 ThemeManager &ThemeManager::instance()
@@ -86,6 +87,8 @@ QList<ThemeManager::Info> ThemeManager::themes() const
     out.append({QStringLiteral("dark"), QStringLiteral("Dark"), true, true});
     out.append({QStringLiteral("light"), QStringLiteral("Light"), true, false});
     out.append({QStringLiteral("darcula"), QStringLiteral("Darcula"), true, true});
+    out.append({QStringLiteral("mono-dark"), QStringLiteral("Monochrome Dark"), true, true});
+    out.append({QStringLiteral("mono-light"), QStringLiteral("Monochrome Light"), true, false});
     for (const QString &id : m_order) {
         const Theme &t = m_user.value(id);
         out.append({id, t.name, false, t.dark});
@@ -106,6 +109,10 @@ Theme ThemeManager::theme(const QString &id) const
         return Theme::light_();
     if (id == QLatin1String("darcula"))
         return Theme::darcula_();
+    if (id == QLatin1String("mono-dark"))
+        return Theme::monoDark_();
+    if (id == QLatin1String("mono-light"))
+        return Theme::monoLight_();
     const auto it = m_user.constFind(id);
     return it != m_user.constEnd() ? it.value() : Theme::dark_();
 }

@@ -6,6 +6,7 @@
 #include <QAbstractButton>
 #include <QComboBox>
 #include <QDir>
+#include <QMenu>
 #include <QMenuBar>
 #include <QTabBar>
 #include <QFont>
@@ -50,6 +51,10 @@ bool Application::eventFilter(QObject *watched, QEvent *event)
             w->setWindowFlags(w->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
             w->setAttribute(Qt::WA_TranslucentBackground);
             return QApplication::eventFilter(watched, event);
+        }
+        if (qobject_cast<QMenu *>(w) && !w->testAttribute(Qt::WA_TranslucentBackground)) { // every menu: transparent corners so the stylesheet's border radius shows
+            w->setWindowFlags(w->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
+            w->setAttribute(Qt::WA_TranslucentBackground);
         }
         const bool clickable = qobject_cast<QAbstractButton *>(w) || qobject_cast<QTabBar *>(w) || qobject_cast<QComboBox *>(w) ||
                                qobject_cast<QMenuBar *>(w);

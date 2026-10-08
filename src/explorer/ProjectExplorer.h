@@ -67,6 +67,9 @@ signals:
 
 protected:
     void resizeEvent(QResizeEvent *e) override;
+public:
+    void renameSelected();
+
 
 private:
     void onDoubleClicked(const QModelIndex &proxyIndex);
@@ -74,6 +77,7 @@ private:
     QString pathFor(const QModelIndex &proxyIndex) const;
     void renamePath(const QString &path);
     void deletePath(const QString &path);
+    void deletePaths(const QStringList &paths);
     void addClipboardActions(QMenu *menu, const QString &path, const QString &dir);
     bool clipboardHasContent() const;
     void showError(const QString &title, const QString &text);

@@ -19,6 +19,7 @@
 #include <QFrame>
 #include <QGridLayout>
 #include <QScrollBar>
+#include <QShortcut>
 #include <QStyle>
 #include <QTimer>
 #include <QToolButton>
@@ -80,6 +81,15 @@ ProjectExplorer::ProjectExplorer(QWidget *parent)
     connect(&SettingsManager::instance(), &SettingsManager::themeChanged, m_tree->viewport(), qOverload<>(&QWidget::update));
     connect(m_tree, &ExplorerTree::moveRequested, this, &ProjectExplorer::moveRequested);
     connect(m_tree, &ExplorerTree::copyRequested, this, &ProjectExplorer::copyInto);
+    auto *deleteKey = new QShortcut(QKeySequence(Qt::Key_Delete), m_tree, nullptr, nullptr, Qt::WidgetShortcut);
+    connect(deleteKey, &QShortcut::activated, this, [this] {
+        QStringList sel = m_tree->selectedPaths();
+        sel.removeAll(m_root);
+        if (sel.size() == 1)
+            deletePath(sel.first());
+        else if (!sel.isEmpty())
+            deletePaths(sel);
+    });
     connect(m_tree, &ExplorerTree::copyShortcut, this, [this] { copyToClipboard(m_tree->selectedPaths()); });
     connect(m_tree, &ExplorerTree::pasteShortcut, this, [this] { pasteInto(currentDirectory()); });
     connect(m_tree, &QTreeView::doubleClicked, this, &ProjectExplorer::onDoubleClicked);
@@ -304,6 +314,37 @@ void ProjectExplorer::deletePath(const QString &path)
     emit pathDeleted(path);
 }
 
+void ProjectExplorer::renameSelected()
+{
+    const QStringList sel = m_tree->selectedPaths();
+    if (sel.size() == 1 && sel.first() != m_root)
+        renamePath(sel.first());
+}
+
+void ProjectExplorer::deletePaths(const QStringList &all)
+{
+    QStringList paths; // children of a selected folder go with it
+    for (const QString &p : all) {
+        bool nested = false;
+        for (const QString &q : all)
+            nested = nested || (q != p && p.startsWith(q + QLatin1Char('/')));
+        if (!nested)
+            paths << p;
+    }
+    const auto answer = QMessageBox::warning(this, tr("Delete"), tr("Permanently delete these %1 items and everything in them?\n\nThis cannot be undone.").arg(paths.size()),
+                                             QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+    if (answer != QMessageBox::Yes)
+        return;
+    for (const QString &path : paths) {
+        QString err;
+        if (!FileManager::removePath(path, &err)) {
+            showError(tr("Unable to delete"), tr("Path:\n%1\n\nReason:\n%2").arg(FileManager::displayPath(path), err));
+            return;
+        }
+        emit pathDeleted(path);
+    }
+}
+
 void ProjectExplorer::showContextMenu(const QPoint &pos)
 {
     if (m_root.isEmpty())
@@ -344,8 +385,8 @@ void ProjectExplorer::showContextMenu(const QPoint &pos)
         addClipboardActions(&menu, path, dir);
         menu.addSeparator();
         addGitActions(&menu, path);
-        menu.addAction(Icons::tinted(QStringLiteral(":/new-icons/pencil.svg"), Theme::byName(SettingsManager::instance().theme()).editorFg), tr("Rename"), this, [this, path] { renamePath(path); });
-        menu.addAction(Icons::tinted(QStringLiteral(":/new-icons/trash-2.svg"), Theme::byName(SettingsManager::instance().theme()).editorFg), tr("Delete"), this, [this, path] { deletePath(path); });
+        menu.addAction(Icons::tinted(QStringLiteral(":/new-icons/pencil.svg"), Theme::byName(SettingsManager::instance().theme()).editorFg), tr("Rename"), this, [this, path] { renamePath(path); })->setShortcut(QKeySequence(Qt::Key_F2));
+        menu.addAction(Icons::tinted(QStringLiteral(":/new-icons/trash-2.svg"), Theme::byName(SettingsManager::instance().theme()).editorFg), tr("Delete"), this, [this, path] { deletePath(path); })->setShortcut(QKeySequence(Qt::Key_Delete));
         menu.addSeparator();
         menu.addAction(tr("Reveal in File Manager"), this, [path] { FileManager::revealInFileManager(path); });
     }

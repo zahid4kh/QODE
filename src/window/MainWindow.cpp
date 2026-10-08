@@ -2863,6 +2863,11 @@ void MainWindow::pickColor(Document *doc, CodeEditor *editor, int index)
 // F2: rename the symbol under the caret everywhere the language server knows it.
 void MainWindow::renameSymbol()
 {
+    // F2 belongs to the file tree when it has focus: it renames the selected file or folder
+    if (QWidget *f = QApplication::focusWidget(); f && m_explorer->isAncestorOf(f)) {
+        m_explorer->renameSelected();
+        return;
+    }
     CodeEditor *ed = m_editors->currentEditor();
     Document *doc = ed ? documentOf(ed) : nullptr;
     if (!doc)

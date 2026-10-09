@@ -29,7 +29,9 @@ public:
 
     // Settings key for a file: its extension (or its whole name for files like "Makefile").
     static QString keyFor(const QString &filePath);
-    // A sensible starting command for the file's type, or an empty string.
+    // Ready-made commands (name, command) for the file's type, offered in the dropdown; empty when there are none.
+    static QList<QPair<QString, QString>> presets(const QString &filePath);
+    // The first preset, or an empty string.
     static QString suggestion(const QString &filePath);
     // Substitutes {file}, {dir}, {name} and {project} (shell-quoted).
     static QString expand(const QString &command, const QString &filePath, const QString &projectRoot);

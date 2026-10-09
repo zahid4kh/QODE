@@ -4,6 +4,7 @@
 #include "Island.h"
 #include "SideSections.h"
 #include "dialogs/CompilerFlagsDialog.h"
+#include "dialogs/IncludePathsDialog.h"
 #include "dialogs/JdtlsInstallDialog.h"
 #include "dialogs/LspInstallDialog.h"
 #include "dialogs/LspLogDialog.h"
@@ -1430,6 +1431,11 @@ void MainWindow::rebuildLspMenu()
     flags->setToolTip(m_projects->hasProject() ? tr("Flags used for C/C++ when the project has no compile_commands.json")
                                                : tr("Open a project first"));
     connect(flags, &QAction::triggered, this, &MainWindow::editCompilerFlags);
+    QAction *includes = m_lspMenu->addAction(tr("Include Paths…"));
+    includes->setEnabled(m_projects->hasProject());
+    includes->setToolTip(m_projects->hasProject() ? tr("Extra folders searched for #include in this project's C/C++ files")
+                                                  : tr("Open a project first"));
+    connect(includes, &QAction::triggered, this, &MainWindow::editIncludePaths);
 
     addMenuSection(m_lspMenu, tr("Diagnostics"), theme);
     addMenuLabel(m_lspMenu, tr("<span style='color:%1'>%2 errors, %3 warnings in open files</span>")
@@ -1677,6 +1683,21 @@ void MainWindow::editCompilerFlags()
     CompilerFlagsDialog dlg(m_lsp->projectFlagsText(), source, detected, this);
     if (dlg.exec() == QDialog::Accepted)
         m_lsp->setProjectFlagsText(dlg.text());
+}
+
+void MainWindow::editIncludePaths()
+{
+    const QString root = m_projects->project().root;
+    QString note;
+    if (QFileInfo::exists(root + QStringLiteral("/compile_flags.txt")) && LspManager::compileDatabasePath(root).isEmpty())
+        note = tr("This project has a <b>compile_flags.txt</b>, which the language server uses instead of these paths. "
+                  "Add the <b>-I</b> lines there.");
+    else if (!LspManager::compileDatabasePath(root).isEmpty())
+        note = tr("This project has a <b>compile_commands.json</b>; the paths are added to every entry of a copy kept in "
+                  "QODE's cache. Your project files are not changed, and your build does not use these paths.");
+    IncludePathsDialog dlg(root, SettingsManager::instance().includePaths(), note, this);
+    if (dlg.exec() == QDialog::Accepted)
+        m_lsp->setIncludePaths(dlg.paths());
 }
 
 void MainWindow::showLspInstallHelp(const QString &serverId)

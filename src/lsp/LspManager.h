@@ -12,6 +12,7 @@
 #include <QVector>
 
 class Document;
+class QFileSystemWatcher;
 class LspClient;
 struct LspServerSpec;
 class QTimer;
@@ -71,6 +72,12 @@ public:
     QStringList detectedFlags(QString *source = nullptr) const;
     QString projectFlagsText() const;
     void setProjectFlagsText(const QString &text); // restarts the servers that use them
+    // Extra include folders (SettingsManager::includePaths) as absolute paths; restarts clangd when set.
+    QStringList includePaths() const;
+    void setIncludePaths(const QStringList &paths);
+    static QString resolveIncludePath(const QString &entry, const QString &projectRoot);
+    // The compile_commands.json clangd would read for `root` (root or build/), empty when there is none.
+    static QString compileDatabasePath(const QString &root);
     // One flag per line, '#' comments skipped, {project} replaced.
     static QStringList parseFlags(const QString &text, const QString &projectRoot);
 
@@ -174,7 +181,15 @@ private:
     void publishMerged(const QString &path);
     void pullDiagnostics(Document *doc); // servers with diagnosticProvider (Kotlin) are asked instead of pushing
 
+    // clangd + include paths: a copy of the project's compile_commands.json with the extra -I flags added, kept in
+    // the cache (never in the project) and rebuilt when the original changes. Returns its folder, "" for none.
+    QString preparePatchedDatabase(const QString &root);
+    void rewritePatchedDatabase();
+
     QString m_root;
+    QString m_patchSource, m_patchTarget;
+    QFileSystemWatcher *m_dbWatcher = nullptr;
+    QTimer *m_dbTimer = nullptr;
     QJsonArray m_jsonSchemas;
     QHash<QString, Server> m_servers;
     QHash<Document *, Tracked> m_tracked;

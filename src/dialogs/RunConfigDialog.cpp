@@ -28,26 +28,44 @@ QString RunConfigDialog::keyFor(const QString &filePath)
     return suffix.isEmpty() ? fi.fileName() : suffix;
 }
 
+QList<QPair<QString, QString>> RunConfigDialog::presets(const QString &filePath)
+{
+    using P = QPair<QString, QString>;
+    const QString key = keyFor(filePath);
+    auto one = [](const char *name, const char *cmd) { return QList<P>{P(QString::fromLatin1(name), QString::fromLatin1(cmd))}; };
+    // C and C++ binaries are written next to the source file.
+    if (key == QLatin1String("c"))
+        return {P(QStringLiteral("Compile with gcc and run"), QStringLiteral("gcc {file} -o {dir}/{name} && {dir}/{name}")),
+                P(QStringLiteral("gcc with warnings (-Wall -Wextra)"), QStringLiteral("gcc -Wall -Wextra {file} -o {dir}/{name} && {dir}/{name}")),
+                P(QStringLiteral("gcc, link math library (-lm)"), QStringLiteral("gcc {file} -o {dir}/{name} -lm && {dir}/{name}")),
+                P(QStringLiteral("Compile with clang and run"), QStringLiteral("clang {file} -o {dir}/{name} && {dir}/{name}"))};
+    if (key == QLatin1String("cpp") || key == QLatin1String("cc") || key == QLatin1String("cxx"))
+        return {P(QStringLiteral("Compile with g++ (C++17) and run"), QStringLiteral("g++ -std=c++17 {file} -o {dir}/{name} && {dir}/{name}")),
+                P(QStringLiteral("g++ C++20"), QStringLiteral("g++ -std=c++20 {file} -o {dir}/{name} && {dir}/{name}")),
+                P(QStringLiteral("g++ C++23"), QStringLiteral("g++ -std=c++23 {file} -o {dir}/{name} && {dir}/{name}")),
+                P(QStringLiteral("g++ with warnings (-Wall -Wextra)"), QStringLiteral("g++ -std=c++17 -Wall -Wextra {file} -o {dir}/{name} && {dir}/{name}")),
+                P(QStringLiteral("Compile with clang++ and run"), QStringLiteral("clang++ -std=c++17 {file} -o {dir}/{name} && {dir}/{name}"))};
+    static const QHash<QString, QList<P>> map = {
+        {QStringLiteral("py"), one("Run with python3", "python3 {file}")},
+        {QStringLiteral("js"), one("Run with node", "node {file}")},
+        {QStringLiteral("mjs"), one("Run with node", "node {file}")},
+        {QStringLiteral("ts"), one("Run with tsx", "npx tsx {file}")},
+        {QStringLiteral("sh"), one("Run with bash", "bash {file}")},
+        {QStringLiteral("rb"), one("Run with ruby", "ruby {file}")},
+        {QStringLiteral("php"), one("Run with php", "php {file}")},
+        {QStringLiteral("pl"), one("Run with perl", "perl {file}")},
+        {QStringLiteral("lua"), one("Run with lua", "lua {file}")},
+        {QStringLiteral("go"), one("go run", "go run {file}")},
+        {QStringLiteral("rs"), one("cargo run", "cargo run")},
+        {QStringLiteral("java"), one("Run with java", "java {file}")},
+    };
+    return map.value(key);
+}
+
 QString RunConfigDialog::suggestion(const QString &filePath)
 {
-    static const QHash<QString, QString> map = {
-        {QStringLiteral("py"), QStringLiteral("python3 {file}")},
-        {QStringLiteral("js"), QStringLiteral("node {file}")},
-        {QStringLiteral("mjs"), QStringLiteral("node {file}")},
-        {QStringLiteral("ts"), QStringLiteral("npx tsx {file}")},
-        {QStringLiteral("sh"), QStringLiteral("bash {file}")},
-        {QStringLiteral("rb"), QStringLiteral("ruby {file}")},
-        {QStringLiteral("php"), QStringLiteral("php {file}")},
-        {QStringLiteral("pl"), QStringLiteral("perl {file}")},
-        {QStringLiteral("lua"), QStringLiteral("lua {file}")},
-        {QStringLiteral("go"), QStringLiteral("go run {file}")},
-        {QStringLiteral("rs"), QStringLiteral("cargo run")},
-        {QStringLiteral("java"), QStringLiteral("java {file}")},
-        {QStringLiteral("c"), QStringLiteral("gcc {file} -o /tmp/{name} && /tmp/{name}")},
-        {QStringLiteral("cpp"), QStringLiteral("g++ -std=c++17 {file} -o /tmp/{name} && /tmp/{name}")},
-        {QStringLiteral("cc"), QStringLiteral("g++ -std=c++17 {file} -o /tmp/{name} && /tmp/{name}")},
-    };
-    return map.value(keyFor(filePath));
+    const auto list = presets(filePath);
+    return list.isEmpty() ? QString() : list.first().second;
 }
 
 QString RunConfigDialog::expand(const QString &command, const QString &filePath, const QString &projectRoot)
@@ -70,10 +88,11 @@ RunConfigDialog::RunConfigDialog(const QString &filePath, const QString &command
 
     const QString key = keyFor(filePath);
     m_command = new QLineEdit(command, this);
-    m_command->setPlaceholderText(suggestion(filePath).isEmpty() ? tr("command to run this file") : suggestion(filePath));
+    m_command->setPlaceholderText(tr("command to run this file"));
     m_command->setClearButtonEnabled(true);
     m_preview = new QLabel(this);
     m_preview->setObjectName(QStringLiteral("emptyText"));
+    m_preview->setTextFormat(Qt::PlainText); // the command holds & and quotes
     m_preview->setWordWrap(true);
     m_preview->setTextInteractionFlags(Qt::TextSelectableByMouse);
 
@@ -91,8 +110,7 @@ RunConfigDialog::RunConfigDialog(const QString &filePath, const QString &command
 
     m_picker = new QComboBox(this);
     auto *form = m_form = new QFormLayout;
-    form->addRow(tr("Detected:"), m_picker);
-    form->setRowVisible(m_picker, false);
+    form->addRow(tr("Preset:"), m_picker);
     form->addRow(tr("Command:"), m_command);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, this);
@@ -123,6 +141,9 @@ RunConfigDialog::RunConfigDialog(const QString &filePath, const QString &command
     });
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    setSuggestions({});
+    if (m_command->text().trimmed().isEmpty() && !m_configs.isEmpty())
+        m_command->setText(m_configs.first().second); // start from the first preset instead of an empty box
     updateIntro();
     updatePreview();
 }
@@ -151,8 +172,8 @@ QString RunConfigDialog::command() const
 
 void RunConfigDialog::updatePreview()
 {
-    const QString cmd = command().isEmpty() ? suggestion(m_file) : command();
-    m_preview->setText(cmd.isEmpty() ? QString() : tr("Will run: %1").arg(expand(cmd, m_file, m_root).toHtmlEscaped()));
+    const QString cmd = command();
+    m_preview->setText(cmd.isEmpty() ? QString() : tr("Will run: %1").arg(expand(cmd, m_file, m_root)));
 }
 
 void RunConfigDialog::setNote(const QString &html)
@@ -169,15 +190,23 @@ void RunConfigDialog::setProjectRoot(const QString &root)
 
 void RunConfigDialog::setSuggestions(const QList<QPair<QString, QString>> &configs)
 {
+    // The project's detected configurations come first, then the presets for this file type.
     m_configs = configs;
+    for (const auto &p : presets(m_file)) {
+        bool known = false;
+        for (const auto &c : m_configs)
+            known = known || c.second == p.second;
+        if (!known)
+            m_configs << p;
+    }
     m_picker->clear();
     m_picker->addItem(tr("Custom command"));
-    for (const auto &c : configs)
+    for (const auto &c : m_configs)
         m_picker->addItem(c.first);
-    m_form->setRowVisible(m_picker, !configs.isEmpty());
+    m_form->setRowVisible(m_picker, !m_configs.isEmpty());
     int idx = 0;
-    for (int i = 0; i < configs.size(); ++i)
-        if (configs[i].second == command())
+    for (int i = 0; i < m_configs.size(); ++i)
+        if (m_configs[i].second == command())
             idx = i + 1;
     m_picker->setCurrentIndex(idx);
 }

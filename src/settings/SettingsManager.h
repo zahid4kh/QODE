@@ -138,6 +138,11 @@ public:
     QString lspFlagsText() const;
     void setLspFlagsText(const QString &text);
 
+    // Extra C/C++ include folders for the language server (as typed: absolute, root-relative or with {project}).
+    // Per project; stored in the project's JSON file.
+    QStringList includePaths() const;
+    void setIncludePaths(const QStringList &paths);
+
     // The Python venv (root-relative folder name) this project works with; empty = detect automatically.
     QString pythonVenv() const;
     void setPythonVenv(const QString &name);

@@ -12,6 +12,10 @@
 #include <QDir>
 #include <QEventLoop>
 #include <QFileInfo>
+#include <QFileSystemWatcher>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSaveFile>
 #include <QJsonArray>
 #include <QProcess>
 #include <QStandardPaths>
@@ -233,6 +237,8 @@ void LspManager::startServer(Server &s, const QString &rootPath)
             const QmakeProject qmake = QmakeProject::detect(rootPath);
             flags = qmake.compilerFlags();
         }
+        for (const QString &dir : includePaths())
+            flags << QStringLiteral("-I") + resolveIncludePath(dir, rootPath);
         flags += parseFlags(projectFlagsText(), rootPath); // the user's lines come last and win
         if (!flags.isEmpty())
             options.insert(QStringLiteral("fallbackFlags"), QJsonArray::fromStringList(flags));
@@ -258,6 +264,12 @@ void LspManager::startServer(Server &s, const QString &rootPath)
                               s.spec->id + QLatin1Char('/') + key;
         QDir().mkpath(cache);
         args.replaceInStrings(QStringLiteral("{cache}"), cache);
+    }
+    if (s.spec->fallbackFlags) {
+        // fallbackFlags are ignored for files a compile database describes: give clangd a patched copy instead.
+        const QString dir = preparePatchedDatabase(rootPath);
+        if (!dir.isEmpty())
+            args << QStringLiteral("--compile-commands-dir=") + dir;
     }
     QString program = exe;
     if (s.spec->id == QLatin1String("java")) {
@@ -457,6 +469,128 @@ void LspManager::setProjectFlagsText(const QString &text)
     for (const LspServerSpec &spec : LspServers::all())
         if (spec.fallbackFlags && m_servers.contains(spec.id))
             restart(spec.id);
+}
+
+QStringList LspManager::includePaths() const
+{
+    QStringList out;
+    for (const QString &e : SettingsManager::instance().includePaths())
+        out << resolveIncludePath(e, m_root);
+    return out;
+}
+
+void LspManager::setIncludePaths(const QStringList &paths)
+{
+    SettingsManager::instance().setIncludePaths(paths);
+    for (const LspServerSpec &spec : LspServers::all())
+        if (spec.fallbackFlags && m_servers.contains(spec.id))
+            restart(spec.id);
+}
+
+QString LspManager::resolveIncludePath(const QString &entry, const QString &projectRoot)
+{
+    QString p = entry.trimmed();
+    p.replace(QStringLiteral("{project}"), projectRoot);
+    if (p.startsWith(QStringLiteral("~/")))
+        p = QDir::homePath() + p.mid(1);
+    if (QDir::isRelativePath(p) && !projectRoot.isEmpty())
+        p = projectRoot + QLatin1Char('/') + p;
+    return QDir::cleanPath(p);
+}
+
+QString LspManager::compileDatabasePath(const QString &root)
+{
+    if (root.isEmpty())
+        return {};
+    for (const QString &rel : {QStringLiteral("compile_commands.json"), QStringLiteral("build/compile_commands.json")}) {
+        const QString path = root + QLatin1Char('/') + rel;
+        if (QFileInfo::exists(path))
+            return path;
+    }
+    return {};
+}
+
+// A shell-quoted word for the "command" string of a compile_commands.json entry.
+static QString shellQuote(const QString &word)
+{
+    QString q = word;
+    q.replace(QLatin1Char('\''), QStringLiteral("'\\''"));
+    return QLatin1Char('\'') + q + QLatin1Char('\'');
+}
+
+QString LspManager::preparePatchedDatabase(const QString &root)
+{
+    m_patchSource.clear();
+    m_patchTarget.clear();
+    if (m_dbWatcher && !m_dbWatcher->files().isEmpty())
+        m_dbWatcher->removePaths(m_dbWatcher->files());
+    const QString source = compileDatabasePath(root);
+    if (source.isEmpty() || includePaths().isEmpty())
+        return {};
+    const QString key = QString::fromLatin1(QCryptographicHash::hash(root.toUtf8(), QCryptographicHash::Md5).toHex().left(12));
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) +
+                        QStringLiteral("/QODE/lsp/clangd-db/") + key;
+    QDir().mkpath(dir);
+    m_patchSource = source;
+    m_patchTarget = dir + QStringLiteral("/compile_commands.json");
+    if (!m_dbWatcher) {
+        m_dbWatcher = new QFileSystemWatcher(this);
+        m_dbTimer = new QTimer(this);
+        m_dbTimer->setSingleShot(true);
+        m_dbTimer->setInterval(500);
+        connect(m_dbTimer, &QTimer::timeout, this, &LspManager::rewritePatchedDatabase);
+        connect(m_dbWatcher, &QFileSystemWatcher::fileChanged, this, [this] { m_dbTimer->start(); });
+    }
+    rewritePatchedDatabase();
+    if (!QFileInfo::exists(m_patchTarget))
+        return {};
+    return dir;
+}
+
+void LspManager::rewritePatchedDatabase()
+{
+    if (m_patchSource.isEmpty())
+        return;
+    // CMake replaces the file rather than editing it, which drops the watch.
+    if (m_dbWatcher && QFileInfo::exists(m_patchSource) && !m_dbWatcher->files().contains(m_patchSource))
+        m_dbWatcher->addPath(m_patchSource);
+    QFile in(m_patchSource);
+    if (!in.open(QIODevice::ReadOnly))
+        return;
+    const QJsonDocument doc = QJsonDocument::fromJson(in.readAll());
+    in.close();
+    if (!doc.isArray())
+        return;
+    QStringList extra;
+    for (const QString &d : includePaths())
+        extra << QStringLiteral("-I") + d;
+    QString quoted;
+    for (const QString &f : extra)
+        quoted += QLatin1Char(' ') + shellQuote(f);
+
+    QJsonArray out;
+    for (const QJsonValue &v : doc.array()) {
+        QJsonObject e = v.toObject();
+        if (e.contains(QStringLiteral("arguments"))) {
+            QStringList args;
+            for (const QJsonValue &a : e.value(QStringLiteral("arguments")).toArray())
+                args << a.toString();
+            int at = args.indexOf(QStringLiteral("--")); // anything after "--" is an input file
+            if (at < 0)
+                at = args.size();
+            for (int i = 0; i < extra.size(); ++i)
+                args.insert(at + i, extra[i]);
+            e.insert(QStringLiteral("arguments"), QJsonArray::fromStringList(args));
+        } else if (e.contains(QStringLiteral("command"))) {
+            e.insert(QStringLiteral("command"), e.value(QStringLiteral("command")).toString() + quoted);
+        }
+        out.append(e);
+    }
+    QSaveFile f(m_patchTarget);
+    if (f.open(QIODevice::WriteOnly)) {
+        f.write(QJsonDocument(out).toJson(QJsonDocument::Compact));
+        f.commit();
+    }
 }
 
 QStringList LspManager::parseFlags(const QString &text, const QString &projectRoot)

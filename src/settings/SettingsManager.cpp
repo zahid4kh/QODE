@@ -457,6 +457,24 @@ void SettingsManager::setLspFlagsText(const QString &text)
     saveProject();
 }
 
+QStringList SettingsManager::includePaths() const
+{
+    QStringList out;
+    for (const QJsonValue &v : m_data.value(QStringLiteral("includePaths")).toArray())
+        if (!v.toString().isEmpty())
+            out << v.toString();
+    return out;
+}
+
+void SettingsManager::setIncludePaths(const QStringList &paths)
+{
+    if (paths.isEmpty())
+        m_data.remove(QStringLiteral("includePaths"));
+    else
+        m_data.insert(QStringLiteral("includePaths"), QJsonArray::fromStringList(paths));
+    saveProject();
+}
+
 QString SettingsManager::pythonVenv() const
 {
     return m_data.value(QStringLiteral("pythonVenv")).toString();

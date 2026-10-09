@@ -19,3 +19,4 @@ resources/templates/**/.gradle/
 bump-version.sh
 .env.local
 g-docs/
+debs

@@ -31,7 +31,8 @@ public:
     enum AutoSaveMode { AutoSaveOff = 0, AutoSaveAfterDelay = 1, AutoSaveOnFocusChange = 2 };
     int autoSaveMode() const;
     void setAutoSaveMode(int mode);
-    int autoSaveDelayMs() const; // AutoSaveAfterDelay
+    int autoSaveDelayMs() const; // AutoSaveAfterDelay, 100..2000 ms
+    void setAutoSaveDelayMs(int ms);
     bool trimTrailingWhitespace() const;
     void setTrimTrailingWhitespace(bool on);
     bool insertFinalNewline() const;

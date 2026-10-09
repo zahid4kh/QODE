@@ -74,7 +74,7 @@ void SettingsManager::setWordWrap(bool on)
 
 int SettingsManager::autoSaveMode() const
 {
-    return qBound(0, m_settings.value(QStringLiteral("save/autoSave"), 0).toInt(), 2);
+    return qBound(0, m_settings.value(QStringLiteral("save/autoSave"), AutoSaveAfterDelay).toInt(), 2);
 }
 
 void SettingsManager::setAutoSaveMode(int mode)
@@ -85,7 +85,13 @@ void SettingsManager::setAutoSaveMode(int mode)
 
 int SettingsManager::autoSaveDelayMs() const
 {
-    return qBound(200, m_settings.value(QStringLiteral("save/autoSaveDelayMs"), 1000).toInt(), 60000);
+    return qBound(100, m_settings.value(QStringLiteral("save/autoSaveDelayMs"), 200).toInt(), 2000);
+}
+
+void SettingsManager::setAutoSaveDelayMs(int ms)
+{
+    m_settings.setValue(QStringLiteral("save/autoSaveDelayMs"), qBound(100, ms, 2000));
+    emit saveSettingsChanged();
 }
 
 bool SettingsManager::trimTrailingWhitespace() const

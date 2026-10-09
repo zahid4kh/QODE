@@ -205,7 +205,7 @@ private:
     bool m_metroStarted = false; // an `expo start` was launched from the toolbar this session (DevTools needs it)
     QAction *m_serverBarAct = nullptr;
     QToolBar *m_mainToolBar = nullptr;
-    QAction *m_autoSaveOffAct, *m_autoSaveDelayAct, *m_autoSaveFocusAct, *m_trimAct, *m_finalNewlineAct, *m_formatOnSaveAct, *m_formatAct;
+    QAction *m_autoSaveOffAct, *m_autoSaveDelayAct, *m_autoSaveFocusAct, *m_autoSaveDelayMsAct, *m_trimAct, *m_finalNewlineAct, *m_formatOnSaveAct, *m_formatAct;
     QAction *m_foldAct, *m_unfoldAct, *m_foldAllAct, *m_unfoldAllAct;
 
     QAction *m_scmAct, *m_gitRefreshAct, *m_gitFetchAct, *m_gitPullAct, *m_gitPushAct, *m_gitInitAct, *m_gitNewBranchAct;

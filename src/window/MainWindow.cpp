@@ -533,6 +533,7 @@ void MainWindow::createActions()
     m_autoSaveOffAct = make(tr("Off"));
     m_autoSaveDelayAct = make(tr("After Delay"));
     m_autoSaveFocusAct = make(tr("On Focus Change"));
+    m_autoSaveDelayMsAct = make(tr("Auto Save Delay…"));
     auto *autoGroup = new QActionGroup(this);
     for (QAction *a : {m_autoSaveOffAct, m_autoSaveDelayAct, m_autoSaveFocusAct}) {
         a->setCheckable(true);
@@ -554,6 +555,14 @@ void MainWindow::createActions()
     connect(m_autoSaveOffAct, &QAction::triggered, this, [] { SettingsManager::instance().setAutoSaveMode(SettingsManager::AutoSaveOff); });
     connect(m_autoSaveDelayAct, &QAction::triggered, this, [] { SettingsManager::instance().setAutoSaveMode(SettingsManager::AutoSaveAfterDelay); });
     connect(m_autoSaveFocusAct, &QAction::triggered, this, [] { SettingsManager::instance().setAutoSaveMode(SettingsManager::AutoSaveOnFocusChange); });
+    connect(m_autoSaveDelayMsAct, &QAction::triggered, this, [this] {
+        auto &s = SettingsManager::instance();
+        bool ok = false;
+        const int ms = QInputDialog::getInt(this, tr("Auto Save Delay"), tr("Save after typing stops for (milliseconds, 100–2000):"),
+                                            s.autoSaveDelayMs(), 100, 2000, 50, &ok);
+        if (ok)
+            s.setAutoSaveDelayMs(ms);
+    });
     connect(m_trimAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setTrimTrailingWhitespace(on); });
     connect(m_finalNewlineAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setInsertFinalNewline(on); });
     connect(m_formatOnSaveAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setFormatOnSave(on); });
@@ -720,6 +729,8 @@ void MainWindow::createMenus()
     autoSave->addAction(m_autoSaveOffAct);
     autoSave->addAction(m_autoSaveDelayAct);
     autoSave->addAction(m_autoSaveFocusAct);
+    autoSave->addSeparator();
+    autoSave->addAction(m_autoSaveDelayMsAct);
     saveOptions->addAction(m_trimAct);
     saveOptions->addAction(m_finalNewlineAct);
     saveOptions->addAction(m_formatOnSaveAct);

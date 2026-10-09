@@ -1177,6 +1177,12 @@ void MainWindow::createStatusBar()
     m_posLabel = mk(110);
     m_modeLabel = mk(36);
     statusBar()->setSizeGripEnabled(false);
+    // A temporary message is painted over the left side of the bar, so nothing there may stay visible under it.
+    connect(statusBar(), &QStatusBar::messageChanged, this, [this](const QString &msg) {
+        const bool idle = msg.isEmpty();
+        m_fileLabel->setVisible(idle);
+        m_gitStatusWidget->setVisible(idle && m_git->isRepo());
+    });
 }
 
 void MainWindow::restoreSettings()
@@ -2852,7 +2858,7 @@ void MainWindow::onGitStatusChanged()
         m_changesPill->setText(QString::number(changes));
         m_changesPill->setToolTip(tr("%n changed file(s)", nullptr, changes));
         m_changesPill->setVisible(changes > 0);
-        m_gitStatusWidget->show();
+        m_gitStatusWidget->setVisible(statusBar()->currentMessage().isEmpty()); // a message owns the left side
     } else {
         m_gitStatusWidget->hide();
     }

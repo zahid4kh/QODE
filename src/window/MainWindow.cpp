@@ -2706,7 +2706,7 @@ void MainWindow::createGitActions()
         if (!key.isEmpty())
             a->setShortcut(key);
         if (!icon.isEmpty())
-            a->setIcon(QIcon(icon));
+            Icons::bind(a, icon);
         return a;
     };
     m_scmAct = make(tr("Version Control"), QKeySequence(C | S | K::Key_G), QStringLiteral(":/new-icons/git-branch.svg"));

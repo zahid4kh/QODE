@@ -2081,6 +2081,10 @@ void CodeEditor::handleKey(QKeyEvent *event)
     if (autoPair(event))
         return;
 
+    if (event->key() == Qt::Key_D && mods == Qt::ControlModifier) {
+        duplicateLine();
+        return;
+    }
     switch (event->key()) {
     case Qt::Key_Return:
     case Qt::Key_Enter:
@@ -3343,6 +3347,33 @@ void CodeEditor::paintSwatches()
     }
 }
 
+void CodeEditor::duplicateLine()
+{
+    if (isReadOnly())
+        return;
+    QTextCursor c = textCursor();
+    c.beginEditBlock();
+    if (c.hasSelection()) {
+        const int end = c.selectionEnd();
+        QString text = c.selectedText();
+        text.replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
+        c.setPosition(end);
+        c.insertText(text);
+        c.setPosition(end, QTextCursor::MoveAnchor);
+        c.setPosition(end + text.size(), QTextCursor::KeepAnchor);
+    } else {
+        const int col = c.positionInBlock();
+        QTextCursor line(c.block());
+        line.movePosition(QTextCursor::EndOfBlock);
+        const QString text = c.block().text();
+        line.insertText(QStringLiteral("\n") + text);
+        c.setPosition(line.position() - text.size() + qMin(col, int(text.size())));
+    }
+    c.endEditBlock();
+    setTextCursor(c);
+    ensureCursorVisible();
+}
+
 // The stock QPlainTextEdit menu has Qt's own icons; this one uses QODE's icon set.
 void CodeEditor::contextMenuEvent(QContextMenuEvent *event)
 {
@@ -3364,6 +3395,8 @@ void CodeEditor::contextMenuEvent(QContextMenuEvent *event)
     add("copy", tr("Copy"), QKeySequence::Copy, sel, [this] { copy(); });
     add("clipboard-paste", tr("Paste"), QKeySequence::Paste, !ro && canPaste(), [this] { paste(); });
     add("circle-x", tr("Delete"), QKeySequence::Delete, !ro && sel, [this] { textCursor().removeSelectedText(); });
+    menu.addSeparator();
+    add("copy", tr("Duplicate Line"), QKeySequence(Qt::CTRL | Qt::Key_D), !ro, [this] { duplicateLine(); });
     menu.addSeparator();
     add("select-all", tr("Select All"), QKeySequence::SelectAll, !document()->isEmpty(), [this] { selectAll(); });
     menu.exec(event->globalPos());

@@ -81,6 +81,7 @@ public:
     // them all (removeUnusedImportsRequested). The marks follow edits until the next list arrives.
     void setUnusedImports(const QVector<int> &lines);
     QVector<int> unusedImportLines() const;
+    void duplicateLine(); // selection: the selected text; otherwise the caret line, below it (one undo step)
     void removeLines(const QVector<int> &lines); // whole lines, one undo step
 
     // --- Completion -------------------------------------------------------------------------------

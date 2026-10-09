@@ -50,4 +50,5 @@ private:
     QLabel *m_intro;
     QCheckBox *m_wide;
     QString m_root;
+    QString m_chipStyle, m_quoteColor, m_mutedColor;
 };

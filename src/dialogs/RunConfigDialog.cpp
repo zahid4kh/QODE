@@ -4,6 +4,7 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFileInfo>
+#include <QFont>
 #include <QFormLayout>
 #include <QHash>
 #include <QLabel>
@@ -11,6 +12,9 @@
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QVBoxLayout>
+
+#include "settings/SettingsManager.h"
+#include "settings/Theme.h"
 
 namespace {
 QString shellQuote(const QString &s)
@@ -92,7 +96,7 @@ RunConfigDialog::RunConfigDialog(const QString &filePath, const QString &command
     m_command->setClearButtonEnabled(true);
     m_preview = new QLabel(this);
     m_preview->setObjectName(QStringLiteral("emptyText"));
-    m_preview->setTextFormat(Qt::PlainText); // the command holds & and quotes
+    m_preview->setTextFormat(Qt::RichText); // built in updatePreview from escaped text
     m_preview->setWordWrap(true);
     m_preview->setTextInteractionFlags(Qt::TextSelectableByMouse);
 
@@ -103,10 +107,25 @@ RunConfigDialog::RunConfigDialog(const QString &filePath, const QString &command
     m_note = new QLabel(this);
     m_note->setWordWrap(true);
     m_note->hide();
-    auto *vars = new QLabel(tr("Variables: <b>{file}</b> full path · <b>{dir}</b> its folder · <b>{name}</b> file name without "
-                               "extension · <b>{project}</b> project root. Paths are quoted for you."), this);
+    const Theme t = Theme::byName(SettingsManager::instance().theme());
+    m_chipStyle = QStringLiteral("font-family:'JetBrains Mono'; color:%1; background-color:%2;").arg(t.accent.name(), t.editorBg.name());
+    m_quoteColor = t.accent.name();
+    m_mutedColor = t.textMuted.name();
+    auto chip = [this](const QString &name) { return QStringLiteral("<span style=\"%1\">&nbsp;%2&nbsp;</span>").arg(m_chipStyle, name); };
+    auto *vars = new QLabel(tr("Variables: %1 full path · %2 its folder · %3 file name without extension · %4 project root.<br>"
+                               "Paths are quoted for you.")
+                                .arg(chip(QStringLiteral("{file}")), chip(QStringLiteral("{dir}")), chip(QStringLiteral("{name}")), chip(QStringLiteral("{project}"))),
+                            this);
+    vars->setTextFormat(Qt::RichText);
     vars->setObjectName(QStringLiteral("emptyText"));
     vars->setWordWrap(true);
+    m_command->setFont(QFont(QStringLiteral("JetBrains Mono"), font().pointSize()));
+    m_preview->setStyleSheet(QStringLiteral("QLabel { background: %1; border: 1px solid %2; border-radius: 6px; padding: 8px 10px; color: %3; }")
+                                 .arg(t.editorBg.name(), t.border.name(), t.editorFg.name()));
+    m_wide->setStyleSheet(QStringLiteral("QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid %1; border-radius: 3px; background: %2; }"
+                                         "QCheckBox::indicator:checked { background: %3; border-color: %3; }")
+                              .arg(t.textMuted.name(), t.editorBg.name(), t.accent.name()));
+    setContentsMargins(6, 6, 6, 6);
 
     m_picker = new QComboBox(this);
     auto *form = m_form = new QFormLayout;
@@ -125,6 +144,7 @@ RunConfigDialog::RunConfigDialog(const QString &filePath, const QString &command
     layout->addWidget(vars);
     layout->addWidget(m_preview);
     layout->addWidget(buttons);
+    layout->setSpacing(10);
 
     connect(m_command, &QLineEdit::textChanged, this, &RunConfigDialog::updatePreview);
     connect(m_command, &QLineEdit::textChanged, this, [this](const QString &text) {
@@ -173,7 +193,33 @@ QString RunConfigDialog::command() const
 void RunConfigDialog::updatePreview()
 {
     const QString cmd = command();
-    m_preview->setText(cmd.isEmpty() ? QString() : tr("Will run: %1").arg(expand(cmd, m_file, m_root)));
+    if (cmd.isEmpty()) {
+        m_preview->clear();
+        m_preview->hide();
+        return;
+    }
+    // Quoted paths (inserted by expand) get the accent colour so they stand out from the command itself.
+    const QString plain = expand(cmd, m_file, m_root);
+    QString html;
+    bool quoted = false;
+    for (const QChar ch : plain) {
+        if (ch == QLatin1Char('\'')) {
+            html += quoted ? QStringLiteral("'</span>") : QStringLiteral("<span style=\"color:%1;\">'").arg(m_quoteColor);
+            quoted = !quoted;
+        } else if (ch == QLatin1Char('<')) {
+            html += QStringLiteral("&lt;");
+        } else if (ch == QLatin1Char('>')) {
+            html += QStringLiteral("&gt;");
+        } else if (ch == QLatin1Char('&')) {
+            html += QStringLiteral("&amp;");
+        } else {
+            html += ch;
+        }
+    }
+    if (quoted)
+        html += QStringLiteral("</span>");
+    m_preview->setText(tr("<span style=\"color:%1;\">Will run</span><br><span style=\"font-family:'JetBrains Mono';\">%2</span>").arg(m_mutedColor, html));
+    m_preview->show();
 }
 
 void RunConfigDialog::setNote(const QString &html)

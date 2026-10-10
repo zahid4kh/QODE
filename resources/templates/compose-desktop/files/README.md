@@ -4,7 +4,7 @@ A Compose Multiplatform desktop application (Material 3, Koin, kotlinx-serializa
 
 ```bash
 ./gradlew run                                          # run the app
-./gradlew :hotRun --mainClass {{package}}.MainKt --auto   # run with hot reload: edit, save, see it update
+./gradlew :hotRun --mainClass {{className}} --auto   # run with hot reload: edit, save, see it update
 ./gradlew packageDeb                                   # Linux installer (build/compose/binaries)
 ./gradlew packageMsi                                   # Windows installer (on Windows)
 ./gradlew packageDmg                                   # macOS installer (on macOS)

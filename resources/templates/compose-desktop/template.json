@@ -23,5 +23,5 @@
     ]
   },
   "executable": ["gradlew"],
-  "openFiles": ["src/main/kotlin/{{packagePath}}/App.kt", "src/main/kotlin/{{packagePath}}/Main.kt"]
+  "openFiles": ["src/main/kotlin/{{packagePath}}/App.kt", "src/main/kotlin/Main.kt"]
 }

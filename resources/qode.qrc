@@ -101,7 +101,7 @@
         <file>templates/compose-desktop/files/gradle/libs.versions.toml</file>
         <file>templates/compose-desktop/files/src/main/kotlin/__packagePath__/App.kt</file>
         <file>templates/compose-desktop/files/src/main/kotlin/__packagePath__/AppModule.kt</file>
-        <file>templates/compose-desktop/files/src/main/kotlin/__packagePath__/Main.kt</file>
+        <file>templates/compose-desktop/files/src/main/kotlin/Main.kt</file>
         <file>templates/compose-desktop/files/src/main/kotlin/__packagePath__/MainViewModel.kt</file>
         <file>templates/compose-desktop/files/src/main/kotlin/__packagePath__/theme/Color.kt</file>
         <file>templates/compose-desktop/files/src/main/kotlin/__packagePath__/theme/Theme.kt</file>

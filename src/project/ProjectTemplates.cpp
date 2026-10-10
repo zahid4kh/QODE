@@ -81,6 +81,20 @@ ProjectTemplates::Values withBuiltins(const ProjectTemplates::Values &in)
     if (v.value(QStringLiteral("appName")).trimmed().isEmpty())
         v.insert(QStringLiteral("appName"), name);
     v.insert(QStringLiteral("nameId"), ProjectTemplates::identifier(v.value(QStringLiteral("appName"))));
+    // PascalCase of the app name: the JVM class of Main.kt (@file:JvmName), which also names the window in docks.
+    QString cls;
+    bool up = true;
+    for (const QChar c : v.value(QStringLiteral("appName"))) {
+        if (!c.isLetterOrNumber()) {
+            up = true;
+            continue;
+        }
+        cls.append(up ? c.toUpper() : c);
+        up = false;
+    }
+    if (cls.isEmpty() || cls.at(0).isDigit())
+        cls.prepend(QStringLiteral("App"));
+    v.insert(QStringLiteral("className"), cls);
     QString pkg = v.value(QStringLiteral("package"));
     v.insert(QStringLiteral("packagePath"), pkg.replace(QLatin1Char('.'), QLatin1Char('/')));
     static const QRegularExpression angle(QStringLiteral(R"(\s*<[^>]*>\s*)"));

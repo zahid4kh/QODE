@@ -1,5 +1,8 @@
-package {{package}}
+@file:JvmName("{{className}}")
 
+import {{package}}.App
+import {{package}}.MainViewModel
+import {{package}}.appModule
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window

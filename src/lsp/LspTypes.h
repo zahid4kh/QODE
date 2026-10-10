@@ -22,6 +22,7 @@ struct LspDiagnostic {
 struct LspLocation {
     QString path;
     int line = 0, column = 0;
+    bool fromClass = false; // a compiled class mapped to its source file: the line is unknown, look for the declaration
 };
 
 // A text change in LSP terms: replace [start, end) (0-based line, UTF-16 column) with `text`.

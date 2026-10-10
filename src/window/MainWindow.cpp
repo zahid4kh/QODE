@@ -88,6 +88,8 @@
 #include <QPointer>
 #include <QUrl>
 #include <QRegularExpression>
+#include <QTextCursor>
+#include <QStandardPaths>
 #include <QSaveFile>
 #include <QSet>
 #include <QSplitter>
@@ -1552,13 +1554,54 @@ void MainWindow::goToDefinition(CodeEditor *editor, int line, int column)
         statusBar()->showMessage(tr("Go to Definition needs a running language server for this file"), 4000);
         return;
     }
+    // The name under the caret: when a library only offers compiled classes, the source file is searched for it.
+    QTextCursor at(editor->document()->findBlockByNumber(line));
+    at.setPosition(at.position() + column);
+    at.select(QTextCursor::WordUnderCursor);
+    const QString word = at.selectedText();
     QPointer<CodeEditor> guard(editor);
-    m_lsp->definition(doc, line, column, [this, guard](const QVector<LspLocation> &locations) {
+    m_lsp->definition(doc, line, column, [this, guard, word, line, column](const QVector<LspLocation> &locations) {
         if (locations.isEmpty()) {
-            statusBar()->showMessage(tr("No definition found"), 3000);
+            const QString why = JarSource::lastFailure();
+            if (why.isEmpty()) {
+                statusBar()->showMessage(tr("No definition found"), 3000);
+                return;
+            }
+            statusBar()->showMessage(why, 6000);
+            const JarSource::Coordinates c = JarSource::coordinatesOf(JarSource::lastMissingSourcesJar());
+            if (guard && c.isValid() && !m_projects->project().root.isEmpty() &&
+                QMessageBox::question(this, tr("Library sources"),
+                                      tr("%1 has no sources jar on this computer.\n\nDownload %2 sources with Gradle? Nothing is added to your project.").arg(why, c.text())) ==
+                    QMessageBox::Yes)
+                fetchLibrarySources(c, guard, line, column);
             return;
         }
-        auto open = [this](const LspLocation &loc) { m_editors->openFileAt(loc.path, loc.line + 1, loc.column + 1); };
+        auto open = [this, word](const LspLocation &loc) {
+            int target = loc.line;
+            int col = loc.column;
+            if (loc.fromClass) {
+                // Only the class was known: jump to where the name under the caret is declared, else the top.
+                target = 0;
+                col = 0;
+                QFile f(loc.path);
+                if (!word.isEmpty() && f.open(QIODevice::ReadOnly)) {
+                    const QRegularExpression re(QStringLiteral("\\b(?:class|object|interface|fun|val|var|typealias|enum class|data class|sealed class)\\s+(?:<[^>]*>\\s*)?(?:[\\w.<>?, ]+\\.)?(") +
+                                                QRegularExpression::escape(word) + QStringLiteral(")\\b"));
+                    int n = 0;
+                    while (!f.atEnd()) {
+                        const QString text = QString::fromUtf8(f.readLine());
+                        const QRegularExpressionMatch m = re.match(text);
+                        if (m.hasMatch()) {
+                            target = n;
+                            col = int(m.capturedStart(1));
+                            break;
+                        }
+                        ++n;
+                    }
+                }
+            }
+            m_editors->openFileAt(loc.path, target + 1, col + 1);
+        };
         if (locations.size() == 1 || !guard) {
             open(locations.first());
             return;
@@ -1572,6 +1615,60 @@ void MainWindow::goToDefinition(CodeEditor *editor, int line, int column)
         }
         menu.exec(QCursor::pos());
     });
+}
+
+// Downloads <coords>:sources with the project's own Gradle (its repositories), through an init script kept in QODE's
+// cache so the project stays untouched, then repeats the Go to Definition that needed it.
+void MainWindow::fetchLibrarySources(const JarSource::Coordinates &coords, CodeEditor *editor, int line, int column)
+{
+    const QString root = m_projects->project().root;
+    const QString wrapper = root + QStringLiteral("/gradlew");
+    const QString program = QFileInfo(wrapper).isExecutable() ? wrapper : QStandardPaths::findExecutable(QStringLiteral("gradle"));
+    if (program.isEmpty()) {
+        statusBar()->showMessage(tr("Gradle was not found (no gradlew in the project and no gradle on PATH)"), 6000);
+        return;
+    }
+    const QString dir = QDir::homePath() + QStringLiteral("/.cache/QODE/run");
+    QDir().mkpath(dir);
+    const QString script = dir + QStringLiteral("/library-sources.init.gradle");
+    QFile f(script);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        f.write("// Written by QODE: downloads the sources jar of one library into Gradle's cache.\n"
+                "rootProject { p ->\n"
+                "    p.tasks.register('qodeLibrarySources') {\n"
+                "        doLast {\n"
+                "            def dep = p.dependencies.create(p.property('qode.sources') + ':sources@jar')\n"
+                "            dep.transitive = false\n"
+                "            p.configurations.detachedConfiguration(dep).resolve()\n"
+                "        }\n"
+                "    }\n"
+                "}\n");
+        f.close();
+    }
+    statusBar()->showMessage(tr("Downloading sources of %1…").arg(coords.text()));
+    auto *proc = new QProcess(this);
+    proc->setWorkingDirectory(root);
+    proc->setProcessChannelMode(QProcess::MergedChannels);
+    QPointer<CodeEditor> guard(editor);
+    connect(proc, &QProcess::finished, this, [this, proc, coords, guard, line, column](int code, QProcess::ExitStatus) {
+        const QString out = QString::fromUtf8(proc->readAll());
+        proc->deleteLater();
+        if (code != 0) {
+            const QStringList lines = out.trimmed().split(QLatin1Char('\n'));
+            statusBar()->showMessage(tr("Could not download the sources of %1 — %2").arg(coords.text(), lines.isEmpty() ? QString() : lines.last().trimmed()), 10000);
+            return;
+        }
+        statusBar()->showMessage(tr("Sources of %1 downloaded").arg(coords.text()), 4000);
+        if (guard)
+            goToDefinition(guard, line, column);
+    });
+    connect(proc, &QProcess::errorOccurred, this, [this, proc](QProcess::ProcessError e) {
+        if (e == QProcess::FailedToStart) {
+            statusBar()->showMessage(tr("Could not start Gradle"), 6000);
+            proc->deleteLater();
+        }
+    });
+    proc->start(program, {QStringLiteral("-q"), QStringLiteral("-I"), script, QStringLiteral("-Pqode.sources=") + coords.text(), QStringLiteral("qodeLibrarySources")});
 }
 
 // Hover link on a gray import: let the user choose which unused imports go.

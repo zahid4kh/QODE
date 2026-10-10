@@ -975,6 +975,7 @@ void addLocation(QVector<LspLocation> &out, const QJsonObject &o)
     loc.path = JarSource::isJarUri(uri) ? JarSource::extract(uri) : QUrl(uri).toLocalFile();
     loc.line = start.value(QStringLiteral("line")).toInt();
     loc.column = start.value(QStringLiteral("character")).toInt();
+    loc.fromClass = JarSource::isJarUri(uri) && JarSource::lastWasClass();
     if (!loc.path.isEmpty())
         out << loc;
 }

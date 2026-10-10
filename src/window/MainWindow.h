@@ -7,6 +7,8 @@
 #include <QHash>
 #include <QJsonObject>
 #include <QMainWindow>
+
+#include "lsp/JarSource.h"
 #include <QPointer>
 
 class CodeEditor;
@@ -129,6 +131,7 @@ private:
     void editIncludePaths();
     void syncBuildFiles();
     void goToDefinition(CodeEditor *editor, int line, int column);
+    void fetchLibrarySources(const JarSource::Coordinates &coords, CodeEditor *editor, int line, int column);
     void showCodeActions(Document *doc, CodeEditor *editor, int startLine, int startColumn, int endLine, int endColumn);
     bool applyWorkspaceEdit(const QJsonObject &edit);
     void removeUnusedImports(CodeEditor *editor);

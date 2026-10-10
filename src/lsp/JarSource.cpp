@@ -5,6 +5,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QPair>
+#include <QVector>
 #include <QStandardPaths>
 #include <QUrl>
 
@@ -118,9 +120,104 @@ bool readEntry(const QString &jarPath, const QString &entry, QByteArray *out, QS
     return false;
 }
 
+// Value of the SourceFile attribute of a class file (the .kt / .java it was compiled from), or "".
+QString sourceFileOf(const QByteArray &c)
+{
+    if (c.size() < 10 || quint8(c[0]) != 0xCA || quint8(c[1]) != 0xFE || quint8(c[2]) != 0xBA || quint8(c[3]) != 0xBE)
+        return {};
+    auto be16 = [&](int o) { return o + 2 <= c.size() ? (quint16(quint8(c[o])) << 8 | quint8(c[o + 1])) : 0; };
+    auto be32 = [&](int o) { return o + 4 <= c.size() ? (quint32(be16(o)) << 16 | be16(o + 2)) : 0u; };
+    const int count = be16(8);
+    QVector<QPair<int, int>> utf(count + 1, {-1, 0}); // offset, length of each Utf8 constant
+    int p = 10;
+    for (int i = 1; i < count && p < c.size(); ++i) {
+        switch (quint8(c[p])) {
+        case 1: utf[i] = {p + 3, be16(p + 1)}; p += 3 + be16(p + 1); break;
+        case 3: case 4: case 9: case 10: case 11: case 12: case 17: case 18: p += 5; break;
+        case 5: case 6: p += 9; ++i; break;
+        case 15: p += 4; break;
+        default: p += 3; break; // 7 8 16 19 20
+        }
+    }
+    p += 6; // access, this, super
+    p += 2 + 2 * be16(p); // interfaces
+    for (int pass = 0; pass < 2; ++pass) { // fields, methods
+        int n = be16(p);
+        p += 2;
+        while (n-- > 0 && p < c.size()) {
+            int attrs = be16(p + 6);
+            p += 8;
+            while (attrs-- > 0 && p < c.size())
+                p += 6 + int(be32(p + 2));
+        }
+    }
+    int attrs = be16(p);
+    p += 2;
+    while (attrs-- > 0 && p + 6 <= c.size()) {
+        const int name = be16(p);
+        if (name > 0 && name <= count && utf[name].first >= 0 && c.mid(utf[name].first, utf[name].second) == "SourceFile") {
+            const int v = be16(p + 6);
+            if (v > 0 && v <= count && utf[v].first >= 0)
+                return QString::fromUtf8(c.mid(utf[v].first, utf[v].second));
+            return {};
+        }
+        p += 6 + int(be32(p + 2));
+    }
+    return {};
+}
+
+QString g_failure, g_missingJar;
+bool g_class = false;
+
+// The sources jar belonging to `jar`: next to it (Maven, and Gradle's own copies), or in a sibling folder of the
+// version directory (Gradle's cache keeps every file in a folder named by its hash).
+QString findSourcesJar(const QString &jar)
+{
+    const QFileInfo fi(jar);
+    const QString name = fi.completeBaseName() + QStringLiteral("-sources.jar");
+    if (QFile::exists(fi.absolutePath() + QLatin1Char('/') + name))
+        return fi.absolutePath() + QLatin1Char('/') + name;
+    QDir version(fi.absolutePath());
+    if (!version.cdUp())
+        return {};
+    const QStringList hashes = version.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QString &h : hashes)
+        if (QFile::exists(version.filePath(h + QLatin1Char('/') + name)))
+            return version.filePath(h + QLatin1Char('/') + name);
+    return {};
+}
+
 } // namespace
 
 namespace JarSource {
+
+QString lastFailure() { return g_failure; }
+QString lastMissingSourcesJar() { return g_missingJar; }
+bool lastWasClass() { return g_class; }
+
+Coordinates coordinatesOf(const QString &jarPath)
+{
+    // ~/.gradle/caches/modules-2/files-2.1/<group>/<artifact>/<version>/<hash>/<file>.jar
+    static const QString marker = QStringLiteral("/files-2.1/");
+    const int i = jarPath.indexOf(marker);
+    if (i >= 0) {
+        const QStringList parts = jarPath.mid(i + marker.size()).split(QLatin1Char('/'));
+        if (parts.size() >= 5)
+            return {parts[0], parts[1], parts[2]};
+    }
+    // ~/.m2/repository/<group as folders>/<artifact>/<version>/<file>.jar
+    static const QString m2 = QStringLiteral("/.m2/repository/");
+    const int j = jarPath.indexOf(m2);
+    if (j >= 0) {
+        QStringList parts = jarPath.mid(j + m2.size()).split(QLatin1Char('/'));
+        if (parts.size() >= 4) {
+            parts.removeLast();
+            const QString version = parts.takeLast(), artifact = parts.takeLast();
+            return {parts.join(QLatin1Char('.')), artifact, version};
+        }
+    }
+    return {};
+}
 
 bool isJarUri(const QString &uri) { return uri.startsWith(QLatin1String("jar:")); }
 
@@ -129,8 +226,47 @@ QString extract(const QString &uri, QString *error)
     QString err;
     QString *e = error ? error : &err;
     QString jar, entry;
+    g_failure.clear();
+    g_missingJar.clear();
+    g_class = false;
     if (!split(uri, &jar, &entry)) {
         *e = QStringLiteral("Unsupported location: %1").arg(uri);
+        return {};
+    }
+    if (entry.endsWith(QLatin1String(".class"))) {
+        // Compiled code is unreadable: open the source file it was built from, from the library's sources jar.
+        const QString cls = QFileInfo(entry).completeBaseName();
+        const QString sources = findSourcesJar(jar);
+        if (sources.isEmpty()) {
+            g_failure = QStringLiteral("No sources available for %1").arg(cls);
+            g_missingJar = jar;
+            *e = g_failure;
+            return {};
+        }
+        QByteArray bytes;
+        QString ignored;
+        readEntry(jar, entry, &bytes, &ignored);
+        const QString dir = entry.contains(QLatin1Char('/')) ? entry.left(entry.lastIndexOf(QLatin1Char('/')) + 1) : QString();
+        QString outer = cls.left(cls.indexOf(QLatin1Char('$')) < 0 ? cls.size() : cls.indexOf(QLatin1Char('$')));
+        QStringList names;
+        const QString declared = sourceFileOf(bytes);
+        if (!declared.isEmpty())
+            names << declared;
+        if (outer.endsWith(QLatin1String("Kt")))
+            names << outer.chopped(2) + QStringLiteral(".kt");
+        names << outer + QStringLiteral(".kt") << outer + QStringLiteral(".java");
+        for (const QString &n : names) {
+            QByteArray probe;
+            if (readEntry(sources, dir + n, &probe, &ignored)) {
+                const QString path = extract(QStringLiteral("jar://") + QString::fromLatin1(QUrl::toPercentEncoding(sources, "/")) + QStringLiteral("!/") +
+                                                 QString::fromLatin1(QUrl::toPercentEncoding(dir + n, "/")),
+                                             error);
+                g_class = !path.isEmpty();
+                return path;
+            }
+        }
+        g_failure = QStringLiteral("%1 is not in the sources jar of this library").arg(cls);
+        *e = g_failure;
         return {};
     }
     const QString hash = QString::fromLatin1(QCryptographicHash::hash(jar.toUtf8(), QCryptographicHash::Md5).toHex().left(10));

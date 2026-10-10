@@ -65,6 +65,8 @@ SOURCES += \
     src/project/PythonEnv.cpp \
     src/media/MarkdownPreview.cpp \
     src/media/MarkdownHtml.cpp \
+    src/gradle/GradlePanel.cpp \
+    src/gradle/GradleTasks.cpp \
     src/media/MediaPanel.cpp \
     src/explorer/ProjectExplorer.cpp \
     src/explorer/FileIcons.cpp \
@@ -165,6 +167,8 @@ HEADERS += \
     src/project/PythonEnv.h \
     src/media/MarkdownPreview.h \
     src/media/MarkdownHtml.h \
+    src/gradle/GradlePanel.h \
+    src/gradle/GradleTasks.h \
     src/media/MediaPanel.h \
     src/explorer/ProjectExplorer.h \
     src/explorer/FileIcons.h \

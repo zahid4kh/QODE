@@ -24,6 +24,7 @@ class MediaPanel;
 class PackagesDialog;
 class ReferencesDialog;
 class MarkdownPreview;
+class GradlePanel;
 class GitRepository;
 class LspManager;
 class EditorManager;
@@ -97,7 +98,9 @@ private:
     void runExpoCommand(const QString &command, const QString &id);
     void showExpoConfig();
     void showExpoSchemaCache();
-    void updatePythonUi();           // shows the Python Packages button only while the project has a virtual environment
+    void updatePythonUi();
+    void updateGradleUi();
+    void toggleGradlePanel();           // shows the Python Packages button only while the project has a virtual environment
     void showPythonPackages();
     void restartPythonServer();
     QStringList unresolvedPythonImports(Document *doc, int startLine, int startColumn, int endLine, int endColumn) const;
@@ -182,7 +185,8 @@ private:
     QSplitter *m_hsplit;
     MediaPanel *m_media;
     MarkdownPreview *m_md;
-    QStackedWidget *m_rightStack; // media panel | markdown preview
+    GradlePanel *m_gradle = nullptr;
+    QStackedWidget *m_rightStack; // media panel | markdown preview | Gradle tasks
     QPointer<Document> m_previewDoc; // the Markdown / SVG file the right panel is previewing live
     QMetaObject::Connection m_previewConn;
     QTimer *m_previewTimer;
@@ -197,7 +201,7 @@ private:
     QAction *m_projNewFileAct, *m_projNewFolderAct, *m_openProjectFolderAct;
     QPointer<QDialog> m_themeEditor;
     void showThemeEditor();
-    QAction *m_explorerAct, *m_terminalAct, *m_runAct, *m_runConfigAct, *m_pythonPkgAct, *m_venvAct, *m_fullscreenAct, *m_wordWrapAct;
+    QAction *m_explorerAct, *m_terminalAct, *m_runAct, *m_runConfigAct, *m_pythonPkgAct, *m_gradleAct, *m_venvAct, *m_fullscreenAct, *m_wordWrapAct;
     QAction *m_nextTabAct, *m_prevTabAct, *m_splitRightAct, *m_splitDownAct, *m_aboutAct, *m_paletteAct, *m_quickOpenAct, *m_gotoLineAct, *m_gotoSymbolAct, *m_gotoDefinitionAct, *m_renameAct, *m_findRefsAct, *m_searchAct, *m_matchBracketAct, *m_indentGuidesAct, *m_stickyAct, *m_blameInlineAct, *m_bookmarkToggleAct, *m_bookmarkNextAct, *m_bookmarkPrevAct, *m_showBookmarksAct, *m_showTodosAct, *m_previewAct, *m_newTerminalAct, *m_blameGutterAct, *m_minimapAct, *m_breadcrumbsAct, *m_hiddenFilesAct;
     QMenu *m_recentMenu;
     DevServerBar *m_serverBar = nullptr;

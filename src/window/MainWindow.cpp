@@ -34,6 +34,8 @@
 #include "dialogs/ReferencesDialog.h"
 #include "dialogs/UnusedImportsDialog.h"
 #include "lsp/JarSource.h"
+#include "gradle/GradlePanel.h"
+#include "gradle/GradleTasks.h"
 #include "lsp/LspInstaller.h"
 #include "lsp/LspServers.h"
 #include "lsp/LspManager.h"
@@ -177,6 +179,18 @@ MainWindow::MainWindow(QWidget *parent)
     m_rightStack = new QStackedWidget(this);
     m_rightStack->addWidget(m_media);
     m_rightStack->addWidget(m_md);
+    m_gradle = new GradlePanel(this);
+    m_rightStack->addWidget(m_gradle);
+    connect(m_gradle, &GradlePanel::closeRequested, this, &MainWindow::hideMedia);
+    connect(m_gradle, &GradlePanel::runRequested, this, [this](const QString &command, const QString &dir) {
+        if (!m_editors->saveAll())
+            return;
+        QString quoted = dir;
+        quoted.replace(QLatin1Char('\''), QStringLiteral("'\\''"));
+        showTerminal();
+        m_terminal->runCommand(QStringLiteral("(cd '%1' && %2)").arg(quoted, command));
+        m_terminal->focusTerminal();
+    });
     m_hsplit->addWidget(new Island(m_rightStack));
     m_previewTimer = new QTimer(this);
     m_previewTimer->setSingleShot(true);
@@ -475,6 +489,8 @@ void MainWindow::createActions()
     m_runAct->setToolTip(tr("Run the project, or this file (F5)"));
     m_runConfigAct = make(tr("Run Configuration…"), {}, QStringLiteral(":/new-icons/cog.svg"));
     m_runConfigAct->setToolTip(tr("Set the command that runs the project or this type of file"));
+    m_gradleAct = make(tr("Gradle Tasks"), {}, QStringLiteral(":/new-icons/gradle.svg"));
+    m_gradleAct->setToolTip(tr("Show the Gradle tasks of this project (build, test, package, …) and run them"));
     m_pythonPkgAct = make(tr("Python Packages…"), {}, QStringLiteral(":/new-icons/package.svg"));
     m_pythonPkgAct->setToolTip(tr("Install, upgrade and remove the packages of the project's virtual environment"));
     {
@@ -631,6 +647,7 @@ void MainWindow::createActions()
     connect(m_runAct, &QAction::triggered, this, &MainWindow::runCurrentFile);
     connect(m_runConfigAct, &QAction::triggered, this, &MainWindow::configureRun);
     connect(m_pythonPkgAct, &QAction::triggered, this, &MainWindow::showPythonPackages);
+    connect(m_gradleAct, &QAction::triggered, this, &MainWindow::toggleGradlePanel);
     connect(m_fullscreenAct, &QAction::triggered, this, [this] { setWindowState(windowState() ^ Qt::WindowFullScreen); });
     connect(m_wordWrapAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setWordWrap(on); });
     connect(m_breadcrumbsAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setShowBreadcrumbs(on); });
@@ -783,6 +800,7 @@ void MainWindow::createMenus()
     view->addAction(m_runAct);
     view->addAction(m_runConfigAct);
     view->addAction(m_pythonPkgAct);
+    view->addAction(m_gradleAct);
     view->addSeparator();
     view->addAction(m_splitRightAct);
     view->addAction(m_splitDownAct);
@@ -927,12 +945,14 @@ void MainWindow::updateRunToolbar()
     m_mainToolBar->removeAction(m_runAct);
     m_mainToolBar->removeAction(m_runConfigAct);
     m_mainToolBar->removeAction(m_pythonPkgAct);
+    m_mainToolBar->removeAction(m_gradleAct);
     if (m_expoBarAct)
         m_expoBarAct->setVisible(expo);
     if (!web && !expo) {
         m_mainToolBar->insertAction(m_serverBarAct, m_runAct);
         m_mainToolBar->insertAction(m_serverBarAct, m_runConfigAct);
     }
+    m_mainToolBar->insertAction(m_serverBarAct, m_gradleAct); // only in Gradle projects (updateGradleUi)
     m_mainToolBar->insertAction(m_serverBarAct, m_pythonPkgAct); // next to the run buttons; visible only with a virtual environment
     m_serverBarAct->setVisible(web);
     m_runAct->setText(web ? tr("Start / Restart Dev Server") : tr("Run File"));
@@ -946,6 +966,7 @@ void MainWindow::updateRunToolbar()
 // environment. A timer notices one created in the terminal (or deleted) a few seconds later.
 void MainWindow::updatePythonUi()
 {
+    updateGradleUi();
     const QString root = m_projects->hasProject() ? m_projects->project().root : QString();
     const QString venv = root.isEmpty() ? QString() : PythonEnv::activeVenv(root);
     m_pythonPkgAct->setVisible(!venv.isEmpty());
@@ -2176,6 +2197,32 @@ void MainWindow::updateStatus()
     m_eolLabel->setText(d->lineEndingName());
     m_posLabel->setText(tr("Ln %1, Col %2").arg(e->currentLine()).arg(e->currentColumn()));
     m_modeLabel->setText(e->overwriteMode() ? tr("OVR") : tr("INS"));
+}
+
+// The Gradle button exists only in Gradle projects (Java, Kotlin or Compose Desktop alike).
+void MainWindow::updateGradleUi()
+{
+    const QString dir = m_projects->hasProject() ? GradleTasks::buildDir(m_projects->project().root) : QString();
+    m_gradleAct->setVisible(!dir.isEmpty());
+    m_gradle->setBuildDir(dir);
+    if (dir.isEmpty() && m_rightStack->currentWidget() == m_gradle && m_rightStack->parentWidget()->isVisible())
+        hideMedia();
+}
+
+void MainWindow::toggleGradlePanel()
+{
+    if (m_rightStack->parentWidget()->isVisible() && m_rightStack->currentWidget() == m_gradle) {
+        hideMedia();
+        return;
+    }
+    disconnect(m_previewConn);
+    m_previewDoc = nullptr;
+    m_previewTimer->stop();
+    m_media->clear();
+    m_md->clear();
+    m_rightStack->setCurrentWidget(m_gradle);
+    openRightPanel();
+    m_gradle->ensureLoaded();
 }
 
 void MainWindow::openRightPanel()

@@ -19,9 +19,9 @@
 #include <unistd.h>
 
 namespace {
-const char *kPinnedVersion = "263.4702.0";
+const char *kPinnedVersion = "263.6379.0";
 // SHA-256 of the pinned x86_64 archive, checked in addition to the checksum JetBrains publishes next to it.
-const char *kPinnedSha256X64 = "1e11d2e5fefbf9ea215ad8dd6be95f2222897cd086e8cb7a661a52084a590405";
+const char *kPinnedSha256X64 = "ab8ca4455dc2fc5fe1a24db2bccc46c104254d2c465155c4251ee65df8f3f7cc";
 constexpr qint64 kNeededBytes = 1800LL * 1024 * 1024; // archive (~370 MB) + unpacked copy (~1.2 GB) + slack
 constexpr int kNetworkTimeoutMs = 30000;
 

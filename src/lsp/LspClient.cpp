@@ -261,6 +261,12 @@ void LspClient::onFinished(int, int exitStatus)
     const bool crashed = !m_exiting && m_state != State::Stopped;
     m_state = State::Stopped;
     m_pending.clear();
+    if (crashed && m_error.isEmpty()) {
+        // Kotlin's EAP builds print "This build of kotlin-server has expired." on stdout and quit.
+        const QString out = QString::fromUtf8(m_buffer + m_proc->readAllStandardOutput());
+        if (out.contains(QLatin1String("expired")))
+            m_error = tr("This build of the server has expired — choose Update / Reinstall to get a newer one");
+    }
     if (crashed && m_error.isEmpty())
         m_error = exitStatus == QProcess::CrashExit ? tr("The server crashed") : tr("The server exited unexpectedly");
     emit stopped(crashed);

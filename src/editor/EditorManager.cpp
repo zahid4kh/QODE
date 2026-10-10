@@ -2,6 +2,7 @@
 #include "EditorManager.h"
 
 #include "CodeEditor.h"
+#include "CsvTable.h"
 #include "Breadcrumbs.h"
 #include "EditorGroup.h"
 #include "Document.h"
@@ -81,6 +82,40 @@ public:
     }
     CodeEditor *editor;
     Breadcrumbs *crumbs;
+    CsvTableWidget *table = nullptr; // CSV / TSV files can be shown as a grid instead of the text; created on first use
+
+    bool tableShown() const { return table && table->isVisible(); }
+    // Switches between the text and the grid view, carrying the caret / current cell across.
+    void showTable(bool on, QTextDocument *doc, const QString &fileName)
+    {
+        if (on == tableShown())
+            return;
+        auto *lay = static_cast<QVBoxLayout *>(layout());
+        if (on) {
+            if (!table) {
+                table = new CsvTableWidget(doc, fileName, this);
+                lay->insertWidget(1, table, 1);
+            }
+            table->setFileName(fileName);
+            const int position = editor->textCursor().position();
+            editor->hide();
+            table->show();
+            setFocusProxy(table->view());
+            table->activate(position);
+        } else {
+            const int position = table->currentPosition();
+            table->hide();
+            editor->show();
+            setFocusProxy(editor);
+            if (position >= 0) {
+                QTextCursor c(doc);
+                c.setPosition(qMin(position, qMax(0, doc->characterCount() - 1)));
+                editor->setTextCursor(c);
+                editor->centerCursor();
+            }
+            editor->setFocus();
+        }
+    }
 };
 }
 
@@ -386,6 +421,10 @@ EditorManager::Entry EditorManager::addDocument(Document *doc)
     connect(crumbTimer, &QTimer::timeout, this, [this, doc] { updateCrumbs(doc); });
     connect(editor, &QPlainTextEdit::cursorPositionChanged, crumbTimer, qOverload<>(&QTimer::start));
     connect(pane->crumbs, &Breadcrumbs::previewRequested, this, &EditorManager::previewRequested);
+    connect(pane->crumbs, &Breadcrumbs::tableToggleRequested, this, [this, doc, pane] {
+        pane->showTable(!pane->tableShown(), doc->textDocument(), doc->filePath());
+        updateCrumbs(doc);
+    });
     connect(editor, &CodeEditor::blameCommitRequested, this, &EditorManager::blameCommitRequested);
     connect(pane->crumbs, &Breadcrumbs::lineRequested, this, [editor](int line) {
         QTextCursor c(editor->document()->findBlockByNumber(line));
@@ -425,6 +464,11 @@ EditorManager::Entry EditorManager::addDocument(Document *doc)
     return {doc, editor};
 }
 
+bool EditorManager::isTabular(const Document *doc)
+{
+    return doc && (doc->languageName() == QLatin1String("CSV") || doc->languageName() == QLatin1String("TSV"));
+}
+
 bool EditorManager::isPreviewable(const Document *doc)
 {
     return doc && (doc->languageName() == QLatin1String("Markdown") || doc->filePath().endsWith(QLatin1String(".svg"), Qt::CaseInsensitive));
@@ -439,6 +483,11 @@ void EditorManager::updateCrumbs(Document *doc)
     const bool show = SettingsManager::instance().showBreadcrumbs();
     pane->crumbs->setVisible(show);
     pane->crumbs->setPreviewAvailable(isPreviewable(doc));
+    if (pane->table && !isTabular(doc))
+        pane->showTable(false, doc->textDocument(), doc->filePath()); // renamed away from .csv
+    else if (pane->table)
+        pane->table->setFileName(doc->filePath());
+    pane->crumbs->setTableToggle(isTabular(doc), pane->tableShown());
     if (!show)
         return;
     QList<Breadcrumbs::Crumb> path = doc->isUntitled() ? QList<Breadcrumbs::Crumb>{{tr("Untitled"), -1}}

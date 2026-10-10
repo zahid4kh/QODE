@@ -264,6 +264,17 @@ LanguageDefinition markdown()
     return d;
 }
 
+LanguageDefinition csv(bool tabs)
+{
+    // No rules: SyntaxHighlighter::highlightCsv tracks fields, quotes and columns itself.
+    LanguageDefinition d;
+    d.name = tabs ? QStringLiteral("TSV") : QStringLiteral("CSV");
+    d.csv = true;
+    if (tabs)
+        d.csvDelimiter = QLatin1Char('\t');
+    return d;
+}
+
 LanguageDefinition shell()
 {
     LanguageDefinition d;
@@ -312,6 +323,8 @@ struct Registry {
         add(markup(QStringLiteral("XML"), false), {"xml", "xsl", "xslt", "svg", "ui", "qrc", "ts_xml", "plist", "rss", "atom", "xsd", "pom"});
         add(css(), {"css"});
         add(markdown(), {"md", "markdown", "mdown"});
+        add(csv(false), {"csv"});
+        add(csv(true), {"tsv"});
         add(shell(), {"sh", "bash", "zsh", "ksh", "env", "profile", "bashrc", "zshrc"},
             {".bashrc", ".zshrc", ".profile", ".bash_profile", ".bash_aliases"});
     }

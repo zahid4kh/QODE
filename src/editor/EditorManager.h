@@ -36,6 +36,7 @@ public:
 
     Document *currentDocument() const;
     static bool isPreviewable(const Document *doc); // Markdown and SVG
+    static bool isTabular(const Document *doc);     // CSV and TSV: can be shown as a table
     CodeEditor *currentEditor() const;
     CodeEditor *editorFor(Document *doc) const;
     QList<Document *> documents() const;

@@ -280,6 +280,15 @@ void Breadcrumbs::setPreviewAvailable(bool on)
     update();
 }
 
+void Breadcrumbs::setTableToggle(bool available, bool table)
+{
+    if (m_tableToggle == available && m_tableShown == table)
+        return;
+    m_tableToggle = available;
+    m_tableShown = table;
+    update();
+}
+
 void Breadcrumbs::setCrumbs(const QList<Crumb> &path, const QList<Crumb> &symbols)
 {
     m_path = path;
@@ -311,7 +320,9 @@ void Breadcrumbs::paintEvent(QPaintEvent *)
     const int sepW = 18;
     const QString previewText = tr("Preview");
     const int previewW = m_preview ? fm.horizontalAdvance(previewText) + 14 + 20 : 0;
-    const int avail = width() - 20 - (m_preview ? previewW + 8 : 0);
+    const QString tableText = m_tableShown ? tr("Text") : tr("Table");
+    const int tableW = m_tableToggle ? fm.horizontalAdvance(tableText) + 14 + 20 : 0;
+    const int avail = width() - 20 - (m_preview ? previewW + 8 : 0) - (m_tableToggle ? tableW + 8 : 0);
 
     QList<Crumb> all = m_path;
     all += m_symbols;
@@ -358,6 +369,22 @@ void Breadcrumbs::paintEvent(QPaintEvent *)
             sep();
     }
 
+    m_tableRect = {};
+    if (m_tableToggle) {
+        m_tableRect = QRect(width() - tableW - 8, 3, tableW, height() - 7);
+        if (m_tableHover) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(t.currentLine);
+            p.setRenderHint(QPainter::Antialiasing);
+            p.drawRoundedRect(m_tableRect, 4, 4);
+        }
+        const QString icon = m_tableShown ? QStringLiteral(":/new-icons/file-text.svg") : QStringLiteral(":/new-icons/table.svg");
+        p.drawPixmap(m_tableRect.left() + 7, cy - 6, Icons::pixmap(icon, t.editorFg, 12));
+        p.setFont(f);
+        p.setPen(t.editorFg);
+        p.drawText(m_tableRect.adjusted(24, 0, 0, 0), Qt::AlignVCenter | Qt::AlignLeft, tableText);
+    }
+
     m_previewRect = {};
     if (m_preview) {
         m_previewRect = QRect(width() - previewW - 8, 3, previewW, height() - 7);
@@ -376,6 +403,14 @@ void Breadcrumbs::paintEvent(QPaintEvent *)
 
 void Breadcrumbs::mouseMoveEvent(QMouseEvent *event)
 {
+    const bool overTable = m_tableToggle && m_tableRect.contains(event->position().toPoint());
+    if (overTable != m_tableHover) {
+        m_tableHover = overTable;
+        setCursor(overTable ? Qt::PointingHandCursor : Qt::ArrowCursor);
+        update();
+    }
+    if (overTable)
+        return;
     const bool overPreview = m_preview && m_previewRect.contains(event->position().toPoint());
     if (overPreview != m_previewHover) {
         m_previewHover = overPreview;
@@ -395,6 +430,10 @@ void Breadcrumbs::mouseMoveEvent(QMouseEvent *event)
 
 void Breadcrumbs::leaveEvent(QEvent *)
 {
+    if (m_tableHover) {
+        m_tableHover = false;
+        update();
+    }
     if (m_previewHover) {
         m_previewHover = false;
         update();
@@ -407,6 +446,10 @@ void Breadcrumbs::leaveEvent(QEvent *)
 
 void Breadcrumbs::mousePressEvent(QMouseEvent *event)
 {
+    if (event->button() == Qt::LeftButton && m_tableToggle && m_tableRect.contains(event->position().toPoint())) {
+        emit tableToggleRequested();
+        return;
+    }
     if (event->button() == Qt::LeftButton && m_preview && m_previewRect.contains(event->position().toPoint())) {
         emit previewRequested();
         return;

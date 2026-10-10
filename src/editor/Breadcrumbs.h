@@ -19,6 +19,8 @@ public:
 
     // A "Preview" button at the right end of the bar (Markdown / SVG files).
     void setPreviewAvailable(bool on);
+    // A "Table" / "Text" switch at the right end of the bar (CSV / TSV files); `table` says which view is showing.
+    void setTableToggle(bool available, bool table);
     void setCrumbs(const QList<Crumb> &path, const QList<Crumb> &symbols);
 
     struct Symbol {
@@ -36,6 +38,7 @@ public:
 signals:
     void lineRequested(int line);
     void previewRequested();
+    void tableToggleRequested();
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -58,4 +61,8 @@ private:
     bool m_preview = false;
     bool m_previewHover = false;
     QRect m_previewRect;
+    bool m_tableToggle = false;
+    bool m_tableShown = false;
+    bool m_tableHover = false;
+    QRect m_tableRect;
 };

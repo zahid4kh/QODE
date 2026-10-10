@@ -31,6 +31,8 @@ struct LanguageDefinition {
     QVector<HighlightRule> rules;      // applied first, in order (later wins)
     QVector<DelimitedRule> delimited;  // then these override; earliest match wins, ties by order
     QString lineComment;               // for future comment toggling / display
+    bool csv = false;                  // delimited data: SyntaxHighlighter colours it column by column instead of using rules
+    QChar csvDelimiter;                // fixed separator for csv (tab for TSV); null => detected from the first line
 };
 
 // Registry of supported languages. Add a language by writing a builder in Language.cpp

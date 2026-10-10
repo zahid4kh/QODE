@@ -98,6 +98,8 @@ SOURCES += \
     src/editor/SyntaxHighlighter.cpp \
     src/editor/Document.cpp \
     src/editor/Breadcrumbs.cpp \
+    src/editor/CsvData.cpp \
+    src/editor/CsvTable.cpp \
     src/editor/CodeEditor.cpp \
     src/editor/CompletionPopup.cpp \
     src/editor/Snippets.cpp \
@@ -201,6 +203,8 @@ HEADERS += \
     src/editor/SyntaxHighlighter.h \
     src/editor/Document.h \
     src/editor/Breadcrumbs.h \
+    src/editor/CsvData.h \
+    src/editor/CsvTable.h \
     src/editor/CodeEditor.h \
     src/editor/CompletionPopup.h \
     src/editor/Snippets.h \

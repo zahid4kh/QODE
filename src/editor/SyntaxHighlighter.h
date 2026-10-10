@@ -33,6 +33,7 @@ protected:
 
 private:
     void highlightText(const QString &text);
+    void highlightCsv(const QString &text);
     QTextCharFormat formatFor(TokenRole role) const;
     void rebuildFormats();
 
@@ -41,4 +42,5 @@ private:
     QHash<int, QTextCharFormat> m_formats;
     std::function<QVector<int>(const QTextBlock &)> m_gaps;
     qreal m_gapPixels = 0;
+    QChar m_csvDelimiter;
 };

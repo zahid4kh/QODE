@@ -1,6 +1,9 @@
 #include "SyntaxHighlighter.h"
 
+#include "CsvData.h"
+
 #include <QFont>
+#include <QTextBlock>
 
 SyntaxHighlighter::SyntaxHighlighter(QTextDocument *doc)
     : QSyntaxHighlighter(doc)
@@ -73,6 +76,10 @@ void SyntaxHighlighter::highlightBlock(const QString &text)
 void SyntaxHighlighter::highlightText(const QString &text)
 {
     setCurrentBlockState(0);
+    if (m_lang && m_lang->csv) {
+        highlightCsv(text);
+        return;
+    }
     if (!m_lang || (text.isEmpty() && previousBlockState() <= 0))
         return;
 
@@ -137,4 +144,58 @@ void SyntaxHighlighter::highlightText(const QString &text)
         setFormat(bestStart, e.capturedEnd() - bestStart, formatFor(d.role));
         pos = e.capturedEnd();
     }
+}
+
+// Every column gets its own colour so a row can be read across; the first row (the header) is bold. The block state
+// is 1 + the column of a quoted field that is still open at the end of the line (fields may contain line breaks).
+void SyntaxHighlighter::highlightCsv(const QString &text)
+{
+    static const TokenRole columnRoles[] = {TokenRole::Type,     TokenRole::String,   TokenRole::Number,
+                                            TokenRole::Function, TokenRole::Keyword, TokenRole::Attribute};
+    constexpr int roleCount = sizeof(columnRoles) / sizeof(columnRoles[0]);
+    constexpr int maxColumn = 4000;
+
+    const int prev = previousBlockState();
+    const bool header = currentBlock().blockNumber() == 0;
+    if (header || m_csvDelimiter.isNull())
+        m_csvDelimiter = m_lang->csvDelimiter.isNull() ? CsvData::detectDelimiter(document()->firstBlock().text())
+                                                       : m_lang->csvDelimiter;
+    const QChar delim = m_csvDelimiter;
+
+    auto fmtFor = [&](int column) {
+        QTextCharFormat f = formatFor(columnRoles[column % roleCount]);
+        if (header)
+            f.setFontWeight(QFont::Bold);
+        return f;
+    };
+
+    int column = prev > 0 ? prev - 1 : 0;
+    int i = 0;
+    const int n = text.size();
+    bool inQuote = prev > 0;
+    int fieldStart = 0;
+    for (; i < n; ++i) {
+        const QChar c = text.at(i);
+        if (inQuote) {
+            if (c == QLatin1Char('"')) {
+                if (i + 1 < n && text.at(i + 1) == QLatin1Char('"'))
+                    ++i; // doubled quote inside the field
+                else
+                    inQuote = false;
+            }
+            continue;
+        }
+        if (c == QLatin1Char('"') && i == fieldStart) {
+            inQuote = true;
+        } else if (c == delim) {
+            if (i > fieldStart)
+                setFormat(fieldStart, i - fieldStart, fmtFor(column));
+            setFormat(i, 1, formatFor(TokenRole::Comment));
+            fieldStart = i + 1;
+            column = qMin(column + 1, maxColumn);
+        }
+    }
+    if (n > fieldStart)
+        setFormat(fieldStart, n - fieldStart, fmtFor(column));
+    setCurrentBlockState(inQuote ? 1 + column : 0);
 }

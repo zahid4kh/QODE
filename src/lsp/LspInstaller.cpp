@@ -1,4 +1,5 @@
 #include "LspInstaller.h"
+#include "platform/Platform.h"
 
 #include "LspServers.h"
 
@@ -72,7 +73,7 @@ QString LspInstaller::installRoot()
 
 QString LspInstaller::linkPath()
 {
-    return QDir::homePath() + QStringLiteral("/.local/bin/kotlin-lsp");
+    return Platform::userBinDir() + QStringLiteral("/kotlin-lsp");
 }
 
 QString LspInstaller::installedVersion()

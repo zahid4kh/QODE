@@ -1,4 +1,5 @@
 #include "LspRemoveDialog.h"
+#include "platform/Platform.h"
 
 #include "lsp/JarSource.h"
 #include "lsp/JdtlsInstaller.h"
@@ -50,12 +51,12 @@ QString shown(const QString &path)
 // The server's own per-project indexes / workspace data (QODE/lsp/<id>/<hash of project>).
 QString serverCacheDir(const QString &id)
 {
-    return QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE/lsp/") + id;
+    return Platform::cacheDir() + QStringLiteral("/lsp/") + id;
 }
 
 QString libraryCacheDir()
 {
-    return QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE/lsp/library-sources");
+    return Platform::cacheDir() + QStringLiteral("/lsp/library-sources");
 }
 
 bool underHome(const QString &path)

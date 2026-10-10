@@ -1,4 +1,5 @@
 #include "app/InstanceRegistry.h"
+#include "platform/Platform.h"
 #include "MainWindow.h"
 
 #include "Island.h"
@@ -1649,7 +1650,7 @@ void MainWindow::fetchLibrarySources(const JarSource::Coordinates &coords, CodeE
         statusBar()->showMessage(tr("Gradle was not found (no gradlew in the project and no gradle on PATH)"), 6000);
         return;
     }
-    const QString dir = QDir::homePath() + QStringLiteral("/.cache/QODE/run");
+    const QString dir = Platform::runDir();
     QDir().mkpath(dir);
     const QString script = dir + QStringLiteral("/library-sources.init.gradle");
     QFile f(script);

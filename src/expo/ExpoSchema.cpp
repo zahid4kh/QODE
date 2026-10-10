@@ -1,4 +1,5 @@
 #include "ExpoSchema.h"
+#include "platform/Platform.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -10,7 +11,6 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QSaveFile>
-#include <QStandardPaths>
 #include <QUrl>
 #include <QVersionNumber>
 #include <algorithm>
@@ -28,7 +28,7 @@ ExpoSchema::ExpoSchema(QObject *parent) : QObject(parent), m_net(new QNetworkAcc
 
 QString ExpoSchema::cacheDir()
 {
-    return QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE/expo");
+    return Platform::cacheDir() + QStringLiteral("/expo");
 }
 
 QString ExpoSchema::pathFor(const QString &sdk)

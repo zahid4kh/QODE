@@ -1,4 +1,5 @@
 #include "LspServers.h"
+#include "platform/Platform.h"
 
 #include <QDir>
 #include <QFile>
@@ -34,7 +35,7 @@ namespace LspServers {
 
 QString managedDir(const QString &id)
 {
-    return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QStringLiteral("/QODE/lsp/") + id;
+    return Platform::dataDir() + QStringLiteral("/lsp/") + id;
 }
 
 QString managedExecutable(const LspServerSpec &spec)

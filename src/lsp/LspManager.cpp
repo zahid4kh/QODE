@@ -1,4 +1,5 @@
 #include "LspManager.h"
+#include "platform/Platform.h"
 
 #include "JarSource.h"
 #include "LspClient.h"
@@ -18,7 +19,6 @@
 #include <QSaveFile>
 #include <QJsonArray>
 #include <QProcess>
-#include <QStandardPaths>
 #include <QRegularExpression>
 #include <QTextBlock>
 #include <QTextDocument>
@@ -260,7 +260,7 @@ void LspManager::startServer(Server &s, const QString &rootPath)
     QStringList args = s.spec->arguments;
     if (args.join(QLatin1Char(' ')).contains(QLatin1String("{cache}"))) {
         const QString key = QString::fromLatin1(QCryptographicHash::hash(rootPath.toUtf8(), QCryptographicHash::Md5).toHex().left(12));
-        const QString cache = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE/lsp/") +
+        const QString cache = Platform::cacheDir() + QStringLiteral("/lsp/") +
                               s.spec->id + QLatin1Char('/') + key;
         QDir().mkpath(cache);
         args.replaceInStrings(QStringLiteral("{cache}"), cache);
@@ -275,7 +275,7 @@ void LspManager::startServer(Server &s, const QString &rootPath)
     if (s.spec->id == QLatin1String("java")) {
         // jdtls: java -jar <launcher> ...; its configuration and workspace data live in the cache, one per project.
         const QString key = QString::fromLatin1(QCryptographicHash::hash(rootPath.toUtf8(), QCryptographicHash::Md5).toHex().left(12));
-        const QString workspace = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE/lsp/java/") + key;
+        const QString workspace = Platform::cacheDir() + QStringLiteral("/lsp/java/") + key;
         QDir().mkpath(workspace);
         QString error;
         if (!LspServers::jdtlsCommand(exe, workspace, &program, &args, &error)) {
@@ -528,8 +528,8 @@ QString LspManager::preparePatchedDatabase(const QString &root)
     if (source.isEmpty() || includePaths().isEmpty())
         return {};
     const QString key = QString::fromLatin1(QCryptographicHash::hash(root.toUtf8(), QCryptographicHash::Md5).toHex().left(12));
-    const QString dir = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) +
-                        QStringLiteral("/QODE/lsp/clangd-db/") + key;
+    const QString dir = Platform::cacheDir() +
+                        QStringLiteral("/lsp/clangd-db/") + key;
     QDir().mkpath(dir);
     m_patchSource = source;
     m_patchTarget = dir + QStringLiteral("/compile_commands.json");

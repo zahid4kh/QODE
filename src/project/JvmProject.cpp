@@ -1,4 +1,5 @@
 #include "project/JvmProject.h"
+#include "platform/Platform.h"
 
 #include <QDir>
 #include <QDirIterator>
@@ -200,7 +201,7 @@ JvmProject JvmProject::detect(const QString &root)
             return initScript;
         // Runs any main class of a module that has no `application` plugin (Java and Kotlin/JVM alike); lives in the
         // cache, so the project stays untouched.
-        const QString dir = QDir::homePath() + QStringLiteral("/.cache/QODE/run");
+        const QString dir = Platform::runDir();
         QDir().mkpath(dir);
         initScript = dir + QStringLiteral("/run-main.init.gradle");
         const QByteArray body =

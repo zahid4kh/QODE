@@ -41,6 +41,7 @@ SOURCES += \
     src/webdev/ServerDialogs.cpp \
     src/webdev/EnvDialog.cpp \
     src/main.cpp \
+    src/platform/Platform.cpp \
     src/app/Application.cpp \
     src/app/InstanceRegistry.cpp \
     src/settings/SettingsManager.cpp \
@@ -130,6 +131,7 @@ SOURCES += \
     src/window/MainWindow.cpp
 
 HEADERS += \
+    src/platform/Platform.h \
     src/refactor/MoveRefactor.h \
     src/refactor/MoveController.h \
     src/explorer/ExplorerTree.h \

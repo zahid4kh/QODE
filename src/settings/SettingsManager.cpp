@@ -1,4 +1,5 @@
 #include "SettingsManager.h"
+#include "platform/Platform.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -12,7 +13,7 @@
 #include <QSaveFile>
 
 SettingsManager::SettingsManager()
-    : m_settings(QStringLiteral("QODE"), QStringLiteral("QODE"))
+    : m_settings(Platform::configDir() + QStringLiteral("/QODE.conf"), QSettings::IniFormat)
 {
 }
 

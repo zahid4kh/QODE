@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 
 const DEB_URL =
-  "https://github.com/zahid4kh/QODE/releases/download/0.8.0/qode_0.8.0_amd64.deb";
+  "https://github.com/zahid4kh/QODE/releases/download/0.9.0/qode_0.9.0_amd64.deb";
 
 const features = [
   {
@@ -157,7 +157,7 @@ export default function Page() {
                 <ArrowDown className="size-4 transition-transform group-hover:translate-y-0.5" />
               </a>
               <span className="font-code text-xs text-muted-foreground">
-                v0.8.0 · amd64 · Debian/Ubuntu
+                v0.9.0 · amd64 · Debian/Ubuntu
               </span>
             </div>
           </div>
@@ -316,7 +316,7 @@ export default function Page() {
             </div>
             <p className="font-code mt-10 text-xs text-muted-foreground">
               <Zap className="mr-2 inline size-3.5 text-accent" />
-              sudo apt install ./qode_0.8.0_amd64.deb
+              sudo apt install ./qode_0.9.0_amd64.deb
             </p>
           </div>
         </div>

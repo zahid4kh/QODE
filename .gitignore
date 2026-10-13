@@ -20,3 +20,5 @@ bump-version.sh
 .env.local
 g-docs/
 debs
+build-deb-qt
+staging_qode_qt

@@ -18,7 +18,7 @@
 #include <QVBoxLayout>
 
 namespace {
-const QString kKeyPage = QStringLiteral("https://aistudio.google.com/apikey");
+const QString kKeyPage = QStringLiteral("https://aistudio.google.com/api-keys");
 }
 
 AiKeyDialog::AiKeyDialog(QWidget *parent)

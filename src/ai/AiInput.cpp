@@ -53,7 +53,7 @@ void AiInput::keyPressEvent(QKeyEvent *e)
             break;
         }
     }
-    if ((e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) && !(e->modifiers() & Qt::ShiftModifier)) {
+    if ((e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) && (e->modifiers() & Qt::ControlModifier)) {
         emit sendRequested();
         return;
     }

@@ -617,7 +617,7 @@ void AiPanel::setBusy(bool busy)
     m_busy = busy;
     m_input->setReadOnly(busy);
     m_modelBtn->setEnabled(!busy);
-    m_send->setToolTip(busy ? tr("Stop") : tr("Send (Enter)"));
+    m_send->setToolTip(busy ? tr("Stop") : tr("Send (Ctrl+Enter)"));
     applyTheme();
     updateNotice();
 }

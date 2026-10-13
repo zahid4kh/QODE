@@ -24,6 +24,7 @@ class GitPanel;
 class MediaPanel;
 class PackagesDialog;
 class ReferencesDialog;
+class CallHierarchyDialog;
 class MarkdownPreview;
 class GradlePanel;
 class GitRepository;
@@ -134,7 +135,9 @@ private:
     void editCompilerFlags();
     void editIncludePaths();
     void syncBuildFiles();
-    void goToDefinition(CodeEditor *editor, int line, int column);
+    void goToDefinition(CodeEditor *editor, int line, int column, LspManager::Navigate what = LspManager::Navigate::Definition);
+    void showWorkspaceSymbols();
+    void showCallHierarchy();
     void fetchLibrarySources(const JarSource::Coordinates &coords, CodeEditor *editor, int line, int column);
     void showCodeActions(Document *doc, CodeEditor *editor, int startLine, int startColumn, int endLine, int endColumn);
     bool applyWorkspaceEdit(const QJsonObject &edit);
@@ -150,11 +153,13 @@ private:
     void requestHighlights(Document *doc, CodeEditor *editor);
     void updateLightBulb(Document *doc, CodeEditor *editor);
     void requestHints(Document *doc, CodeEditor *editor, int firstLine, int lastLine);
+    void requestServerData(Document *doc, CodeEditor *editor); // semantic tokens, folding ranges, document symbols
     void runSourceAction(const QStringList &kinds, const QString &what);
     void applyFileOps(const QVector<LspManager::FileOp> &ops, bool before);
     QAction *m_organizeImportsAct = nullptr, *m_removeUnusedAct = nullptr, *m_addMissingAct = nullptr, *m_fixAllAct = nullptr, *m_quickFixAct = nullptr;
     QAction *m_fixOnSaveAct = nullptr, *m_organizeOnSaveAct = nullptr, *m_hintParamsAct = nullptr, *m_hintTypesAct = nullptr;
     QAction *m_symbolHighlightAct = nullptr, *m_lightBulbAct = nullptr, *m_signatureAct = nullptr;
+    QAction *m_semanticAct = nullptr, *m_typeDefAct = nullptr, *m_callHierarchyAct = nullptr, *m_implAct = nullptr, *m_workspaceSymbolAct = nullptr;
     void requestColors(Document *doc, CodeEditor *editor);
     void pickColor(Document *doc, CodeEditor *editor, int index);
     Document *documentOf(CodeEditor *editor) const;
@@ -183,6 +188,7 @@ private:
     QString m_importPath;
     QToolButton *m_lspButton;
     QPointer<ReferencesDialog> m_refsDialog;
+    QPointer<CallHierarchyDialog> m_callDialog;
     QHash<CodeEditor *, QVector<LspColor>> m_colorData; // the colour literals behind each editor's swatches
     QHash<Document *, qint64> m_colorAsked;            // when colours were last requested for a document (throttle)
     bool m_lspHintShown = false;

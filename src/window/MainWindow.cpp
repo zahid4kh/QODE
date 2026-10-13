@@ -31,6 +31,7 @@
 #include "git/GitPanel.h"
 #include "git/GitRepository.h"
 #include "git/PatchDialog.h"
+#include "dialogs/CallHierarchyDialog.h"
 #include "dialogs/ReferencesDialog.h"
 #include "dialogs/UnusedImportsDialog.h"
 #include "lsp/JarSource.h"
@@ -786,8 +787,12 @@ void MainWindow::createMenus()
     edit->addAction(m_replaceAct);
     edit->addAction(m_gotoLineAct);
     edit->addAction(m_gotoSymbolAct);
+    edit->addAction(m_workspaceSymbolAct);
     edit->addAction(m_gotoDefinitionAct);
+    edit->addAction(m_typeDefAct);
+    edit->addAction(m_implAct);
     edit->addAction(m_findRefsAct);
+    edit->addAction(m_callHierarchyAct);
     edit->addAction(m_renameAct);
     edit->addSeparator();
     edit->addAction(m_bookmarkToggleAct);
@@ -829,6 +834,7 @@ void MainWindow::createMenus()
     QMenu *hintsMenu = view->addMenu(tr("Inlay Hints"));
     hintsMenu->addAction(m_hintParamsAct);
     hintsMenu->addAction(m_hintTypesAct);
+    view->addAction(m_semanticAct);
     view->addAction(m_symbolHighlightAct);
     view->addAction(m_lightBulbAct);
     view->addAction(m_hiddenFilesAct);
@@ -1583,14 +1589,23 @@ void MainWindow::updateLspStatus()
 }
 
 // Jumps to where the symbol at (line, column) of `editor` is defined; several candidates are offered in a menu.
-void MainWindow::goToDefinition(CodeEditor *editor, int line, int column)
+void MainWindow::goToDefinition(CodeEditor *editor, int line, int column, LspManager::Navigate what)
 {
     Document *doc = nullptr;
     for (Document *d : m_editors->documents())
         if (m_editors->editorFor(d) == editor)
             doc = d;
     if (!doc || !m_lsp->isServed(doc)) {
-        statusBar()->showMessage(tr("Go to Definition needs a running language server for this file"), 4000);
+        statusBar()->showMessage(what == LspManager::Navigate::TypeDefinition ? tr("Go to Type Definition needs a running language server for this file")
+                                 : what == LspManager::Navigate::Implementation ? tr("Go to Implementation needs a running language server for this file")
+                                                                                : tr("Go to Definition needs a running language server for this file"),
+                                 4000);
+        return;
+    }
+    if (what != LspManager::Navigate::Definition && !m_lsp->supportsNavigation(doc, what)) {
+        statusBar()->showMessage(what == LspManager::Navigate::TypeDefinition ? tr("This language server cannot find type definitions")
+                                                                               : tr("This language server cannot find implementations"),
+                                 4000);
         return;
     }
     // The name under the caret: when a library only offers compiled classes, the source file is searched for it.
@@ -1599,11 +1614,14 @@ void MainWindow::goToDefinition(CodeEditor *editor, int line, int column)
     at.select(QTextCursor::WordUnderCursor);
     const QString word = at.selectedText();
     QPointer<CodeEditor> guard(editor);
-    m_lsp->definition(doc, line, column, [this, guard, word, line, column](const QVector<LspLocation> &locations) {
+    m_lsp->definition(doc, line, column, [this, guard, word, line, column, what](const QVector<LspLocation> &locations) {
         if (locations.isEmpty()) {
             const QString why = JarSource::lastFailure();
             if (why.isEmpty()) {
-                statusBar()->showMessage(tr("No definition found"), 3000);
+                statusBar()->showMessage(what == LspManager::Navigate::TypeDefinition ? tr("No type definition found")
+                                         : what == LspManager::Navigate::Implementation ? tr("No implementations found")
+                                                                                        : tr("No definition found"),
+                                         3000);
                 return;
             }
             statusBar()->showMessage(why, 6000);
@@ -1653,7 +1671,7 @@ void MainWindow::goToDefinition(CodeEditor *editor, int line, int column)
                     [open, loc] { open(loc); });
         }
         menu.exec(QCursor::pos());
-    });
+    }, what);
 }
 
 // Downloads <coords>:sources with the project's own Gradle (its repositories), through an init script kept in QODE's
@@ -2834,13 +2852,26 @@ void MainWindow::showGoToSymbol()
     if (!doc)
         return;
     QList<PalettePopup::Item> items;
-    for (const Breadcrumbs::Symbol &sym : Breadcrumbs::documentSymbols(doc->textDocument(), doc->languageName())) {
-        PalettePopup::Item it;
-        it.title = sym.name;
-        it.detail = sym.parent;
-        it.hint = QString::number(sym.line + 1);
-        it.data = sym.line + 1;
-        items.append(it);
+    CodeEditor *ed = m_editors->editorFor(doc);
+    if (ed && ed->hasDocumentSymbols() && m_lsp->isServed(doc)) {
+        // The language server's declarations (nested members with their owner); kept fresh by CodeEditor::serverDataRequested.
+        for (const Breadcrumbs::ServerSymbol &sym : Breadcrumbs::flattenSymbols(ed->documentSymbols())) {
+            PalettePopup::Item it;
+            it.title = sym.name;
+            it.detail = sym.parent.isEmpty() ? sym.kind : QStringLiteral("%1 · %2").arg(sym.kind, sym.parent);
+            it.hint = QString::number(sym.line + 1);
+            it.data = sym.line + 1;
+            items.append(it);
+        }
+    } else {
+        for (const Breadcrumbs::Symbol &sym : Breadcrumbs::documentSymbols(doc->textDocument(), doc->languageName())) {
+            PalettePopup::Item it;
+            it.title = sym.name;
+            it.detail = sym.parent;
+            it.hint = QString::number(sym.line + 1);
+            it.data = sym.line + 1;
+            items.append(it);
+        }
     }
     auto *pop = new PalettePopup(this);
     pop->setPlaceholder(tr("Go to symbol in %1").arg(doc->fileName()));

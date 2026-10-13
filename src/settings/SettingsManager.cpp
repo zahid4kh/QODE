@@ -181,6 +181,13 @@ void SettingsManager::setSymbolHighlight(bool on)
     emit editorSettingsChanged();
 }
 
+bool SettingsManager::semanticHighlighting() const { return m_settings.value(QStringLiteral("editor/semanticHighlighting"), true).toBool(); }
+void SettingsManager::setSemanticHighlighting(bool on)
+{
+    m_settings.setValue(QStringLiteral("editor/semanticHighlighting"), on);
+    emit editorSettingsChanged();
+}
+
 bool SettingsManager::lightBulb() const { return m_settings.value(QStringLiteral("editor/lightBulb"), true).toBool(); }
 void SettingsManager::setLightBulb(bool on)
 {

@@ -56,6 +56,8 @@ public:
     void setSymbolHighlight(bool on);
     bool lightBulb() const;            // quick-fix bulb in the gutter
     void setLightBulb(bool on);
+    bool semanticHighlighting() const; // identifiers coloured by what the language server says they are (on by default)
+    void setSemanticHighlighting(bool on);
 
     bool showBreadcrumbs() const;
     void setShowBreadcrumbs(bool on);

@@ -72,6 +72,15 @@ void CodeEditor::setupAssists()
             scheduleSignature(3, {}, true);
     });
 
+    m_serverTimer = new QTimer(this);
+    m_serverTimer->setSingleShot(true);
+    m_serverTimer->setInterval(450);
+    connect(m_serverTimer, &QTimer::timeout, this, &CodeEditor::serverDataRequested);
+    connect(this, &QPlainTextEdit::textChanged, this, [this] {
+        if (!m_gapUpdating)
+            m_serverTimer->start();
+    });
+
     m_signatureTimer = new QTimer(this);
     m_signatureTimer->setSingleShot(true);
     m_signatureTimer->setInterval(40);
@@ -414,4 +423,189 @@ void CodeEditor::applyHoverLink(const QString &href)
 {
     if (href.startsWith(QLatin1String("http://")) || href.startsWith(QLatin1String("https://")))
         QDesktopServices::openUrl(QUrl(href));
+}
+
+// --- Semantic highlighting, server folding ranges, document symbols ---------------------------------------
+
+void CodeEditor::requestServerDataSoon()
+{
+    m_serverTimer->start();
+}
+
+namespace {
+// How a token type of the standard legend is painted; -1 leaves the regex colour alone (keywords, strings, numbers and
+// comments are already right, operators have no colour, and namespaces would turn every package segment of an import
+// into a type colour).
+int roleForType(const QString &type)
+{
+    static const QHash<QString, TokenRole> roles = {
+        {QStringLiteral("type"), TokenRole::Type},
+        {QStringLiteral("class"), TokenRole::Type},         {QStringLiteral("enum"), TokenRole::Type},
+        {QStringLiteral("interface"), TokenRole::Type},     {QStringLiteral("struct"), TokenRole::Type},
+        {QStringLiteral("typeParameter"), TokenRole::Type}, {QStringLiteral("parameter"), TokenRole::Parameter},
+        {QStringLiteral("variable"), TokenRole::Variable},  {QStringLiteral("property"), TokenRole::Property},
+        {QStringLiteral("enumMember"), TokenRole::Constant}, {QStringLiteral("event"), TokenRole::Property},
+        {QStringLiteral("function"), TokenRole::Function},  {QStringLiteral("method"), TokenRole::Function},
+        {QStringLiteral("macro"), TokenRole::Preprocessor}, {QStringLiteral("decorator"), TokenRole::Attribute}};
+    const auto it = roles.constFind(type);
+    return it == roles.constEnd() ? -1 : int(it.value());
+}
+} // namespace
+
+bool CodeEditor::setSemanticTokens(const LspSemanticTokens &tokens, int revision)
+{
+    auto *hl = document()->findChild<SyntaxHighlighter *>();
+    if (!hl || !tokens.ok)
+        return false;
+    if (revision != document()->revision())
+        return false;
+    QVector<int> roleOfType;
+    for (const QString &type : tokens.types)
+        roleOfType << roleForType(type);
+    const int deprecatedBit = int(tokens.modifiers.indexOf(QStringLiteral("deprecated")));
+    const int readonlyBit = int(tokens.modifiers.indexOf(QStringLiteral("readonly")));
+    const int staticBit = int(tokens.modifiers.indexOf(QStringLiteral("static")));
+    auto has = [](quint32 mods, int bit) { return bit >= 0 && (mods & (1u << bit)) != 0; };
+
+    SyntaxHighlighter::SemanticLines lines;
+    QVector<uint> hashes;
+    const int blocks = document()->blockCount();
+    lines.resize(blocks);
+    hashes.resize(blocks);
+    int n = 0;
+    for (QTextBlock b = document()->begin(); b.isValid(); b = b.next(), ++n) {
+        hashes[n] = SyntaxHighlighter::lineHash(b.text());
+        if (n >= tokens.lines.size())
+            continue;
+        for (const LspSemanticToken &t : tokens.lines[n]) {
+            const int role = t.type >= 0 && t.type < roleOfType.size() ? roleOfType[t.type] : -1;
+            if (role < 0)
+                continue;
+            SyntaxHighlighter::SemanticToken st;
+            st.column = t.column;
+            st.length = t.length;
+            st.role = TokenRole(role);
+            // A constant is a read-only static: Kotlin `const val`, a companion's `val` ...
+            if ((st.role == TokenRole::Variable || st.role == TokenRole::Property) && has(t.modifiers, readonlyBit) && has(t.modifiers, staticBit))
+                st.role = TokenRole::Constant;
+            st.deprecated = has(t.modifiers, deprecatedBit);
+            lines[n].append(st);
+        }
+    }
+    hl->setSemanticTokens(lines, hashes);
+    return true;
+}
+
+void CodeEditor::clearSemanticTokens()
+{
+    if (auto *hl = document()->findChild<SyntaxHighlighter *>())
+        if (hl->hasSemanticTokens())
+            hl->clearSemanticTokens();
+}
+
+// Server ranges as {start line -> end line}; several ranges starting on one line keep the longest (the outer one).
+bool CodeEditor::setServerFolds(const QVector<LspFoldingRange> &ranges, int revision)
+{
+    if (revision != document()->revision())
+        return false;
+    QHash<int, int> folds;
+    for (const LspFoldingRange &r : ranges)
+        if (r.endLine > r.startLine)
+            folds[r.startLine] = qMax(folds.value(r.startLine, -1), r.endLine);
+    if (folds == m_serverFolds)
+        return true;
+    m_serverFolds = folds;
+    applyFolds(); // a fold that is closed may now end elsewhere
+    m_lineArea->update();
+    return true;
+}
+
+void CodeEditor::clearServerFolds()
+{
+    if (m_serverFolds.isEmpty())
+        return;
+    m_serverFolds.clear();
+    applyFolds();
+    m_lineArea->update();
+}
+
+// The server's range for a fold starting on `header`: hidden lines are those after the header up to the end line, except
+// that a closing bracket on the end line stays visible (as QODE's own folds do).
+int CodeEditor::serverFoldEnd(const QTextBlock &header) const
+{
+    const auto it = m_serverFolds.constFind(header.blockNumber());
+    if (it == m_serverFolds.constEnd())
+        return -1;
+    int end = qMin(it.value(), document()->blockCount() - 1);
+    const QTextBlock last = document()->findBlockByNumber(end);
+    if (!last.isValid())
+        return -1;
+    const QString t = last.text().trimmed();
+    if (t.startsWith(QLatin1Char('}')) || t.startsWith(QLatin1Char(')')) || t.startsWith(QLatin1Char(']')))
+        --end;
+    return end > header.blockNumber() ? end : -1;
+}
+
+// Keeps the server's folding ranges and symbols on their lines while lines are added or removed after `edited`.
+void CodeEditor::shiftServerData(int edited, int delta)
+{
+    if (delta == 0 || (m_serverFolds.isEmpty() && !m_hasSymbols))
+        return;
+    const int removedLast = delta < 0 ? edited - delta : -1; // lines edited+1 .. removedLast are gone
+    auto moved = [&](int line) {
+        if (line <= edited)
+            return line;
+        if (delta < 0 && line <= removedLast)
+            return edited;
+        return line + delta;
+    };
+    if (!m_serverFolds.isEmpty()) {
+        QHash<int, int> folds;
+        for (auto it = m_serverFolds.cbegin(); it != m_serverFolds.cend(); ++it) {
+            if (delta < 0 && it.key() > edited && it.key() <= removedLast)
+                continue;
+            const int start = moved(it.key()), end = moved(it.value());
+            if (end > start)
+                folds[start] = qMax(folds.value(start, -1), end);
+        }
+        m_serverFolds = folds;
+    }
+    if (m_hasSymbols) {
+        std::function<void(QVector<LspSymbol> &)> shift = [&](QVector<LspSymbol> &list) {
+            for (LspSymbol &s : list) {
+                s.line = moved(s.line);
+                s.endLine = moved(s.endLine);
+                s.nameLine = moved(s.nameLine);
+                shift(s.children);
+            }
+        };
+        shift(m_symbols);
+    }
+    if (auto *hl = document()->findChild<SyntaxHighlighter *>())
+        hl->shiftSemanticLines(edited, delta);
+}
+
+void CodeEditor::setDocumentSymbols(const QVector<LspSymbol> &symbols)
+{
+    m_symbols = symbols;
+    m_hasSymbols = true;
+    viewport()->update(); // pinned lines
+    emit symbolsChanged();
+}
+
+void CodeEditor::clearDocumentSymbols()
+{
+    if (!m_hasSymbols)
+        return;
+    m_symbols.clear();
+    m_hasSymbols = false;
+    viewport()->update();
+    emit symbolsChanged();
+}
+
+QList<Breadcrumbs::Crumb> CodeEditor::symbolChainAt(int blockNumber) const
+{
+    if (m_hasSymbols)
+        return Breadcrumbs::chainFromSymbols(m_symbols, blockNumber);
+    return Breadcrumbs::symbolChain(document(), blockNumber, m_language);
 }

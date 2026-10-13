@@ -14,6 +14,7 @@ struct Theme {
     QColor frame, window, panel, editorBg, editorFg, gutterBg, gutterFg, gutterActiveFg;
     QColor currentLine, selection, border, accent, textMuted;
     QColor keyword, type, string, comment, number, preprocessor, function, tag, attribute;
+    QColor variable, property, parameter, constant; // only used where a language server sends semantic tokens
     QColor termBg, termFg;
     QColor gitAdded, gitModified, gitDeleted, gitUntracked, gitRenamed, gitConflict, gitIgnored;
     QColor diffAddBg, diffDelBg, diffFillBg;

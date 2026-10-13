@@ -1,5 +1,7 @@
 #pragma once
 
+#include "lsp/LspTypes.h"
+
 #include <QList>
 #include <QWidget>
 
@@ -32,6 +34,16 @@ public:
     static QList<Symbol> documentSymbols(const QTextDocument *doc, const QString &language);
     // The chain of definitions (outermost first) that contain `blockNumber`.
     static QList<Crumb> symbolChain(const QTextDocument *doc, int blockNumber, const QString &language);
+    // The same from a language server's symbol tree (textDocument/documentSymbol): the declarations that contain the line,
+    // outermost first (properties, variables and enum entries are leaves and never part of a chain).
+    static QList<Crumb> chainFromSymbols(const QVector<LspSymbol> &symbols, int blockNumber);
+    // Every declaration of the symbol tree, in document order, with the enclosing ones as `parent` ("Outer.Inner").
+    struct ServerSymbol {
+        QString name, parent, kind;
+        int line = 0, column = 0; // 0-based, where the name is
+    };
+    static QList<ServerSymbol> flattenSymbols(const QVector<LspSymbol> &symbols);
+    static QString symbolKindName(int kind);
     // Path segments of `filePath`, relative to `projectRoot` when inside it.
     static QList<Crumb> pathCrumbs(const QString &filePath, const QString &projectRoot);
 

@@ -12,6 +12,26 @@
 
 namespace {
 constexpr int kMaxLogLines = 200;
+
+// The standard semantic token legend (LSP 3.17): a server only uses the types and modifiers the client lists.
+QJsonArray semanticTokenTypes()
+{
+    QJsonArray a;
+    for (const char *t : {"namespace", "type", "class", "enum", "interface", "struct", "typeParameter", "parameter", "variable", "property",
+                          "enumMember", "event", "function", "method", "macro", "keyword", "modifier", "comment", "string", "number",
+                          "regexp", "operator", "decorator"})
+        a.append(QLatin1String(t));
+    return a;
+}
+
+QJsonArray semanticTokenModifiers()
+{
+    QJsonArray a;
+    for (const char *t : {"declaration", "definition", "readonly", "static", "deprecated", "abstract", "async", "modification",
+                          "documentation", "defaultLibrary"})
+        a.append(QLatin1String(t));
+    return a;
+}
 }
 
 LspClient::LspClient(const QString &program, const QStringList &arguments, const QString &rootPath, const QJsonObject &initializationOptions,
@@ -62,6 +82,18 @@ LspClient::LspClient(const QString &program, const QStringList &arguments, const
                                       {QStringLiteral("activeParameterSupport"), true},
                                       {QStringLiteral("parameterInformation"), QJsonObject{{QStringLiteral("labelOffsetSupport"), true}}}}}}},
             {QStringLiteral("documentHighlight"), QJsonObject{{QStringLiteral("dynamicRegistration"), false}}},
+            {QStringLiteral("typeDefinition"), QJsonObject{{QStringLiteral("linkSupport"), true}}},
+            {QStringLiteral("documentSymbol"), QJsonObject{{QStringLiteral("hierarchicalDocumentSymbolSupport"), true}}},
+            {QStringLiteral("foldingRange"), QJsonObject{{QStringLiteral("lineFoldingOnly"), true}, {QStringLiteral("dynamicRegistration"), false}}},
+            {QStringLiteral("callHierarchy"), QJsonObject{{QStringLiteral("dynamicRegistration"), false}}},
+            {QStringLiteral("semanticTokens"),
+             QJsonObject{{QStringLiteral("requests"), QJsonObject{{QStringLiteral("range"), false}, {QStringLiteral("full"), true}}},
+                         {QStringLiteral("tokenTypes"), semanticTokenTypes()},
+                         {QStringLiteral("tokenModifiers"), semanticTokenModifiers()},
+                         {QStringLiteral("formats"), QJsonArray{QStringLiteral("relative")}},
+                         {QStringLiteral("overlappingTokenSupport"), false},
+                         {QStringLiteral("multilineTokenSupport"), false},
+                         {QStringLiteral("dynamicRegistration"), false}}},
             {QStringLiteral("inlayHint"), QJsonObject{{QStringLiteral("dynamicRegistration"), false}}},
             {QStringLiteral("completion"),
              QJsonObject{{QStringLiteral("contextSupport"), true},
@@ -86,7 +118,9 @@ LspClient::LspClient(const QString &program, const QStringList &arguments, const
                           QJsonObject{{QStringLiteral("applyEdit"), true},
                                       {QStringLiteral("configuration"), bool(m_configuration)},
                                       {QStringLiteral("workspaceEdit"), QJsonObject{{QStringLiteral("documentChanges"), true}}},
-                                      {QStringLiteral("inlayHint"), QJsonObject{{QStringLiteral("refreshSupport"), true}}}}},
+                                      {QStringLiteral("inlayHint"), QJsonObject{{QStringLiteral("refreshSupport"), true}}},
+                                      {QStringLiteral("semanticTokens"), QJsonObject{{QStringLiteral("refreshSupport"), true}}},
+                                      {QStringLiteral("foldingRange"), QJsonObject{{QStringLiteral("refreshSupport"), true}}}}},
                          {QStringLiteral("window"), QJsonObject{{QStringLiteral("workDoneProgress"), true}}},
                          {QStringLiteral("general"), QJsonObject{{QStringLiteral("positionEncodings"), QJsonArray{QStringLiteral("utf-16")}}}}}},
         };
@@ -265,7 +299,8 @@ void LspClient::handleServerRequest(const QJsonObject &message)
                method == QLatin1String("window/workDoneProgress/create") || method == QLatin1String("window/showMessageRequest") ||
                method.endsWith(QLatin1String("/refresh"))) {
         reply.insert(QStringLiteral("result"), QJsonValue::Null);
-        if (method == QLatin1String("workspace/diagnostic/refresh") || method == QLatin1String("workspace/inlayHint/refresh"))
+        if (method == QLatin1String("workspace/diagnostic/refresh") || method == QLatin1String("workspace/inlayHint/refresh") ||
+            method == QLatin1String("workspace/semanticTokens/refresh") || method == QLatin1String("workspace/foldingRange/refresh"))
             QTimer::singleShot(0, this, [this, method] { emit notification(method, QJsonObject()); });
     } else {
         reply.insert(QStringLiteral("error"), QJsonObject{{QStringLiteral("code"), -32601}, {QStringLiteral("message"), QStringLiteral("Method not found")}});

@@ -2,6 +2,7 @@
 
 #include <functional>
 #include "git/GitDiff.h"
+#include "Breadcrumbs.h"
 #include "git/GitTypes.h"
 #include "lsp/LspTypes.h"
 #include "refactor/MoveRefactor.h"
@@ -182,6 +183,25 @@ public:
     bool hasFolds() const { return m_foldedCount > 0; }
     void setGutterHover(bool on);
 
+    // --- Semantic highlighting, folding ranges, symbols from the language server (CodeEditorAssist.cpp) ----------------
+    // The identifiers' meaning (parameter, property, class ...) painted over the regex colours. `revision` is the document
+    // revision the request was made at: an answer for older text is refused (false) and the caller asks again.
+    bool setSemanticTokens(const LspSemanticTokens &tokens, int revision);
+    void clearSemanticTokens();
+    // Folding ranges of the server. They are combined with QODE's own detection: a line folds when either finds a region
+    // there, and the server's end wins where both do. The ranges follow edits until the next list arrives.
+    bool setServerFolds(const QVector<LspFoldingRange> &ranges, int revision);
+    void clearServerFolds();
+    int serverFoldCount() const { return m_serverFolds.size(); }
+    // The declarations of the file (breadcrumbs, pinned lines). Without them the indentation heuristics are used.
+    void setDocumentSymbols(const QVector<LspSymbol> &symbols);
+    void clearDocumentSymbols();
+    bool hasDocumentSymbols() const { return m_hasSymbols; }
+    const QVector<LspSymbol> &documentSymbols() const { return m_symbols; }
+    QList<Breadcrumbs::Crumb> symbolChainAt(int blockNumber) const;
+    // The text settled (or a server finished starting): serverDataRequested() asks for tokens, folds and symbols again.
+    void requestServerDataSoon();
+
 signals:
     void filesDropped(const QStringList &paths);
     void searchResultsChanged();
@@ -201,6 +221,8 @@ signals:
     // triggerKind: 1 invoked, 2 trigger character, 3 content change (LSP numbering); `token` goes back to showSignatureHelp()
     void signatureHelpRequested(int line, int column, int triggerKind, const QString &triggerChar, bool retrigger, int token);
     void referencesRequested(int line, int column); // "Find References" in the hover popup
+    void symbolsChanged();           // the symbol tree changed: breadcrumbs and pinned lines may differ
+    void serverDataRequested();      // semantic tokens, folding ranges and document symbols are out of date
     void colorsRequested();          // the text settled after an edit: ask the server for colour literals again
     void swatchClicked(int index);   // index into the list given to setColorSwatches()
 
@@ -240,6 +262,8 @@ private:
     int effectiveDepth(const QTextBlock &block) const;                      // blank lines borrow from neighbours
     void updateGuideScope();
 
+    int serverFoldEnd(const QTextBlock &header) const; // last block hidden by the server's range starting at `header`, or -1
+    void shiftServerData(int edited, int delta);
     bool isFolded(const QTextBlock &block) const;
     void setFolded(const QTextBlock &block, bool folded);
     bool isFoldable(const QTextBlock &block) const;
@@ -366,6 +390,12 @@ private:
     QHash<int, int> m_hunkAtLine; // line -> hunk index (added/modified lines)
     QHash<int, int> m_deletedAt;  // line above which lines were removed -> hunk index
     QTimer *m_diffTimer;
+
+    // Language server data that follows edits: folding ranges (start line -> end line) and the symbol tree.
+    QHash<int, int> m_serverFolds;
+    QVector<LspSymbol> m_symbols;
+    bool m_hasSymbols = false;
+    QTimer *m_serverTimer = nullptr;
 
     // Language server assists
     struct Hint {

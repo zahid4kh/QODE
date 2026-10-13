@@ -8,7 +8,8 @@
 // Semantic token classes; SyntaxHighlighter maps these to theme colours.
 enum class TokenRole {
     Keyword, Type, String, Comment, Number, Preprocessor, Function, Tag, Attribute,
-    Heading, Emphasis, Strong, Code, Link
+    Heading, Emphasis, Strong, Code, Link,
+    Variable, Property, Parameter, Constant // only from a language server's semantic tokens, never from the regex rules
 };
 
 // A single-line regex rule: the whole match (or capture group `group`) gets `role`.

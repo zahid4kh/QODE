@@ -87,7 +87,14 @@ public:
     // Markdown text of the symbol under (line, column), empty when there is none.
     void hover(Document *doc, int line, int column, std::function<void(const QString &)> done);
     // Where the symbol under (line, column) is defined; empty when unknown.
-    void definition(Document *doc, int line, int column, std::function<void(const QVector<LspLocation> &)> done);
+    // What a navigation request asks for: the definition, the declaration of the symbol's type, or its implementations.
+    enum class Navigate { Definition, TypeDefinition, Implementation };
+    void definition(Document *doc, int line, int column, std::function<void(const QVector<LspLocation> &)> done,
+                    Navigate what = Navigate::Definition);
+    bool supportsNavigation(Document *doc, Navigate what) const;
+    // workspace/symbol: declarations anywhere in the project whose name matches `query`, asked of the document's server.
+    bool supportsWorkspaceSymbols(Document *doc) const;
+    void workspaceSymbols(Document *doc, const QString &query, std::function<void(const QVector<LspWorkspaceSymbol> &, bool ok)> done);
 
     // Colour literals of the document (CSS colours, Tailwind classes), merged from every server that provides them.
     void documentColors(Document *doc, std::function<void(const QVector<LspColor> &)> done);
@@ -152,6 +159,19 @@ public:
     // Inlay hints (inferred types, parameter names) for the lines [startLine, endLine]; the editor filters them by kind.
     bool supportsInlayHints(Document *doc) const;
     void inlayHints(Document *doc, int startLine, int endLine, std::function<void(const QVector<LspInlayHint> &)> done);
+    // Semantic highlighting: the file's tokens (textDocument/semanticTokens/full) decoded against the server's legend.
+    bool supportsSemanticTokens(Document *doc) const;
+    void semanticTokens(Document *doc, std::function<void(const LspSemanticTokens &)> done);
+    // Folding ranges the server computes (line folding only); empty when the server has none.
+    bool supportsFoldingRanges(Document *doc) const;
+    void foldingRanges(Document *doc, std::function<void(const QVector<LspFoldingRange> &, bool ok)> done);
+    // The declarations of the file as a tree (classes with their members ...); ok is false when the request failed.
+    bool supportsDocumentSymbols(Document *doc) const;
+    void documentSymbols(Document *doc, std::function<void(const QVector<LspSymbol> &, bool ok)> done);
+    // Call hierarchy: prepare gives the function(s) under the caret, then the callers (incoming) or callees (outgoing) of one.
+    bool supportsCallHierarchy(Document *doc) const;
+    void prepareCallHierarchy(Document *doc, int line, int column, std::function<void(const QVector<LspCallItem> &)> done);
+    void callHierarchyCalls(const LspCallItem &item, bool incoming, std::function<void(const QVector<LspCallItem> &, bool ok)> done);
     // textDocument/formatting, waited for with a local event loop (save must stay synchronous). False when no running
     // server formats this document, it timed out or failed; *edits may be empty when the text is already formatted.
     bool formatting(Document *doc, int tabSize, bool spaces, int timeoutMs, QVector<LspTextEdit> *edits);
@@ -166,6 +186,7 @@ public:
 signals:
     void statusChanged();
     void inlayHintsRefresh();   // a server wants its hints fetched again (workspace/inlayHint/refresh, new settings)
+    void semanticTokensRefresh(); // workspace/semanticTokens/refresh or workspace/foldingRange/refresh: ask again
     void renameRequested(const QString &path, int line, int column); // "Extract to function" asks for a rename of the new name
     void buildSyncFinished(const QString &serverName); // the re-import ended
     void diagnosticsChanged(const QString &path);

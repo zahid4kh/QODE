@@ -420,6 +420,7 @@ EditorManager::Entry EditorManager::addDocument(Document *doc)
     crumbTimer->setInterval(120);
     connect(crumbTimer, &QTimer::timeout, this, [this, doc] { updateCrumbs(doc); });
     connect(editor, &QPlainTextEdit::cursorPositionChanged, crumbTimer, qOverload<>(&QTimer::start));
+    connect(editor, &CodeEditor::symbolsChanged, crumbTimer, qOverload<>(&QTimer::start));
     connect(pane->crumbs, &Breadcrumbs::previewRequested, this, &EditorManager::previewRequested);
     connect(pane->crumbs, &Breadcrumbs::tableToggleRequested, this, [this, doc, pane] {
         pane->showTable(!pane->tableShown(), doc->textDocument(), doc->filePath());
@@ -492,7 +493,7 @@ void EditorManager::updateCrumbs(Document *doc)
         return;
     QList<Breadcrumbs::Crumb> path = doc->isUntitled() ? QList<Breadcrumbs::Crumb>{{tr("Untitled"), -1}}
                                                        : Breadcrumbs::pathCrumbs(doc->filePath(), m_projectRoot);
-    pane->crumbs->setCrumbs(path, Breadcrumbs::symbolChain(doc->textDocument(), pane->editor->textCursor().blockNumber(), doc->languageName()));
+    pane->crumbs->setCrumbs(path, pane->editor->symbolChainAt(pane->editor->textCursor().blockNumber()));
 }
 
 void EditorManager::updateAllCrumbs()

@@ -31,6 +31,10 @@ Theme Theme::dark_()
     t.function = "#61afef";
     t.tag = "#e06c75";
     t.attribute = "#d19a66";
+    t.variable = "#d7dae0";
+    t.property = "#e06c75";
+    t.parameter = "#d8a46c";
+    t.constant = "#56b6c2";
     t.termBg = "#191b20";
     t.termFg = "#c5c8d0";
     t.gitAdded = "#81b88b";
@@ -82,6 +86,10 @@ Theme Theme::light_()
     t.function = "#4078f2";
     t.tag = "#e45649";
     t.attribute = "#986801";
+    t.variable = "#383a42";
+    t.property = "#e45649";
+    t.parameter = "#b76b01";
+    t.constant = "#0184bc";
     t.termBg = "#ffffff";
     t.termFg = "#383a42";
     t.gitAdded = "#2e7d32";
@@ -134,6 +142,10 @@ Theme Theme::monoDark_()
     t.function = "#61afef";
     t.tag = "#e06c75";
     t.attribute = "#d19a66";
+    t.variable = "#d4d4d4";
+    t.property = "#e06c75";
+    t.parameter = "#d8a46c";
+    t.constant = "#56b6c2";
     t.termBg = "#0e0e0e";
     t.termFg = "#cccccc";
     t.gitAdded = "#b5b5b5";
@@ -184,6 +196,10 @@ Theme Theme::monoLight_()
     t.function = "#1f55d0";
     t.tag = "#b3362b";
     t.attribute = "#7a4e00";
+    t.variable = "#1c1c1c";
+    t.property = "#b3362b";
+    t.parameter = "#8f5a00";
+    t.constant = "#00637f";
     t.termBg = "#d6d6d6";
     t.termFg = "#1c1c1c";
     t.gitAdded = "#3a3a3a";
@@ -237,6 +253,10 @@ Theme Theme::darcula_()
     t.function = "#ffc66d";
     t.tag = "#e8bf6a";
     t.attribute = "#bababa";
+    t.variable = "#a9b7c6";
+    t.property = "#9876aa";
+    t.parameter = "#c3cad6";
+    t.constant = "#9876aa";
     t.termBg = "#202020";
     t.termFg = "#adadad";
     t.gitAdded = "#629755";
@@ -295,6 +315,10 @@ const QList<Theme::Field> &Theme::fields()
         FIELD(function, "function", "Functions", "Syntax"),
         FIELD(tag, "tag", "Tags", "Syntax"),
         FIELD(attribute, "attribute", "Attributes", "Syntax"),
+        FIELD(variable, "variable", "Variables", "Syntax"),
+        FIELD(property, "property", "Properties", "Syntax"),
+        FIELD(parameter, "parameter", "Parameters", "Syntax"),
+        FIELD(constant, "constant", "Constants / enum entries", "Syntax"),
 
         FIELD(termBg, "termBg", "Background", "Terminal"),
         FIELD(termFg, "termFg", "Text", "Terminal"),

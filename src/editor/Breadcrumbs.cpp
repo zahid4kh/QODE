@@ -185,6 +185,85 @@ QList<Breadcrumbs::Crumb> Breadcrumbs::symbolChain(const QTextDocument *doc, int
     return rev.mid(qMax(0, rev.size() - 4));
 }
 
+namespace {
+// SymbolKind values that are leaves of a scope: they never head a breadcrumb or a pinned line.
+bool isLeafKind(int kind)
+{
+    switch (kind) {
+    case 7:  // Property
+    case 8:  // Field
+    case 13: // Variable
+    case 14: // Constant
+    case 15: // String
+    case 16: // Number
+    case 17: // Boolean
+    case 22: // EnumMember
+    case 26: // TypeParameter
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool isCallableKind(int kind) { return kind == 6 || kind == 9 || kind == 12; } // Method, Constructor, Function
+
+QString crumbName(const LspSymbol &s)
+{
+    QString name = s.name;
+    if (isCallableKind(s.kind) && !name.contains(QLatin1Char('(')))
+        name += QStringLiteral("()");
+    return name;
+}
+
+void collectChain(const QVector<LspSymbol> &list, int line, QList<Breadcrumbs::Crumb> &out)
+{
+    for (const LspSymbol &s : list) {
+        if (line < s.line || line > s.endLine || isLeafKind(s.kind))
+            continue;
+        out.append({crumbName(s), s.nameLine});
+        collectChain(s.children, line, out);
+        return; // declarations of one level do not overlap
+    }
+}
+
+void flatten(const QVector<LspSymbol> &list, const QString &parent, QList<Breadcrumbs::ServerSymbol> &out)
+{
+    for (const LspSymbol &s : list) {
+        Breadcrumbs::ServerSymbol e;
+        e.name = s.name;
+        e.parent = parent;
+        e.kind = Breadcrumbs::symbolKindName(s.kind);
+        e.line = s.nameLine;
+        e.column = s.nameColumn;
+        out.append(e);
+        flatten(s.children, parent.isEmpty() ? s.name : parent + QLatin1Char('.') + s.name, out);
+    }
+}
+} // namespace
+
+QList<Breadcrumbs::Crumb> Breadcrumbs::chainFromSymbols(const QVector<LspSymbol> &symbols, int blockNumber)
+{
+    QList<Crumb> chain;
+    collectChain(symbols, blockNumber, chain);
+    return chain.mid(qMax(0, chain.size() - 4));
+}
+
+QList<Breadcrumbs::ServerSymbol> Breadcrumbs::flattenSymbols(const QVector<LspSymbol> &symbols)
+{
+    QList<ServerSymbol> out;
+    flatten(symbols, {}, out);
+    return out;
+}
+
+QString Breadcrumbs::symbolKindName(int kind)
+{
+    static const char *names[] = {"",          "file",     "module",  "namespace", "package",  "class",    "method",     "property",
+                                  "field",     "constructor", "enum", "interface", "function", "variable", "constant",   "string",
+                                  "number",    "boolean",  "array",   "object",    "key",      "null",     "enum entry", "struct",
+                                  "event",     "operator", "type parameter"};
+    return kind > 0 && kind < int(sizeof(names) / sizeof(names[0])) ? QString::fromLatin1(names[kind]) : QString();
+}
+
 QList<Breadcrumbs::Symbol> Breadcrumbs::documentSymbols(const QTextDocument *doc, const QString &language)
 {
     QList<Symbol> out;

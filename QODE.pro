@@ -82,6 +82,7 @@ SOURCES += \
     src/dialogs/NewFileDialog.cpp \
     src/dialogs/UnsavedChangesDialog.cpp \
     src/dialogs/UnusedImportsDialog.cpp \
+    src/dialogs/CallHierarchyDialog.cpp \
     src/dialogs/ReferencesDialog.cpp \
     src/dialogs/LspLogDialog.cpp \
     src/dialogs/RunConfigDialog.cpp \
@@ -191,6 +192,7 @@ HEADERS += \
     src/dialogs/NewFileDialog.h \
     src/dialogs/UnsavedChangesDialog.h \
     src/dialogs/UnusedImportsDialog.h \
+    src/dialogs/CallHierarchyDialog.h \
     src/dialogs/ReferencesDialog.h \
     src/dialogs/LspLogDialog.h \
     src/dialogs/RunConfigDialog.h \

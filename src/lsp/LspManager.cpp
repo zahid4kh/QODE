@@ -1913,7 +1913,21 @@ void LspManager::hover(Document *doc, int line, int column, std::function<void(c
                             });
 }
 
-void LspManager::definition(Document *doc, int line, int column, std::function<void(const QVector<LspLocation> &)> done)
+bool LspManager::supportsNavigation(Document *doc, Navigate what) const
+{
+    const auto it = m_tracked.constFind(doc);
+    if (it == m_tracked.constEnd() || !it->opened())
+        return false;
+    const LspClient *c = m_servers.value(it->serverId).client;
+    if (!c || !c->isRunning())
+        return false;
+    const char *key = what == Navigate::TypeDefinition ? "typeDefinitionProvider"
+                      : what == Navigate::Implementation ? "implementationProvider" : "definitionProvider";
+    const QJsonValue p = c->serverCapabilities().value(QLatin1String(key));
+    return p.isObject() || p.toBool(false);
+}
+
+void LspManager::definition(Document *doc, int line, int column, std::function<void(const QVector<LspLocation> &)> done, Navigate what)
 {
     QString uri;
     LspClient *c = readyClientFor(doc, &uri);
@@ -1922,7 +1936,10 @@ void LspManager::definition(Document *doc, int line, int column, std::function<v
         return;
     }
     QPointer<LspClient> guard(c);
-    c->request(QStringLiteral("textDocument/definition"), positionParams(uri, line, column),
+    const QString method = what == Navigate::TypeDefinition ? QStringLiteral("textDocument/typeDefinition")
+                           : what == Navigate::Implementation ? QStringLiteral("textDocument/implementation")
+                                                              : QStringLiteral("textDocument/definition");
+    c->request(method, positionParams(uri, line, column),
                [guard, done](const QJsonValue &result, const QJsonObject &error) {
                    QVector<QJsonObject> found;
                    if (error.isEmpty()) {
@@ -2041,6 +2058,10 @@ void LspManager::onNotification(const QString &id, const QString &method, const 
     }
     if (method == QLatin1String("workspace/inlayHint/refresh")) {
         emit inlayHintsRefresh();
+        return;
+    }
+    if (method == QLatin1String("workspace/semanticTokens/refresh") || method == QLatin1String("workspace/foldingRange/refresh")) {
+        emit semanticTokensRefresh();
         return;
     }
     if (method == QLatin1String("_typescript.rename")) {
@@ -2342,5 +2363,303 @@ void LspManager::references(Document *doc, int line, int column, std::function<v
             for (const QJsonValue &v : result.toArray())
                 addLocation(out, v.toObject());
         done(out);
+    });
+}
+
+// --- Semantic tokens, folding ranges, document symbols, call hierarchy ---------------------------------
+
+namespace {
+// Whether the capability is advertised (an options object or true).
+bool provides(const QJsonObject &caps, const char *capability)
+{
+    const QJsonValue v = caps.value(QLatin1String(capability));
+    return v.isObject() || v.toBool(false);
+}
+
+QString pathOfUri(const QString &uri)
+{
+    return JarSource::isJarUri(uri) ? JarSource::extract(uri) : QUrl(uri).toLocalFile();
+}
+
+QPair<int, int> startOf(const QJsonObject &range)
+{
+    const QJsonObject s = range.value(QStringLiteral("start")).toObject();
+    return {s.value(QStringLiteral("line")).toInt(), s.value(QStringLiteral("character")).toInt()};
+}
+
+QPair<int, int> endOf(const QJsonObject &range)
+{
+    const QJsonObject e = range.value(QStringLiteral("end")).toObject();
+    return {e.value(QStringLiteral("line")).toInt(), e.value(QStringLiteral("character")).toInt()};
+}
+
+LspCallItem parseCallItem(const QJsonObject &o, const QString &server)
+{
+    LspCallItem it;
+    it.name = o.value(QStringLiteral("name")).toString();
+    it.detail = o.value(QStringLiteral("detail")).toString();
+    it.kind = o.value(QStringLiteral("kind")).toInt(12);
+    it.server = server;
+    it.path = pathOfUri(o.value(QStringLiteral("uri")).toString());
+    const QPair<int, int> at = startOf(o.value(QStringLiteral("selectionRange")).toObject());
+    it.line = at.first;
+    it.column = at.second;
+    it.raw = o;
+    return it;
+}
+
+LspSymbol parseSymbol(const QJsonObject &o)
+{
+    LspSymbol sym;
+    sym.name = o.value(QStringLiteral("name")).toString();
+    sym.detail = o.value(QStringLiteral("detail")).toString();
+    sym.kind = o.value(QStringLiteral("kind")).toInt();
+    sym.deprecated = o.value(QStringLiteral("deprecated")).toBool();
+    for (const QJsonValue &tag : o.value(QStringLiteral("tags")).toArray())
+        if (tag.toInt() == 1)
+            sym.deprecated = true;
+    const QJsonObject range = o.value(QStringLiteral("range")).toObject();
+    const QJsonObject selection = o.contains(QStringLiteral("selectionRange")) ? o.value(QStringLiteral("selectionRange")).toObject() : range;
+    sym.line = startOf(range).first;
+    sym.column = startOf(range).second;
+    sym.endLine = endOf(range).first;
+    sym.endColumn = endOf(range).second;
+    sym.nameLine = startOf(selection).first;
+    sym.nameColumn = startOf(selection).second;
+    for (const QJsonValue &c : o.value(QStringLiteral("children")).toArray())
+        sym.children << parseSymbol(c.toObject());
+    return sym;
+}
+} // namespace
+
+bool LspManager::supportsSemanticTokens(Document *doc) const
+{
+    const auto it = m_tracked.constFind(doc);
+    if (it == m_tracked.constEnd() || !it->opened())
+        return false;
+    const LspClient *c = m_servers.value(it->serverId).client;
+    if (!c || !c->isRunning())
+        return false;
+    const QJsonObject p = c->serverCapabilities().value(QStringLiteral("semanticTokensProvider")).toObject();
+    const QJsonValue full = p.value(QStringLiteral("full"));
+    return !p.isEmpty() && (full.isObject() || full.toBool(false));
+}
+
+void LspManager::semanticTokens(Document *doc, std::function<void(const LspSemanticTokens &)> done)
+{
+    QString uri;
+    LspClient *c = supportsSemanticTokens(doc) ? readyClientFor(doc, &uri) : nullptr;
+    if (!c) {
+        done({});
+        return;
+    }
+    const QJsonObject legend = c->serverCapabilities().value(QStringLiteral("semanticTokensProvider")).toObject().value(QStringLiteral("legend")).toObject();
+    LspSemanticTokens out;
+    for (const QJsonValue &v : legend.value(QStringLiteral("tokenTypes")).toArray())
+        out.types << v.toString();
+    for (const QJsonValue &v : legend.value(QStringLiteral("tokenModifiers")).toArray())
+        out.modifiers << v.toString();
+    c->request(QStringLiteral("textDocument/semanticTokens/full"), QJsonObject{{QStringLiteral("textDocument"), QJsonObject{{QStringLiteral("uri"), uri}}}},
+               [done, out](const QJsonValue &result, const QJsonObject &error) mutable {
+                   if (!error.isEmpty() || !result.isObject()) {
+                       done(out); // ok stays false: the editor keeps what it shows
+                       return;
+                   }
+                   // Five numbers per token: line delta, column delta (relative to the previous token when on the same line),
+                   // length, type index, modifier bits.
+                   const QJsonArray data = result.toObject().value(QStringLiteral("data")).toArray();
+                   int line = 0, column = 0;
+                   for (qsizetype i = 0; i + 4 < data.size(); i += 5) {
+                       const int dLine = data.at(i).toInt(), dStart = data.at(i + 1).toInt();
+                       if (dLine > 0) {
+                           line += dLine;
+                           column = dStart;
+                       } else {
+                           column += dStart;
+                       }
+                       LspSemanticToken t;
+                       t.column = column;
+                       t.length = data.at(i + 2).toInt();
+                       t.type = data.at(i + 3).toInt();
+                       t.modifiers = quint32(data.at(i + 4).toDouble());
+                       if (t.length <= 0 || line > 5000000)
+                           continue;
+                       if (out.lines.size() <= line)
+                           out.lines.resize(line + 1);
+                       out.lines[line].append(t);
+                   }
+                   out.ok = true;
+                   done(out);
+               });
+}
+
+bool LspManager::supportsFoldingRanges(Document *doc) const
+{
+    const auto it = m_tracked.constFind(doc);
+    if (it == m_tracked.constEnd() || !it->opened())
+        return false;
+    const LspClient *c = m_servers.value(it->serverId).client;
+    return c && c->isRunning() && provides(c->serverCapabilities(), "foldingRangeProvider");
+}
+
+void LspManager::foldingRanges(Document *doc, std::function<void(const QVector<LspFoldingRange> &, bool)> done)
+{
+    QString uri;
+    LspClient *c = supportsFoldingRanges(doc) ? readyClientFor(doc, &uri) : nullptr;
+    if (!c) {
+        done({}, false);
+        return;
+    }
+    c->request(QStringLiteral("textDocument/foldingRange"), QJsonObject{{QStringLiteral("textDocument"), QJsonObject{{QStringLiteral("uri"), uri}}}},
+               [done](const QJsonValue &result, const QJsonObject &error) {
+                   QVector<LspFoldingRange> out;
+                   if (!error.isEmpty() || !result.isArray()) {
+                       done(out, false);
+                       return;
+                   }
+                   for (const QJsonValue &v : result.toArray()) {
+                       const QJsonObject o = v.toObject();
+                       LspFoldingRange r;
+                       r.startLine = o.value(QStringLiteral("startLine")).toInt();
+                       r.endLine = o.value(QStringLiteral("endLine")).toInt();
+                       r.kind = o.value(QStringLiteral("kind")).toString();
+                       if (r.endLine > r.startLine)
+                           out << r;
+                   }
+                   done(out, true);
+               });
+}
+
+bool LspManager::supportsDocumentSymbols(Document *doc) const
+{
+    const auto it = m_tracked.constFind(doc);
+    if (it == m_tracked.constEnd() || !it->opened())
+        return false;
+    const LspClient *c = m_servers.value(it->serverId).client;
+    return c && c->isRunning() && provides(c->serverCapabilities(), "documentSymbolProvider");
+}
+
+void LspManager::documentSymbols(Document *doc, std::function<void(const QVector<LspSymbol> &, bool)> done)
+{
+    QString uri;
+    LspClient *c = supportsDocumentSymbols(doc) ? readyClientFor(doc, &uri) : nullptr;
+    if (!c) {
+        done({}, false);
+        return;
+    }
+    c->request(QStringLiteral("textDocument/documentSymbol"), QJsonObject{{QStringLiteral("textDocument"), QJsonObject{{QStringLiteral("uri"), uri}}}},
+               [done](const QJsonValue &result, const QJsonObject &error) {
+                   QVector<LspSymbol> out;
+                   if (!error.isEmpty() || !result.isArray()) {
+                       done(out, false);
+                       return;
+                   }
+                   for (const QJsonValue &v : result.toArray()) {
+                       QJsonObject o = v.toObject();
+                       if (o.contains(QStringLiteral("location"))) { // SymbolInformation: flat, the range sits in `location`
+                           o.insert(QStringLiteral("range"), o.value(QStringLiteral("location")).toObject().value(QStringLiteral("range")));
+                           o.insert(QStringLiteral("detail"), o.value(QStringLiteral("containerName")));
+                       }
+                       out << parseSymbol(o);
+                   }
+                   done(out, true);
+               });
+}
+
+bool LspManager::supportsCallHierarchy(Document *doc) const
+{
+    const auto it = m_tracked.constFind(doc);
+    if (it == m_tracked.constEnd() || !it->opened())
+        return false;
+    const LspClient *c = m_servers.value(it->serverId).client;
+    return c && c->isRunning() && provides(c->serverCapabilities(), "callHierarchyProvider");
+}
+
+void LspManager::prepareCallHierarchy(Document *doc, int line, int column, std::function<void(const QVector<LspCallItem> &)> done)
+{
+    QString uri;
+    LspClient *c = supportsCallHierarchy(doc) ? readyClientFor(doc, &uri) : nullptr;
+    if (!c) {
+        done({});
+        return;
+    }
+    const QString server = m_tracked.value(doc).serverId;
+    c->request(QStringLiteral("textDocument/prepareCallHierarchy"), positionParams(uri, line, column),
+               [done, server](const QJsonValue &result, const QJsonObject &error) {
+                   QVector<LspCallItem> out;
+                   if (error.isEmpty())
+                       for (const QJsonValue &v : result.toArray())
+                           out << parseCallItem(v.toObject(), server);
+                   done(out);
+               });
+}
+
+void LspManager::callHierarchyCalls(const LspCallItem &item, bool incoming, std::function<void(const QVector<LspCallItem> &, bool)> done)
+{
+    LspClient *c = m_servers.value(item.server).client;
+    if (!c || !c->isRunning()) {
+        done({}, false);
+        return;
+    }
+    const QString server = item.server;
+    const QString parentPath = item.path;
+    c->request(incoming ? QStringLiteral("callHierarchy/incomingCalls") : QStringLiteral("callHierarchy/outgoingCalls"),
+               QJsonObject{{QStringLiteral("item"), item.raw}},
+               [done, server, incoming, parentPath](const QJsonValue &result, const QJsonObject &error) {
+                   QVector<LspCallItem> out;
+                   if (!error.isEmpty()) {
+                       done(out, false);
+                       return;
+                   }
+                   for (const QJsonValue &v : result.toArray()) {
+                       const QJsonObject o = v.toObject();
+                       LspCallItem it = parseCallItem(o.value(incoming ? QStringLiteral("from") : QStringLiteral("to")).toObject(), server);
+                       // fromRanges lie in the caller: the other function for incoming calls, the one we expanded for outgoing.
+                       it.callSitePath = incoming ? it.path : parentPath;
+                       for (const QJsonValue &r : o.value(QStringLiteral("fromRanges")).toArray())
+                           it.callSites << startOf(r.toObject());
+                       out << it;
+                   }
+                   done(out, true);
+               });
+}
+
+bool LspManager::supportsWorkspaceSymbols(Document *doc) const
+{
+    const auto it = m_tracked.constFind(doc);
+    if (it == m_tracked.constEnd() || !it->opened())
+        return false;
+    const LspClient *c = m_servers.value(it->serverId).client;
+    return c && c->isRunning() && provides(c->serverCapabilities(), "workspaceSymbolProvider");
+}
+
+void LspManager::workspaceSymbols(Document *doc, const QString &query, std::function<void(const QVector<LspWorkspaceSymbol> &, bool)> done)
+{
+    QString uri;
+    LspClient *c = supportsWorkspaceSymbols(doc) ? readyClientFor(doc, &uri) : nullptr;
+    if (!c) {
+        done({}, false);
+        return;
+    }
+    c->request(QStringLiteral("workspace/symbol"), QJsonObject{{QStringLiteral("query"), query}}, [done](const QJsonValue &result, const QJsonObject &error) {
+        QVector<LspWorkspaceSymbol> out;
+        if (!error.isEmpty() || !result.isArray()) {
+            done(out, false);
+            return;
+        }
+        for (const QJsonValue &v : result.toArray()) {
+            const QJsonObject o = v.toObject();
+            const QJsonObject loc = o.value(QStringLiteral("location")).toObject();
+            LspWorkspaceSymbol s;
+            s.name = o.value(QStringLiteral("name")).toString();
+            s.container = o.value(QStringLiteral("containerName")).toString();
+            s.kind = o.value(QStringLiteral("kind")).toInt();
+            s.path = pathOfUri(loc.value(QStringLiteral("uri")).toString());
+            s.line = startOf(loc.value(QStringLiteral("range")).toObject()).first;
+            s.column = startOf(loc.value(QStringLiteral("range")).toObject()).second;
+            if (!s.name.isEmpty() && !s.path.isEmpty())
+                out << s;
+        }
+        done(out, true);
     });
 }

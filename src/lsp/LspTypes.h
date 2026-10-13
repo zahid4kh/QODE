@@ -2,7 +2,9 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QPair>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 // One diagnostic of a textDocument/publishDiagnostics notification. Lines are 0-based and columns are
@@ -107,4 +109,57 @@ struct LspColorPresentation {
     QString label;
     bool hasEdit = false;
     LspTextEdit edit;
+};
+
+// textDocument/semanticTokens/full, decoded: the tokens of one line, columns in UTF-16 code units. `type` indexes the
+// server's legend (LspSemanticLegend::types), `modifiers` is a bit set over its modifier list.
+struct LspSemanticToken {
+    int column = 0, length = 0;
+    int type = 0;
+    quint32 modifiers = 0;
+};
+struct LspSemanticTokens {
+    QStringList types, modifiers;               // the legend the numbers refer to
+    QVector<QVector<LspSemanticToken>> lines;   // index = 0-based line (may be shorter than the document)
+    bool ok = false;                            // false: the request failed or the server has no tokens (keep what is shown)
+};
+
+// textDocument/documentSymbol as a tree (DocumentSymbol) or flattened SymbolInformation: one declaration.
+struct LspSymbol {
+    QString name;
+    QString detail;      // "(x: Int): String" ...
+    int kind = 0;        // SymbolKind (1 File ... 26 TypeParameter)
+    int line = 0, column = 0;           // start of the whole declaration
+    int endLine = 0, endColumn = 0;     // end of the whole declaration
+    int nameLine = 0, nameColumn = 0;   // the name itself (selectionRange): where Go to Symbol lands
+    bool deprecated = false;
+    QVector<LspSymbol> children;
+};
+
+// One hit of workspace/symbol (Go to Symbol in Workspace): a declaration anywhere in the project.
+struct LspWorkspaceSymbol {
+    QString name;
+    QString container; // the class / package it lives in
+    int kind = 0;      // SymbolKind
+    QString path;
+    int line = 0, column = 0; // 0-based; line 0 when the server sent a bare uri
+};
+
+// textDocument/foldingRange (line folding only): lines [startLine, endLine], kind "comment" / "imports" / "region" or empty.
+struct LspFoldingRange {
+    int startLine = 0, endLine = 0;
+    QString kind;
+};
+
+// One node of the call hierarchy (callHierarchy/incomingCalls, outgoingCalls): a function and where it calls / is called.
+struct LspCallItem {
+    QString name;
+    QString detail;
+    int kind = 12;
+    QString server;                     // id of the server that answered; it must be asked for the calls too
+    QString path;
+    int line = 0, column = 0;           // selectionRange start: the name
+    QJsonObject raw;                    // the CallHierarchyItem, handed back to incomingCalls / outgoingCalls
+    QVector<QPair<int, int>> callSites; // (line, column) of each call in the *calling* function's file (fromRanges)
+    QString callSitePath;               // the file those call sites are in
 };

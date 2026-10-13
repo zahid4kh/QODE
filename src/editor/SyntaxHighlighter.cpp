@@ -49,6 +49,10 @@ void SyntaxHighlighter::rebuildFormats()
     m_formats[int(TokenRole::Strong)] = fmt(m_theme.number, true);
     m_formats[int(TokenRole::Code)] = fmt(m_theme.string);
     m_formats[int(TokenRole::Link)] = fmt(m_theme.accent);
+    m_formats[int(TokenRole::Variable)] = fmt(m_theme.variable);
+    m_formats[int(TokenRole::Property)] = fmt(m_theme.property);
+    m_formats[int(TokenRole::Parameter)] = fmt(m_theme.parameter, false, true);
+    m_formats[int(TokenRole::Constant)] = fmt(m_theme.constant);
     for (auto it = m_formats.begin(); it != m_formats.end(); ++it)
         it.value().setProperty(kTokenRoleProperty, it.key());
 }
@@ -58,9 +62,78 @@ QTextCharFormat SyntaxHighlighter::formatFor(TokenRole role) const
     return m_formats.value(int(role));
 }
 
+void SyntaxHighlighter::setSemanticTokens(const SemanticLines &lines, const QVector<uint> &hashes)
+{
+    const SemanticLines old = std::move(m_semantic);
+    const QVector<uint> oldHash = std::move(m_semanticHash);
+    m_semantic = lines;
+    m_semanticHash = hashes;
+
+    auto same = [](const QVector<SemanticToken> &a, const QVector<SemanticToken> &b) {
+        if (a.size() != b.size())
+            return false;
+        for (int i = 0; i < a.size(); ++i)
+            if (a[i].column != b[i].column || a[i].length != b[i].length || a[i].role != b[i].role || a[i].deprecated != b[i].deprecated)
+                return false;
+        return true;
+    };
+    // The lines whose tokens (or the text they belong to) differ from what was painted before.
+    QVector<int> changed;
+    const int count = int(qMax(old.size(), m_semantic.size()));
+    for (int n = 0; n < count; ++n) {
+        const QVector<SemanticToken> none;
+        const QVector<SemanticToken> &a = n < old.size() ? old[n] : none, &b = n < m_semantic.size() ? m_semantic[n] : none;
+        const bool sameHash = (n < oldHash.size() ? oldHash[n] : 0u) == (n < m_semanticHash.size() ? m_semanticHash[n] : 0u);
+        if (!same(a, b) || (!b.isEmpty() && !sameHash))
+            changed << n;
+    }
+    if (changed.isEmpty())
+        return;
+    if (changed.size() > 300) {
+        rehighlight();
+        return;
+    }
+    for (const int n : std::as_const(changed)) {
+        const QTextBlock b = document()->findBlockByNumber(n);
+        if (b.isValid())
+            rehighlightBlock(b);
+    }
+}
+
+void SyntaxHighlighter::shiftSemanticLines(int edited, int delta)
+{
+    if (m_semantic.isEmpty() || delta == 0)
+        return;
+    const int at = edited + 1;
+    if (at < 0 || at > m_semantic.size())
+        return;
+    if (delta > 0) {
+        m_semantic.insert(at, delta, QVector<SemanticToken>());
+        m_semanticHash.insert(qMin<int>(at, int(m_semanticHash.size())), delta, 0u);
+    } else {
+        m_semantic.remove(at, qMin<int>(-delta, int(m_semantic.size()) - at));
+        m_semanticHash.remove(qMin<int>(at, int(m_semanticHash.size())), qMin<int>(-delta, qMax(0, int(m_semanticHash.size()) - at)));
+    }
+}
+
 void SyntaxHighlighter::highlightBlock(const QString &text)
 {
     highlightText(text);
+    const int blockNumber = currentBlock().blockNumber();
+    if (blockNumber < m_semantic.size() && blockNumber < m_semanticHash.size() && m_semanticHash[blockNumber] == lineHash(text)) {
+        for (const SemanticToken &t : m_semantic[blockNumber]) {
+            if (t.column < 0 || t.length <= 0 || t.column + t.length > text.size())
+                continue;
+            // Comments (KDoc references ...) stay as they are; strings may hold template expressions, which are code.
+            const QVariant role = format(t.column).property(kTokenRoleProperty);
+            if (role.isValid() && role.toInt() == int(TokenRole::Comment))
+                continue;
+            QTextCharFormat f = formatFor(t.role);
+            if (t.deprecated)
+                f.setFontStrikeOut(true);
+            setFormat(t.column, t.length, f);
+        }
+    }
     if (!m_gaps)
         return;
     for (const Gap &gap : m_gaps(currentBlock())) {

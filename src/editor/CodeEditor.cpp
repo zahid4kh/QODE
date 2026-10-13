@@ -892,6 +892,8 @@ bool CodeEditor::isFoldable(const QTextBlock &block) const
     const QString text = block.text();
     if (text.trimmed().isEmpty())
         return false;
+    if (serverFoldEnd(block) >= 0)
+        return true;
 
     const int opener = unmatchedOpener(block);
     if (opener >= 0) {
@@ -919,6 +921,8 @@ int CodeEditor::foldEnd(const QTextBlock &header) const
     const int first = header.blockNumber();
     if (const int imports = importRunEnd(header); imports >= 0)
         return imports;
+    if (const int server = serverFoldEnd(header); server >= 0)
+        return server;
     const int opener = unmatchedOpener(header);
     if (opener >= 0) {
         const int match = findMatchingBracket(opener);
@@ -1227,7 +1231,7 @@ QList<int> CodeEditor::stickyLines() const
     for (int pass = 0; pass < 3; ++pass) {
         const int probe = first.blockNumber() + rows.size();
         QList<int> next;
-        for (const Breadcrumbs::Crumb &c : Breadcrumbs::symbolChain(document(), probe, m_language))
+        for (const Breadcrumbs::Crumb &c : symbolChainAt(probe))
             if (c.line >= 0 && c.line < probe)
                 next.append(c.line);
         if (next.size() > 3)
@@ -2491,14 +2495,20 @@ void CodeEditor::setBlameInline(bool on)
 
 // Keeps bookmarks and the blame list aligned with the text while it is edited: new lines and touched
 // lines count as uncommitted.
-void CodeEditor::trackLineEdit(int position, int, int)
+void CodeEditor::trackLineEdit(int position, int, int added)
 {
     const int now = document()->blockCount();
     const int delta = now - m_blameBlocks;
     m_blameBlocks = now;
+    const QTextBlock editedBlock = document()->findBlock(position);
+    // A line break typed in front of a line pushes that whole line down: it moves, the line above stays.
+    if (delta > 0 && added > 0 && position == editedBlock.position())
+        shiftServerData(editedBlock.blockNumber() - 1, delta);
+    else
+        shiftServerData(editedBlock.blockNumber(), delta);
     if (delta == 0 && m_blame.isEmpty())
         return;
-    const int edited = document()->findBlock(position).blockNumber();
+    const int edited = editedBlock.blockNumber();
     if (delta != 0 && !m_bookmarks.isEmpty()) {
         QList<int> moved;
         for (int l : std::as_const(m_bookmarks)) {

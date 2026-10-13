@@ -23,6 +23,8 @@
 #include "project/VersionCatalog.h"
 #include "project/QmakeProject.h"
 #include "media/MarkdownPreview.h"
+#include "ai/AiPanel.h"
+#include <QVariantAnimation>
 #include "tasks/TasksPanel.h"
 #include "git/BranchButton.h"
 #include "git/BranchPopup.h"
@@ -193,6 +195,13 @@ MainWindow::MainWindow(QWidget *parent)
         m_terminal->runCommand(QStringLiteral("(cd '%1' && %2)").arg(quoted, command));
         m_terminal->focusTerminal();
     });
+    m_ai = new AiPanel(this);
+    m_ai->setEditors(m_editors);
+    m_rightStack->addWidget(m_ai);
+    connect(m_ai, &AiPanel::closeRequested, this, &MainWindow::hideMedia);
+    connect(m_ai, &AiPanel::openFileRequested, this, [this](const QString &path) { m_editors->openFile(path); });
+    connect(m_ai, &AiPanel::gitInitRequested, this, [this] { m_gitInitAct->trigger(); });
+    connect(m_projectFiles, &ProjectFiles::updated, this, [this] { m_ai->setProjectFiles(m_projectFiles->files()); });
     m_hsplit->addWidget(new Island(m_rightStack));
     m_previewTimer = new QTimer(this);
     m_previewTimer->setSingleShot(true);
@@ -497,6 +506,8 @@ void MainWindow::createActions()
     m_runAct->setToolTip(tr("Run the project, or this file (F5)"));
     m_runConfigAct = make(tr("Run Configuration…"), {}, QStringLiteral(":/new-icons/cog.svg"));
     m_runConfigAct->setToolTip(tr("Set the command that runs the project or this type of file"));
+    m_aiAct = make(tr("AI Chat"), QKeySequence(C | A | K::Key_G), QStringLiteral(":/new-icons/sparkles.svg"));
+    m_aiAct->setToolTip(tr("Ask Gemini to change the project: it plans, edits the files and reports (Ctrl+Alt+G)"));
     m_gradleAct = make(tr("Gradle Tasks"), {}, QStringLiteral(":/new-icons/gradle.svg"));
     m_gradleAct->setToolTip(tr("Show the Gradle tasks of this project (build, test, package, …) and run them"));
     m_pythonPkgAct = make(tr("Python Packages…"), {}, QStringLiteral(":/new-icons/package.svg"));
@@ -656,6 +667,7 @@ void MainWindow::createActions()
     connect(m_runConfigAct, &QAction::triggered, this, &MainWindow::configureRun);
     connect(m_pythonPkgAct, &QAction::triggered, this, &MainWindow::showPythonPackages);
     connect(m_gradleAct, &QAction::triggered, this, &MainWindow::toggleGradlePanel);
+    connect(m_aiAct, &QAction::triggered, this, &MainWindow::toggleAiPanel);
     connect(m_fullscreenAct, &QAction::triggered, this, [this] { setWindowState(windowState() ^ Qt::WindowFullScreen); });
     connect(m_wordWrapAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setWordWrap(on); });
     connect(m_breadcrumbsAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setShowBreadcrumbs(on); });
@@ -823,6 +835,7 @@ void MainWindow::createMenus()
     view->addAction(m_runConfigAct);
     view->addAction(m_pythonPkgAct);
     view->addAction(m_gradleAct);
+    view->addAction(m_aiAct);
     view->addSeparator();
     view->addAction(m_splitRightAct);
     view->addAction(m_splitDownAct);
@@ -899,6 +912,7 @@ void MainWindow::createToolBar()
     tb->addSeparator();
     tb->addAction(m_scmAct);
     tb->addAction(m_terminalAct);
+    tb->addAction(m_aiAct);
     tb->addSeparator();
     m_mainToolBar = tb;
     // A web project runs its dev server instead of single files: the server controls replace the two run buttons.
@@ -2125,6 +2139,7 @@ void MainWindow::onProjectOpened(const Project &p)
     SettingsManager::instance().addRecentProject(p.root);
     m_explorer->setProjectRoot(p.root);
     m_mover->setProjectRoot(p.root);
+    m_ai->setProject(p.root);
     m_projectFiles->setRoot(p.root);
     m_editors->setProjectRoot(p.root);
     m_searchPanel->setProjectRoot(p.root);
@@ -2168,6 +2183,7 @@ void MainWindow::onProjectClosed()
     m_tasks->setBookmarks(m_bookmarks);
     m_explorer->setProjectRoot({});
     m_mover->setProjectRoot({});
+    m_ai->setProject({});
     m_projectFiles->setRoot({});
     m_editors->setProjectRoot({});
     m_searchPanel->setProjectRoot({});
@@ -2291,6 +2307,27 @@ void MainWindow::updateGradleUi()
         hideMedia();
 }
 
+void MainWindow::toggleAiPanel()
+{
+    if (m_rightStack->parentWidget()->isVisible() && m_rightStack->currentWidget() == m_ai) {
+        hideMedia();
+        return;
+    }
+    disconnect(m_previewConn);
+    m_previewDoc = nullptr;
+    m_previewTimer->stop();
+    m_media->clear();
+    m_md->clear();
+    m_rightStack->setCurrentWidget(m_ai);
+    if (!m_rightStack->parentWidget()->isVisible() && m_hsplit->isVisible())
+        slideRightPanel(true);
+    else
+        openRightPanel();
+    m_projectFiles->ensureFresh();
+    m_ai->setProjectFiles(m_projectFiles->files());
+    m_ai->focusInput();
+}
+
 void MainWindow::toggleGradlePanel()
 {
     if (m_rightStack->parentWidget()->isVisible() && m_rightStack->currentWidget() == m_gradle) {
@@ -2307,9 +2344,62 @@ void MainWindow::toggleGradlePanel()
     m_gradle->ensureLoaded();
 }
 
+// Slides the right-hand island open or closed by animating its width in the splitter (AI chat only).
+void MainWindow::slideRightPanel(bool open)
+{
+    auto *island = static_cast<Island *>(m_rightStack->parentWidget());
+    if (!m_slideAnim) {
+        m_slideAnim = new QVariantAnimation(this);
+    }
+    m_slideAnim->stop();
+    m_slideAnim->disconnect();
+
+    const int total = m_hsplit->width();
+    int w = qBound(280, m_mediaWidth, qMax(280, total / 2));
+    QList<int> start = m_hsplit->sizes();
+    if (open) {
+        if (island->isVisible())
+            return;
+        island->setSliding(true, w);
+        island->show();
+        start = m_hsplit->sizes(); // island hidden before, so its slot is 0
+        start[1] += start[2];
+        start[2] = 0;
+    } else {
+        w = qMax(1, island->width());
+        m_mediaWidth = w;
+        island->setSliding(true, w);
+    }
+    const int middle = start[1];
+    const int from = open ? 0 : w, to = open ? w : 0;
+    m_slideAnim->setDuration(240);
+    m_slideAnim->setEasingCurve(QEasingCurve::OutCubic);
+    m_slideAnim->setStartValue(from);
+    m_slideAnim->setEndValue(to);
+    connect(m_slideAnim, &QVariantAnimation::valueChanged, this, [=](const QVariant &v) {
+        const int x = v.toInt();
+        QList<int> s = start;
+        s[2] = x;
+        s[1] = qMax(200, open ? middle - x : middle + w - x);
+        m_hsplit->setSizes(s);
+    });
+    connect(m_slideAnim, &QVariantAnimation::finished, this, [=] {
+        island->setSliding(false);
+        if (!open)
+            island->hide();
+    });
+    m_slideAnim->start();
+}
+
 void MainWindow::openRightPanel()
 {
     QWidget *island = m_rightStack->parentWidget();
+    if (m_slideAnim && m_slideAnim->state() == QAbstractAnimation::Running) {
+        m_slideAnim->stop();
+        static_cast<Island *>(island)->setSliding(false);
+        if (island->isVisible())
+            return;
+    }
     if (island->isVisible())
         return;
     island->show();
@@ -2333,13 +2423,19 @@ void MainWindow::showMedia(const QString &path)
 void MainWindow::hideMedia()
 {
     QWidget *island = m_rightStack->parentWidget();
-    if (island->isVisible())
+    const bool slide = island->isVisible() && m_rightStack->currentWidget() == m_ai && m_hsplit->isVisible()
+                       && !(m_slideAnim && m_slideAnim->state() == QAbstractAnimation::Running);
+    if (island->isVisible() && !slide)
         m_mediaWidth = island->width();
     disconnect(m_previewConn);
     m_previewDoc = nullptr;
     m_previewTimer->stop();
     m_media->clear();
     m_md->clear();
+    if (slide) {
+        slideRightPanel(false);
+        return;
+    }
     island->hide();
 }
 
@@ -3082,6 +3178,7 @@ void MainWindow::setupGit()
 
 void MainWindow::onGitStatusChanged()
 {
+    m_ai->setGitRepo(m_git->isRepo());
     // Status bar branch indicator
     if (m_git->isRepo()) {
         const QString name = m_git->branch().isEmpty() ? tr("(no branch)") : m_git->branch();

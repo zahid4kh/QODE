@@ -34,6 +34,7 @@ public:
     void setGitRepo(bool isRepo);
     void setProjectFiles(const QStringList &absolutePaths);
     void focusInput();
+    void editApiKey();
 
 signals:
     void closeRequested();
@@ -89,7 +90,7 @@ private:
     QString m_pendingModel;
 
     QLabel *m_title;
-    QToolButton *m_historyBtn, *m_newBtn, *m_closeBtn;
+    QToolButton *m_historyBtn, *m_keyBtn, *m_newBtn, *m_closeBtn;
     QPushButton *m_modelBtn;
     QMenu *m_modelMenu;
     QLabel *m_modelArrow;

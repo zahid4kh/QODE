@@ -72,6 +72,7 @@ SOURCES += \
     src/ai/AiEdits.cpp \
     src/ai/AiEnv.cpp \
     src/ai/AiInput.cpp \
+    src/ai/AiKeyDialog.cpp \
     src/ai/AiPanel.cpp \
     src/ai/AiWorkspace.cpp \
     src/ai/GeminiClient.cpp \
@@ -191,6 +192,7 @@ HEADERS += \
     src/ai/AiEdits.h \
     src/ai/AiEnv.h \
     src/ai/AiInput.h \
+    src/ai/AiKeyDialog.h \
     src/ai/AiPanel.h \
     src/ai/AiWorkspace.h \
     src/ai/GeminiClient.h \

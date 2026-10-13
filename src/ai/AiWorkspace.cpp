@@ -5,6 +5,8 @@
 #include "editor/EditorManager.h"
 #include "lsp/LspTypes.h"
 
+#include "AiEnv.h"
+
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -21,6 +23,8 @@ constexpr int kEndOfLine = 1 << 28; // column past the end: the editor clamps it
 
 bool AiWorkspace::readFile(const QString &absolute, QString *text) const
 {
+    if (AiEnv::isSensitive(absolute))
+        return false; // secrets are never sent to the model, not even from an open editor
     if (Document *doc = m_editors->documentForPath(absolute)) {
         *text = doc->text();
         return true;

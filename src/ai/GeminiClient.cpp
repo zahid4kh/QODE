@@ -50,7 +50,7 @@ QString messageOf(const QJsonObject &errorBody, int status, const QString &fallb
     if (status == 404 || state == QLatin1String("NOT_FOUND"))
         return T::tr("The model \"%1\" was not found or is not available for this key. Check the model name.\n\n%2").arg(model, msg);
     if (lower.contains(QLatin1String("api key")) || status == 401)
-        return T::tr("The API key is invalid or was rejected. Check GEMINI_API_KEY in .env.local.\n\n%1").arg(msg);
+        return T::tr("The API key is invalid or was rejected. Click the key icon in the AI chat header to enter a new one.\n\n%1").arg(msg);
     if (status == 403 || state == QLatin1String("PERMISSION_DENIED"))
         return T::tr("Access denied (the key may lack permission for this model or region).\n\n%1").arg(msg);
     if (status == 400)

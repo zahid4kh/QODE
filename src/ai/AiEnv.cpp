@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QSaveFile>
 #include <QStandardPaths>
 #include <QStringList>
 
@@ -44,6 +45,17 @@ QString parseValue(const QString &text, const QString &key)
 QString apiKey(const QString &projectRoot, QString *source)
 {
     const QString key = QStringLiteral("GEMINI_API_KEY");
+    {
+        QFile f(storedKeyPath());
+        if (f.open(QIODevice::ReadOnly)) {
+            const QString v = QString::fromUtf8(f.readAll()).trimmed();
+            if (!v.isEmpty()) {
+                if (source)
+                    *source = QStringLiteral("saved in QODE");
+                return v;
+            }
+        }
+    }
     const QString fromEnv = qEnvironmentVariable("GEMINI_API_KEY").trimmed();
     if (!fromEnv.isEmpty()) {
         if (source)
@@ -77,6 +89,64 @@ QString apiKey(const QString &projectRoot, QString *source)
         }
     }
     return {};
+}
+
+QString storedKeyPath()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + QStringLiteral("/QODE/gemini.key");
+}
+
+bool hasStoredKey()
+{
+    return QFileInfo::exists(storedKeyPath());
+}
+
+bool saveKey(const QString &key, QString *error)
+{
+    const QString path = storedKeyPath();
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QSaveFile f(path);
+    // QSaveFile creates its temporary file with the final mode, so the key is never readable by others, not even briefly.
+    f.setDirectWriteFallback(false);
+    if (!f.open(QIODevice::WriteOnly)) {
+        if (error)
+            *error = f.errorString();
+        return false;
+    }
+    f.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    f.write(key.trimmed().toUtf8());
+    if (!f.commit()) {
+        if (error)
+            *error = f.errorString();
+        return false;
+    }
+    QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    return true;
+}
+
+bool clearKey()
+{
+    return !hasStoredKey() || QFile::remove(storedKeyPath());
+}
+
+bool isSensitive(const QString &path)
+{
+    const QString name = QFileInfo(path).fileName().toLower();
+    if (name == QLatin1String(".env") || name.startsWith(QLatin1String(".env.")) || name.endsWith(QLatin1String(".env")))
+        return !(name.endsWith(QLatin1String(".example")) || name.endsWith(QLatin1String(".sample")) || name.endsWith(QLatin1String(".template")));
+    static const QStringList exact = {QStringLiteral("id_rsa"), QStringLiteral("id_dsa"), QStringLiteral("id_ecdsa"), QStringLiteral("id_ed25519"),
+                                      QStringLiteral(".npmrc"), QStringLiteral(".pypirc"), QStringLiteral(".netrc"), QStringLiteral(".git-credentials"),
+                                      QStringLiteral("credentials"), QStringLiteral("credentials.json"), QStringLiteral("secrets.json"),
+                                      QStringLiteral("secrets.yml"), QStringLiteral("secrets.yaml"), QStringLiteral("service-account.json"),
+                                      QStringLiteral("gemini.key"), QStringLiteral("google-services.json"), QStringLiteral("keystore.properties")};
+    if (exact.contains(name))
+        return true;
+    static const QStringList suffixes = {QStringLiteral(".pem"), QStringLiteral(".key"), QStringLiteral(".p12"), QStringLiteral(".pfx"),
+                                         QStringLiteral(".jks"), QStringLiteral(".keystore"), QStringLiteral(".kdbx"), QStringLiteral(".ppk")};
+    for (const QString &s : suffixes)
+        if (name.endsWith(s))
+            return true;
+    return false;
 }
 
 } // namespace AiEnv

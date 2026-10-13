@@ -4,6 +4,7 @@
 #include "ai/AiChangeCard.h"
 #include "ai/AiEnv.h"
 #include "ai/AiInput.h"
+#include "ai/AiKeyDialog.h"
 #include "ai/AiWorkspace.h"
 #include "editor/Document.h"
 #include "editor/EditorManager.h"
@@ -79,6 +80,11 @@ AiPanel::AiPanel(QWidget *parent)
     auto *historyMenu = new QMenu(m_historyBtn);
     m_historyBtn->setMenu(historyMenu);
     connect(historyMenu, &QMenu::aboutToShow, this, &AiPanel::rebuildHistoryMenu);
+    m_keyBtn = new QToolButton(this);
+    Icons::bind(m_keyBtn, QStringLiteral(":/new-icons/key.svg"));
+    m_keyBtn->setToolTip(tr("Gemini API key"));
+    m_keyBtn->setAutoRaise(true);
+    connect(m_keyBtn, &QToolButton::clicked, this, &AiPanel::editApiKey);
     m_newBtn = new QToolButton(this);
     Icons::bind(m_newBtn, QStringLiteral(":/new-icons/plus.svg"));
     m_newBtn->setToolTip(tr("New chat"));
@@ -95,6 +101,7 @@ AiPanel::AiPanel(QWidget *parent)
     auto *hl = new QHBoxLayout(header);
     hl->setContentsMargins(0, 0, 4, 0);
     hl->addWidget(m_title, 1);
+    hl->addWidget(m_keyBtn);
     hl->addWidget(m_historyBtn);
     hl->addWidget(m_newBtn);
     hl->addWidget(m_closeBtn);
@@ -145,7 +152,7 @@ AiPanel::AiPanel(QWidget *parent)
         if (!m_gitOk && !m_root.isEmpty())
             emit gitInitRequested();
         else
-            updateNotice();
+            editApiKey();
     });
 
     // --- transcript ---------------------------------------------------------------------------------------------
@@ -293,6 +300,13 @@ void AiPanel::setEditors(EditorManager *editors)
     updateContext();
 }
 
+void AiPanel::editApiKey()
+{
+    AiKeyDialog dlg(this);
+    dlg.exec();
+    updateNotice();
+}
+
 void AiPanel::focusInput()
 {
     updateNotice(); // the key file may have been added since
@@ -385,7 +399,7 @@ void AiPanel::setProjectFiles(const QStringList &absolutePaths)
     m_fileSet.clear();
     m_files.reserve(absolutePaths.size());
     for (const QString &p : absolutePaths) {
-        if (looksBinary(p))
+        if (looksBinary(p) || AiEnv::isSensitive(p))
             continue;
         const QString rel = relative(p);
         if (rel.startsWith(QLatin1String("..")))
@@ -405,9 +419,8 @@ void AiPanel::updateNotice()
         text = tr("<b>AI editing needs a git repository.</b> Every change Gemini makes can then be reviewed and reverted with git.");
         button = tr("Initialize Git repository");
     } else if (!m_keyOk) {
-        text = tr("<b>No Gemini API key found.</b> Put <code>GEMINI_API_KEY=…</code> in a <code>.env.local</code> file in the project folder "
-                  "(or next to QODE), or set the environment variable.");
-        button = tr("Check again");
+        text = tr("<b>No Gemini API key yet.</b> Add your own Google AI Studio key to use the chat. It stays on this computer.");
+        button = tr("Enter API key…");
     }
     m_notice->setVisible(!text.isEmpty());
     m_noticeText->setText(text);
@@ -439,7 +452,7 @@ QString AiPanel::focusedFile() const
     if (!d || d->isUntitled())
         return {};
     const QString p = d->filePath();
-    return p.startsWith(m_root + QLatin1Char('/')) ? p : QString();
+    return p.startsWith(m_root + QLatin1Char('/')) && !AiEnv::isSensitive(p) ? p : QString();
 }
 
 // --- sessions -----------------------------------------------------------------------------------------------------

@@ -197,6 +197,7 @@ private:
         LspClient *client = nullptr;
         ServerState state;
         int restarts = 0;
+        int refreshGen = 0;       // debounces workspace/diagnostic/refresh bursts
         int syncGen = 0;          // invalidates the pending "did anything start?" check
         bool syncSawProgress = false;
         QHash<QString, QStringList> progress; // $/progress token -> {title, text shown} of the running operations
@@ -218,6 +219,8 @@ private:
     void onServerReady(const QString &id);
     void onServerStopped(const QString &id, bool crashed);
     void progressChanged(Server &s);
+    void scheduleStatusChanged();
+    bool m_statusPending = false;
     QStringList jvmBuildFiles() const;
     void onNotification(const QString &id, const QString &method, const QJsonValue &params);
     void track(Document *doc);

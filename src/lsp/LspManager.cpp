@@ -870,6 +870,19 @@ bool LspManager::syncBuildFiles(bool manual)
     return any;
 }
 
+// Progress arrives in floods while a project is indexed; the status bar and everything hanging off it update at most
+// every 250 ms.
+void LspManager::scheduleStatusChanged()
+{
+    if (m_statusPending)
+        return;
+    m_statusPending = true;
+    QTimer::singleShot(250, this, [this] {
+        m_statusPending = false;
+        emit statusChanged();
+    });
+}
+
 // Progress of a server changed: a sync that was running is finished once every operation has ended for a moment.
 void LspManager::progressChanged(Server &s)
 {
@@ -2046,7 +2059,7 @@ void LspManager::onNotification(const QString &id, const QString &method, const 
         else if (kind == QLatin1String("end"))
             s.state.progress = s.progress.constBegin()->value(1);
         progressChanged(s);
-        emit statusChanged();
+        scheduleStatusChanged();
         return;
     }
     if (method == QLatin1String("language/progressReport")) {
@@ -2073,13 +2086,20 @@ void LspManager::onNotification(const QString &id, const QString &method, const 
         }
         s.state.progress = s.progress.isEmpty() ? QString() : s.progress.constBegin()->value(1);
         progressChanged(s);
-        emit statusChanged();
+        scheduleStatusChanged();
         return;
     }
     if (method == QLatin1String("workspace/diagnostic/refresh")) {
-        for (auto it = m_tracked.begin(); it != m_tracked.end(); ++it)
-            if (it->servers().contains(id) && it->openOn.contains(id))
-                pullDiagnostics(it.key());
+        // Indexing sends these in bursts: pull once the burst is over.
+        Server &s = m_servers[id];
+        const int gen = ++s.refreshGen;
+        QTimer::singleShot(800, this, [this, id, gen] {
+            if (m_servers.value(id).refreshGen != gen)
+                return;
+            for (auto it = m_tracked.begin(); it != m_tracked.end(); ++it)
+                if (it->servers().contains(id) && it->openOn.contains(id))
+                    pullDiagnostics(it.key());
+        });
         return;
     }
     if (method == QLatin1String("workspace/inlayHint/refresh")) {
@@ -2133,6 +2153,12 @@ void LspManager::setDiagnosticsFor(const QString &path, const QJsonArray &items,
                 }
         list.append(diag);
     }
+    const QVector<LspDiagnostic> before = m_diagBySource.value(path).value(serverId);
+    bool same = before.size() == list.size();
+    for (int i = 0; same && i < list.size(); ++i)
+        same = before[i].raw == list[i].raw && before[i].message == list[i].message;
+    if (same)
+        return; // an indexing server repeats itself: nothing to repaint
     if (list.isEmpty()) {
         m_diagBySource[path].remove(serverId);
         if (m_diagBySource[path].isEmpty())

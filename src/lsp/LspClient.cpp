@@ -220,27 +220,36 @@ void LspClient::send(const QJsonObject &message)
 void LspClient::onStdout()
 {
     m_buffer += m_proc->readAllStandardOutput();
+    if (m_parsing) // a handler spun an event loop: the outer call keeps walking the buffer
+        return;
+    m_parsing = true;
+    // Walk the buffer by offset and cut the consumed part once: removing from the front per message is quadratic when
+    // an indexing server floods us.
+    int pos = 0;
     for (;;) {
-        const int headerEnd = m_buffer.indexOf("\r\n\r\n");
+        const int headerEnd = m_buffer.indexOf("\r\n\r\n", pos);
         if (headerEnd < 0)
-            return;
+            break;
         int length = -1;
-        const QList<QByteArray> headers = m_buffer.left(headerEnd).split('\n');
+        const QList<QByteArray> headers = m_buffer.mid(pos, headerEnd - pos).split('\n');
         for (const QByteArray &h : headers) {
             const QByteArray line = h.trimmed();
             if (line.toLower().startsWith("content-length:"))
                 length = line.mid(15).trimmed().toInt();
         }
         if (length < 0) { // malformed header: drop it and resynchronise
-            m_buffer.remove(0, headerEnd + 4);
+            pos = headerEnd + 4;
             continue;
         }
         if (m_buffer.size() < headerEnd + 4 + length)
-            return;
+            break;
         const QByteArray body = m_buffer.mid(headerEnd + 4, length);
-        m_buffer.remove(0, headerEnd + 4 + length);
+        pos = headerEnd + 4 + length;
         handle(body);
     }
+    if (pos > 0)
+        m_buffer.remove(0, pos);
+    m_parsing = false;
 }
 
 void LspClient::handle(const QByteArray &body)

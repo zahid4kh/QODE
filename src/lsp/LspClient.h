@@ -65,6 +65,7 @@ private:
     QJsonObject m_initOptions, m_capabilities;
     State m_state = State::Idle;
     QByteArray m_buffer;
+    bool m_parsing = false;
     int m_nextId = 1;
     QHash<int, Callback> m_pending;
     QString m_serverName, m_serverVersion, m_error;

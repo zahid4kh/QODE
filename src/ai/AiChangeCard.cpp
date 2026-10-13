@@ -10,11 +10,14 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QScrollArea>
 #include <QScrollBar>
+#include <QTimer>
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <QVariantAnimation>
 #include <QWheelEvent>
 
 namespace {
@@ -211,9 +214,9 @@ AiChangeCard::AiChangeCard(const AiChange &change, QWidget *parent)
     auto *top = new QHBoxLayout;
     top->setContentsMargins(0, 0, 0, 0);
     top->setSpacing(8);
-    top->addWidget(m_icon, 0, Qt::AlignTop);
+    top->addWidget(m_icon, 0, Qt::AlignVCenter);
     top->addWidget(m_path, 1);
-    top->addWidget(m_toggle, 0, Qt::AlignTop);
+    top->addWidget(m_toggle, 0, Qt::AlignVCenter);
     auto *hl = new QVBoxLayout(m_header);
     hl->setContentsMargins(10, 8, 6, 8);
     hl->setSpacing(2);
@@ -251,14 +254,69 @@ bool AiChangeCard::eventFilter(QObject *watched, QEvent *event)
 void AiChangeCard::setExpanded(bool on)
 {
     m_expanded = on;
+    auto *box = static_cast<QVBoxLayout *>(layout());
     if (on && !m_diff) {
-        m_diff = new AiDiffView(this);
+        m_clip = new QWidget(this);
+        auto *cl = new QVBoxLayout(m_clip);
+        cl->setContentsMargins(0, 0, 0, 0);
+        cl->setSpacing(0);
+        m_diff = new AiDiffView(m_clip);
         m_diff->setChange(m_change);
-        static_cast<QVBoxLayout *>(layout())->addWidget(m_diff);
+        cl->addWidget(m_diff, 0, Qt::AlignTop);
+        m_clip->setFixedHeight(0);
+        box->addWidget(m_clip);
+
+        m_anim = new QVariantAnimation(this);
+        connect(m_anim, &QVariantAnimation::valueChanged, this, [this](const QVariant &v) {
+            m_clip->setFixedHeight(qMax(0, int(v.toReal() * m_diff->height())));
+            if (m_expanded)
+                QTimer::singleShot(0, this, [this] { keepInView(); });
+        });
+        connect(m_anim, &QVariantAnimation::finished, this, [this] {
+            if (m_expanded) {
+                m_clip->setMinimumHeight(0);
+                m_clip->setMaximumHeight(QWIDGETSIZE_MAX);
+            } else {
+                m_clip->hide();
+            }
+        });
     }
-    if (m_diff)
-        m_diff->setVisible(on);
+    if (m_diff) {
+        m_anim->stop();
+        const qreal from = m_diff->height() > 0 ? qreal(m_clip->height()) / m_diff->height() : 0;
+        if (on) {
+            m_diff->verticalScrollBar()->setValue(0);
+            m_clip->show();
+            m_anim->setDuration(520);
+            QEasingCurve spring(QEasingCurve::OutBack);
+            spring.setOvershoot(1.4);
+            m_anim->setEasingCurve(spring);
+            m_anim->setStartValue(from);
+            m_anim->setEndValue(qreal(1));
+        } else {
+            m_anim->setDuration(260);
+            m_anim->setEasingCurve(QEasingCurve::InOutCubic);
+            m_anim->setStartValue(from);
+            m_anim->setEndValue(qreal(0));
+        }
+        m_anim->start();
+    }
     applyTheme();
+}
+
+// While the card grows, the chat follows so the bottom of the diff stays on screen.
+void AiChangeCard::keepInView()
+{
+    QWidget *w = parentWidget();
+    while (w && !qobject_cast<QScrollArea *>(w))
+        w = w->parentWidget();
+    auto *area = static_cast<QScrollArea *>(w);
+    if (!area)
+        return;
+    const int bottom = mapTo(area->viewport(), QPoint(0, height())).y();
+    const int over = bottom + 8 - area->viewport()->height();
+    if (over > 0)
+        area->verticalScrollBar()->setValue(area->verticalScrollBar()->value() + over);
 }
 
 void AiChangeCard::applyTheme()

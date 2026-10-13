@@ -7,6 +7,7 @@
 
 class QLabel;
 class QToolButton;
+class QVariantAnimation;
 
 // The changed lines of one edit as a unified diff: removed lines red, added lines green, a little context around.
 class AiDiffView : public QPlainTextEdit
@@ -44,6 +45,7 @@ protected:
 private:
     void applyTheme();
     void setExpanded(bool on);
+    void keepInView();
 
     AiChange m_change;
     QLabel *m_icon;
@@ -52,5 +54,7 @@ private:
     QToolButton *m_toggle;
     QWidget *m_header;
     AiDiffView *m_diff = nullptr;
+    QWidget *m_clip = nullptr;
+    QVariantAnimation *m_anim = nullptr;
     bool m_expanded = false;
 };

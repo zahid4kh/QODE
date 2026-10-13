@@ -172,7 +172,7 @@ AiPanel::AiPanel(QWidget *parent)
     ib->setContentsMargins(8, 4, 6, 4);
     ib->setSpacing(6);
     ib->addWidget(m_input, 1);
-    ib->addWidget(m_send, 0, Qt::AlignBottom);
+    ib->addWidget(m_send, 0, Qt::AlignVCenter);
 
     auto *bottom = new QVBoxLayout;
     bottom->setContentsMargins(10, 4, 10, 10);

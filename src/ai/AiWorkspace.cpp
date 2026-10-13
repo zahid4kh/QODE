@@ -8,6 +8,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QMap>
 #include <QTextBlock>
 #include <QTextDocument>
@@ -185,6 +186,17 @@ QVector<AiEdits::Outcome> AiWorkspace::apply(const QVector<AiEdits::Edit> &edits
             list.append(t);
         }
 
+        QHash<int, QString> beforeText;
+        for (int i : usable) {
+            const Edit &e = edits.at(i);
+            if (e.op != Edit::Replace)
+                continue;
+            QStringList old;
+            for (int n = e.startLine - 1; n < e.endLine; ++n)
+                old << td->findBlockByNumber(n).text();
+            beforeText.insert(i, old.join(QLatin1Char('\n')));
+        }
+
         if (!editor->applyTextEdits(list)) {
             for (int i : usable)
                 fail(i, QStringLiteral("the editor refused the edit"));
@@ -194,8 +206,14 @@ QVector<AiEdits::Outcome> AiWorkspace::apply(const QVector<AiEdits::Edit> &edits
             const Edit &e = edits.at(i);
             outcomes[i].ok = true;
             const int added = e.code.isEmpty() ? 0 : e.code.count(QLatin1Char('\n')) + (e.code.endsWith(QLatin1Char('\n')) ? 0 : 1);
-            outcomes[i].note = e.op == Edit::Insert ? QStringLiteral("inserted %1 line(s)").arg(added)
-                                                    : QStringLiteral("replaced %1 line(s) with %2").arg(e.endLine - e.startLine + 1).arg(added);
+            if (e.op == Edit::Insert) {
+                outcomes[i].note = QStringLiteral("inserted %1 line(s)").arg(added);
+            } else {
+                const int removed = e.endLine - e.startLine + 1;
+                outcomes[i].note = added == 0 ? QStringLiteral("deleted %1 line(s)").arg(removed)
+                                              : QStringLiteral("replaced %1 line(s) with %2").arg(removed).arg(added);
+                outcomes[i].before = beforeText.value(i);
+            }
         }
     }
     return outcomes;

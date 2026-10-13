@@ -1,6 +1,7 @@
 #include "AiPanel.h"
 
 #include "ai/AiAgent.h"
+#include "ai/AiChangeCard.h"
 #include "ai/AiEnv.h"
 #include "ai/AiInput.h"
 #include "ai/AiWorkspace.h"
@@ -12,7 +13,8 @@
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
 
-#include <QComboBox>
+#include <QActionGroup>
+#include <QWidgetAction>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
@@ -98,26 +100,31 @@ AiPanel::AiPanel(QWidget *parent)
     hl->addWidget(m_closeBtn);
 
     // --- model --------------------------------------------------------------------------------------------------
-    m_model = new QComboBox(this);
-    m_model->setEditable(true);
-    m_model->addItems(kModels);
-    m_model->setInsertPolicy(QComboBox::NoInsert);
-    m_model->lineEdit()->setPlaceholderText(tr("model name"));
-    m_model->setToolTip(tr("Gemini model. Pick one or type any model name."));
-    m_model->setCurrentText(SettingsManager::instance().aiModel());
+    m_modelName = SettingsManager::instance().aiModel();
+    m_modelBtn = new QPushButton(this);
+    m_modelBtn->setObjectName(QStringLiteral("aiModel"));
+    m_modelBtn->setToolTip(tr("Gemini model: pick one or type any model name"));
+    m_modelBtn->setCursor(Qt::PointingHandCursor);
+    {
+        auto *bl = new QHBoxLayout(m_modelBtn);
+        bl->setContentsMargins(0, 0, 10, 0);
+        bl->addStretch(1);
+        m_modelArrow = new QLabel(m_modelBtn);
+        m_modelArrow->setAttribute(Qt::WA_TransparentForMouseEvents);
+        m_modelArrow->setFixedSize(14, 14);
+        bl->addWidget(m_modelArrow);
+    }
+    m_modelMenu = new QMenu(m_modelBtn);
+    m_modelBtn->setMenu(m_modelMenu);
+    connect(m_modelMenu, &QMenu::aboutToShow, this, &AiPanel::rebuildModelMenu);
     auto *modelLabel = new QLabel(tr("Model"), this);
     modelLabel->setObjectName(QStringLiteral("aiWho"));
     auto *modelRow = new QHBoxLayout;
-    modelRow->setContentsMargins(10, 8, 10, 4);
+    modelRow->setContentsMargins(10, 10, 10, 6);
+    modelRow->setSpacing(12);
     modelRow->addWidget(modelLabel);
-    modelRow->addWidget(m_model, 1);
-    auto commitModel = [this] {
-        const QString m = m_model->currentText().trimmed();
-        if (!m.isEmpty())
-            SettingsManager::instance().setAiModel(m);
-    };
-    connect(m_model, &QComboBox::activated, this, commitModel);
-    connect(m_model->lineEdit(), &QLineEdit::editingFinished, this, commitModel);
+    modelRow->addWidget(m_modelBtn, 1);
+    setModel(m_modelName);
 
     // --- notice -------------------------------------------------------------------------------------------------
     m_notice = new QFrame(this);
@@ -245,6 +252,8 @@ AiPanel::AiPanel(QWidget *parent)
             c.endLine = o.edit.endLine;
             c.ok = o.ok;
             c.note = o.note;
+            c.before = o.before.left(60000);
+            c.after = o.edit.code.left(60000);
             m.changes.append(c);
         }
         m_session.messages.append(m);
@@ -290,6 +299,50 @@ void AiPanel::focusInput()
 QString AiPanel::relative(const QString &absolute) const
 {
     return m_root.isEmpty() ? absolute : QDir(m_root).relativeFilePath(absolute);
+}
+
+void AiPanel::setModel(const QString &name)
+{
+    const QString m = name.trimmed();
+    if (m.isEmpty())
+        return;
+    m_modelName = m;
+    SettingsManager::instance().setAiModel(m);
+    m_modelBtn->setText(m);
+}
+
+// The presets as checkable entries, then a field for any other model name. The menu uses the application's rounded menu style.
+void AiPanel::rebuildModelMenu()
+{
+    m_modelMenu->clear();
+    m_modelMenu->setMinimumWidth(m_modelBtn->width());
+    auto *group = new QActionGroup(m_modelMenu);
+    QStringList names = kModels;
+    if (!names.contains(m_modelName))
+        names.prepend(m_modelName); // a custom model typed earlier stays selectable
+    for (const QString &n : std::as_const(names)) {
+        QAction *a = m_modelMenu->addAction(n);
+        a->setCheckable(true);
+        a->setActionGroup(group);
+        a->setChecked(n == m_modelName);
+        connect(a, &QAction::triggered, this, [this, n] { setModel(n); });
+    }
+    m_modelMenu->addSeparator();
+    auto *wa = new QWidgetAction(m_modelMenu);
+    auto *holder = new QWidget;
+    auto *hl = new QHBoxLayout(holder);
+    hl->setContentsMargins(6, 4, 6, 4);
+    m_customModel = new QLineEdit(holder);
+    m_customModel->setObjectName(QStringLiteral("aiCustomModel"));
+    m_customModel->setPlaceholderText(tr("Other model name, then Enter"));
+    m_customModel->setClearButtonEnabled(true);
+    hl->addWidget(m_customModel);
+    wa->setDefaultWidget(holder);
+    m_modelMenu->addAction(wa);
+    connect(m_customModel, &QLineEdit::returnPressed, this, [this] {
+        setModel(m_customModel->text());
+        m_modelMenu->close();
+    });
 }
 
 // --- project state ------------------------------------------------------------------------------------------------
@@ -360,7 +413,7 @@ void AiPanel::updateNotice()
     const bool usable = text.isEmpty();
     m_input->setEnabled(usable);
     m_send->setEnabled(usable || m_busy);
-    m_model->setEnabled(!m_busy);
+    m_modelBtn->setEnabled(!m_busy);
 }
 
 void AiPanel::updateContext()
@@ -484,10 +537,7 @@ void AiPanel::send()
         return;
     const QString key = AiEnv::apiKey(m_root);
 
-    QString model = m_model->currentText().trimmed();
-    if (model.isEmpty())
-        model = SettingsManager::instance().aiModel();
-    SettingsManager::instance().setAiModel(model);
+    const QString model = m_modelName;
     m_pendingModel = model;
 
     QStringList attachedRel;
@@ -550,7 +600,7 @@ void AiPanel::setBusy(bool busy)
 {
     m_busy = busy;
     m_input->setReadOnly(busy);
-    m_model->setEnabled(!busy);
+    m_modelBtn->setEnabled(!busy);
     m_send->setToolTip(busy ? tr("Stop") : tr("Send (Enter)"));
     applyTheme();
     updateNotice();
@@ -609,20 +659,7 @@ void AiPanel::closeMentions()
 
 QString AiPanel::markdownOf(const AiMessage &m) const
 {
-    QString md;
-    if (!m.plan.isEmpty())
-        md += planMarkdown(m.plan) + QLatin1Char('\n');
-    if (!m.changes.isEmpty()) {
-        md += QStringLiteral("**Changes**\n\n");
-        for (const AiChange &c : m.changes) {
-            const QString link = QStringLiteral("[`%1`](qode-open:%2)").arg(c.path, c.path);
-            md += QStringLiteral("- %1 %2 — %3\n").arg(c.ok ? QStringLiteral("✓") : QStringLiteral("✗"), link, c.note);
-        }
-        md += QLatin1Char('\n');
-    }
-    if (!md.isEmpty())
-        md += QStringLiteral("---\n\n");
-    return md + m.text;
+    return m.text;
 }
 
 QString AiPanel::liveMarkdown() const
@@ -659,17 +696,32 @@ QWidget *AiPanel::replyBubble(const AiMessage &m)
     auto *box = new QWidget;
     auto *l = new QVBoxLayout(box);
     l->setContentsMargins(2, 0, 2, 0);
-    l->setSpacing(2);
+    l->setSpacing(6);
     auto *who = new QLabel(m.model.isEmpty() ? tr("GEMINI") : tr("GEMINI · %1").arg(m.model), box);
     who->setObjectName(QStringLiteral("aiWho"));
     l->addWidget(who);
-    auto *view = new MarkdownView(box);
-    view->document()->setDocumentMargin(2);
-    view->setStyleSheet(QStringLiteral("QTextBrowser { background: transparent; }"));
-    view->setAutoHeight(true);
-    connect(view, &QTextBrowser::anchorClicked, this, &AiPanel::followLink);
-    view->showMarkdown(markdownOf(m));
-    l->addWidget(view);
+    auto markdownView = [&](const QString &md) {
+        auto *view = new MarkdownView(box);
+        view->document()->setDocumentMargin(2);
+        view->setStyleSheet(QStringLiteral("QTextBrowser { background: transparent; }"));
+        view->setAutoHeight(true);
+        connect(view, &QTextBrowser::anchorClicked, this, &AiPanel::followLink);
+        view->showMarkdown(md);
+        l->addWidget(view);
+    };
+    if (!m.plan.isEmpty())
+        markdownView(planMarkdown(m.plan));
+    for (const AiChange &c : m.changes) {
+        auto *card = new AiChangeCard(c, box);
+        connect(card, &AiChangeCard::openRequested, this, [this](const QString &rel) {
+            QString abs;
+            if (AiEdits::resolveInside(m_root, rel, &abs))
+                emit openFileRequested(abs);
+        });
+        l->addWidget(card);
+    }
+    if (!m.text.trimmed().isEmpty())
+        markdownView(markdownOf(m));
     return box;
 }
 
@@ -773,11 +825,18 @@ void AiPanel::applyTheme()
                       "QFrame#aiNotice QLabel { background: transparent; }"
                       "QFrame#aiInputBox { background: %6; border: 1px solid %5; border-radius: 10px; }"
                       "AiInput { background: transparent; border: none; padding: 2px; }"
+                      "QPushButton#aiModel { background: %6; border: 1px solid %5; border-radius: 8px; padding: 6px 12px; text-align: left; }"
+                      "QPushButton#aiModel:hover { border-color: %7; }"
+                      "QPushButton#aiModel:disabled { color: %2; }"
+                      "QPushButton#aiModel::menu-indicator { image: none; width: 0px; }"
+                      "QLineEdit#aiCustomModel { background: %6; border: 1px solid %5; border-radius: 6px; padding: 5px 8px; min-width: 200px; }"
+                      "QLineEdit#aiCustomModel:focus { border-color: %7; }"
                       "QToolButton#aiSend { background: %7; border: none; border-radius: 12px; padding: 4px; }"
                       "QToolButton#aiSend:disabled { background: %4; }")
                       .arg(t.window.name(), t.textMuted.name(), t.danger.name(), t.panel.name(), t.border.name(), t.editorBg.name(), t.accent.name()));
     // The send button's glyph sits on the accent colour.
     const QString res = m_busy ? QStringLiteral(":/new-icons/square.svg") : QStringLiteral(":/new-icons/arrow-up.svg");
+    m_modelArrow->setPixmap(Icons::pixmap(QStringLiteral(":/new-icons/chevron-down.svg"), t.textMuted, 14));
     m_send->setIcon(Icons::tinted(res, t.onAccent()));
     m_send->setIconSize(QSize(16, 16));
 }

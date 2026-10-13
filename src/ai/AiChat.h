@@ -14,6 +14,7 @@ struct AiChange {
     int startLine = 0, endLine = 0;
     bool ok = false;
     QString note;
+    QString before, after; // removed / added text, shown as a diff in the chat
 
     QJsonObject toJson() const;
     static AiChange fromJson(const QJsonObject &o);

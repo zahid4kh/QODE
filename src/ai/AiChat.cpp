@@ -9,8 +9,13 @@
 
 QJsonObject AiChange::toJson() const
 {
-    return {{QStringLiteral("path"), path}, {QStringLiteral("op"), op}, {QStringLiteral("startLine"), startLine},
-            {QStringLiteral("endLine"), endLine}, {QStringLiteral("ok"), ok}, {QStringLiteral("note"), note}};
+    QJsonObject o{{QStringLiteral("path"), path}, {QStringLiteral("op"), op}, {QStringLiteral("startLine"), startLine},
+                  {QStringLiteral("endLine"), endLine}, {QStringLiteral("ok"), ok}, {QStringLiteral("note"), note}};
+    if (!before.isEmpty())
+        o.insert(QStringLiteral("before"), before);
+    if (!after.isEmpty())
+        o.insert(QStringLiteral("after"), after);
+    return o;
 }
 
 AiChange AiChange::fromJson(const QJsonObject &o)
@@ -22,6 +27,8 @@ AiChange AiChange::fromJson(const QJsonObject &o)
     c.endLine = o.value(QStringLiteral("endLine")).toInt();
     c.ok = o.value(QStringLiteral("ok")).toBool();
     c.note = o.value(QStringLiteral("note")).toString();
+    c.before = o.value(QStringLiteral("before")).toString();
+    c.after = o.value(QStringLiteral("after")).toString();
     return c;
 }
 

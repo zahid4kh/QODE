@@ -27,6 +27,7 @@ struct Outcome {
     Edit edit;
     bool ok = false;
     QString note;  // why it failed, or a short description of what was done
+    QString before; // the lines a replace removed (for the diff shown in the chat)
 };
 
 QJsonObject planSchema();

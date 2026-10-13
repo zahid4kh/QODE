@@ -68,6 +68,7 @@ SOURCES += \
     src/media/MarkdownHtml.cpp \
     src/ai/AiAgent.cpp \
     src/ai/AiChat.cpp \
+    src/ai/AiChangeCard.cpp \
     src/ai/AiEdits.cpp \
     src/ai/AiEnv.cpp \
     src/ai/AiInput.cpp \
@@ -186,6 +187,7 @@ HEADERS += \
     src/media/MarkdownHtml.h \
     src/ai/AiAgent.h \
     src/ai/AiChat.h \
+    src/ai/AiChangeCard.h \
     src/ai/AiEdits.h \
     src/ai/AiEnv.h \
     src/ai/AiInput.h \

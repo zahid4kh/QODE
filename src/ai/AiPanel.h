@@ -11,10 +11,11 @@ class AiInput;
 class AiMentionPopup;
 class EditorManager;
 class MarkdownView;
-class QComboBox;
+class QMenu;
 class QFrame;
 class QLabel;
 class QPushButton;
+class QLineEdit;
 class QScrollArea;
 class QToolButton;
 class QVBoxLayout;
@@ -66,6 +67,8 @@ private:
     void followLink(const QUrl &url);
     void scrollToEnd();
     void updateNotice();
+    void setModel(const QString &name);
+    void rebuildModelMenu();
     void updateContext();
     void applyTheme();
     QString relative(const QString &absolute) const;
@@ -87,7 +90,11 @@ private:
 
     QLabel *m_title;
     QToolButton *m_historyBtn, *m_newBtn, *m_closeBtn;
-    QComboBox *m_model;
+    QPushButton *m_modelBtn;
+    QMenu *m_modelMenu;
+    QLabel *m_modelArrow;
+    QLineEdit *m_customModel = nullptr;
+    QString m_modelName;
     QFrame *m_notice;
     QLabel *m_noticeText;
     QPushButton *m_noticeBtn;

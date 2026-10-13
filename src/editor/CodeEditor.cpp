@@ -18,6 +18,8 @@
 #include <QHelpEvent>
 #include <QToolTip>
 #include "HoverPopup.h"
+#include "HoverRender.h"
+#include "SignaturePopup.h"
 #include <QDateTime>
 #include <QPainterPath>
 #include <QFrame>
@@ -94,6 +96,7 @@ QString relativeTime(qint64 secs)
     return n(d / (86400 * 365), "%n yr ago");
 }
 constexpr int kFoldWidth = 16;
+constexpr int kBulbWidth = 14; // gutter room for the light bulb
 bool isImportLine(const QTextBlock &b) { return b.text().startsWith(QLatin1String("import ")); }
 
 // Per-block fold flag (a QTextBlock owns its user data).
@@ -186,6 +189,7 @@ CodeEditor::CodeEditor(QWidget *parent)
     m_colorTimer->setSingleShot(true);
     m_colorTimer->setInterval(450);
     connect(m_colorTimer, &QTimer::timeout, this, &CodeEditor::colorsRequested);
+    setupAssists();
 
     setFrameShape(QFrame::NoFrame);
     setStyleSheet(QStringLiteral("QPlainTextEdit { border: none; border-radius: 0; }")); // no focus ring inside the island
@@ -195,6 +199,8 @@ CodeEditor::CodeEditor(QWidget *parent)
     connect(this, &QPlainTextEdit::cursorPositionChanged, this, &CodeEditor::refreshSelections);
     connect(this, &QPlainTextEdit::cursorPositionChanged, this, [this] { if (!m_blame.isEmpty()) viewport()->update(); });
     connect(this, &QPlainTextEdit::textChanged, this, [this] {
+        if (m_gapUpdating)
+            return;
         updateGuideScope();
         if (m_foldedCount > 0)
             m_foldTimer->start();
@@ -304,6 +310,7 @@ void CodeEditor::applySettings()
     m_blameInline = s.blameInline();
     m_blameGutter = s.blameGutter();
     m_showMinimap = s.showMinimap();
+    requestInlayHintsSoon(); // the font (and so the room hints need) may have changed
     updateGuideScope();
     viewport()->update();
     updateLineNumberAreaWidth();
@@ -321,7 +328,7 @@ int CodeEditor::lineNumberAreaWidth() const
         ++digits;
     }
     digits = qMax(digits, 3);
-    return blameWidth() + 14 + kFoldWidth + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
+    return blameWidth() + 14 + (m_bulbEnabled ? kBulbWidth : 0) + kFoldWidth + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
 }
 
 void CodeEditor::updateLineNumberAreaWidth()
@@ -417,6 +424,8 @@ void CodeEditor::lineNumberAreaPaintEvent(QPaintEvent *event)
                 painter.drawPath(flag);
                 painter.setRenderHint(QPainter::Antialiasing, false);
             }
+            if (m_bulbEnabled && number == m_bulbLine)
+                paintLightBulb(painter, top, fontMetrics().height());
             if (blameWidth() > 0 && number < m_blame.size()) {
                 const GitBlameLine &bl = m_blame.at(number);
                 const bool first = number == 0 || m_blame.at(number - 1).hash != bl.hash;
@@ -474,7 +483,7 @@ CodeEditor::~CodeEditor()
 {
     // The document (and its highlighter) may outlive the editor: the highlighter must not call back into it.
     if (auto *hl = document() ? document()->findChild<SyntaxHighlighter *>() : nullptr)
-        hl->setGapProvider({}, 0);
+        hl->setGapProvider({});
 }
 
 void CodeEditor::refreshSelections()
@@ -517,6 +526,22 @@ void CodeEditor::refreshSelections()
         sel.cursor.setPosition(r.first);
         sel.cursor.setPosition(r.second, QTextCursor::KeepAnchor);
         extra.append(sel);
+    }
+    if (!m_highlights.isEmpty()) {
+        const Theme theme = Theme::byName(SettingsManager::instance().theme());
+        QColor read = theme.accent, write = theme.accent;
+        read.setAlpha(theme.dark ? 46 : 40);
+        write.setAlpha(theme.dark ? 96 : 80);
+        for (const Highlight &h : std::as_const(m_highlights)) {
+            if (h.from.isNull() || h.to.isNull() || h.from.position() >= h.to.position())
+                continue;
+            QTextEdit::ExtraSelection sel;
+            sel.format.setBackground(h.kind == 3 ? write : read);
+            sel.cursor = QTextCursor(document());
+            sel.cursor.setPosition(h.from.position());
+            sel.cursor.setPosition(h.to.position(), QTextCursor::KeepAnchor);
+            extra.append(sel);
+        }
     }
     if (!m_unusedImports.isEmpty()) {
         const QColor muted = Theme::byName(SettingsManager::instance().theme()).textMuted;
@@ -625,7 +650,10 @@ bool CodeEditor::viewportEvent(QEvent *event)
         const QString text = at.block().text();
         const int col = at.positionInBlock();
         const QRectF lineRect = blockBoundingGeometry(at.block()).translated(contentOffset());
-        const bool onWord = col < text.size() && isIdentifierChar(text.at(col)) && help->pos().y() < lineRect.bottom();
+        // A hyphen inside a name counts (Tailwind / CSS class names: bg-red-500, margin-top).
+        const bool dashInWord = col < text.size() && text.at(col) == QLatin1Char('-') &&
+                                ((col > 0 && isIdentifierChar(text.at(col - 1))) || (col + 1 < text.size() && isIdentifierChar(text.at(col + 1))));
+        const bool onWord = col < text.size() && (isIdentifierChar(text.at(col)) || dashInWord) && help->pos().y() < lineRect.bottom();
         if (onWord) {
             m_hoverPos = pos;
             m_hoverGlobal = help->globalPos();
@@ -742,24 +770,47 @@ void CodeEditor::showHover(const QString &markdown)
     constexpr int kMaxChars = 1800;
     QString md = tidyHoverMarkdown(markdown);
     if (md.size() > kMaxChars) {
-        // Cut at a line end, never inside a line (a half link or half sentence looks like garbage).
+        // Cut at a line end, never inside a line (a half link or half sentence looks like garbage). An unclosed code
+        // fence is closed again so the rest of the popup does not turn into code.
         const int cut = md.lastIndexOf(QLatin1Char('\n'), kMaxChars);
-        md = md.left(cut > kMaxChars / 2 ? cut : kMaxChars) + QStringLiteral("\n\n…");
+        md = md.left(cut > kMaxChars / 2 ? cut : kMaxChars);
+        if (md.count(QStringLiteral("```")) % 2)
+            md += QStringLiteral("\n```");
+        md += QStringLiteral("\n\n…");
     }
-    QTextDocument doc;
-    doc.setMarkdown(md);
-    QString html = doc.toHtml();
-    const int bodyStart = html.indexOf(QStringLiteral("<body"));
-    if (bodyStart >= 0) // keep the fonts of the tooltip, drop the page styling
-        html = QStringLiteral("<div>") + html.mid(html.indexOf(QLatin1Char('>'), bodyStart) + 1);
-    html.remove(QStringLiteral("</body></html>"));
-    html = QStringLiteral("<style>pre,code{white-space:pre-wrap}</style>") + html + QStringLiteral("</div>");
+    const Theme theme = Theme::byName(SettingsManager::instance().theme());
+    const QTextBlock hoverBlock = document()->findBlock(m_hoverPos);
+    const int line = hoverBlock.blockNumber(), column = m_hoverPos - hoverBlock.position();
+    QString html = HoverRender::markdownHtml(md, theme, font(), m_language.toLower());
+    // Footer: what can be done with the symbol under the mouse; the popup stays open, so the links can be clicked.
+    QString links = QStringLiteral("<a href=\"qode:definition\">%1</a> &nbsp;·&nbsp; <a href=\"qode:references\">%2</a>")
+                        .arg(tr("Go to Definition"), tr("Find References"));
+    if (!m_hoverDiagnostics.isEmpty())
+        links += QStringLiteral(" &nbsp;·&nbsp; <a href=\"qode:quickfix\">%1</a>").arg(tr("Quick Fix…"));
+    html += QStringLiteral("<hr><div style=\"color:%1\">%2</div>").arg(theme.textMuted.name(), links);
     if (!m_hoverDiagnostics.isEmpty())
         html = m_hoverDiagnostics + QStringLiteral("<hr>") + html;
     QToolTip::hideText();
     if (m_hoverPopup)
         m_hoverPopup->close();
     m_hoverPopup = new HoverPopup(this);
+    connect(m_hoverPopup, &HoverPopup::linkActivated, this, [this, line, column](const QString &href) {
+        if (href == QLatin1String("qode:definition")) {
+            emit definitionRequested(line, column);
+        } else if (href == QLatin1String("qode:references")) {
+            emit referencesRequested(line, column);
+        } else if (href == QLatin1String("qode:quickfix")) {
+            const QTextBlock b = document()->findBlockByNumber(line);
+            if (b.isValid()) {
+                QTextCursor c(document());
+                c.setPosition(b.position() + qMin(column, b.length() - 1));
+                setTextCursor(c);
+            }
+            requestCodeActions();
+        } else {
+            applyHoverLink(href);
+        }
+    });
     m_hoverPopup->showHtml(html, m_hoverGlobal);
 }
 
@@ -1161,6 +1212,7 @@ void CodeEditor::paintEvent(QPaintEvent *event)
     paintStickyScroll();
     paintBlameAnnotation();
     paintSwatches();
+    paintInlayHints();
 }
 
 QList<int> CodeEditor::stickyLines() const
@@ -2051,22 +2103,37 @@ void CodeEditor::keyPressEvent(QKeyEvent *event)
     if (!isReadOnly()) {
         if (m_completion && m_completion->isVisible() && completionKey(event))
             return;
+        if (signatureVisible()) {
+            const Qt::KeyboardModifiers mods = event->modifiers() & ~Qt::KeypadModifier;
+            if (event->key() == Qt::Key_Escape) {
+                hideSignatureHelp();
+                return;
+            }
+            if (mods == Qt::NoModifier && (event->key() == Qt::Key_Up || event->key() == Qt::Key_Down) && m_signature->overloads() > 1) {
+                m_signature->cycle(event->key() == Qt::Key_Up ? -1 : 1); // overloads, like the popup in other editors
+                return;
+            }
+        }
         if (event->key() == Qt::Key_Space && (event->modifiers() & ~Qt::KeypadModifier) == Qt::ControlModifier) {
             triggerCompletion();
             return;
         }
+        if (event->key() == Qt::Key_Space && (event->modifiers() & ~Qt::KeypadModifier) == (Qt::ControlModifier | Qt::ShiftModifier)) {
+            triggerSignatureHelp();
+            return;
+        }
         if ((event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) && (event->modifiers() & ~Qt::KeypadModifier) == Qt::AltModifier) {
-            hideCompletion();
-            const QTextCursor c = textCursor();
-            const QTextBlock a = document()->findBlock(c.selectionStart()), b = document()->findBlock(c.selectionEnd());
-            emit codeActionsRequested(a.blockNumber(), c.selectionStart() - a.position(), b.blockNumber(), c.selectionEnd() - b.position());
+            requestCodeActions();
             return;
         }
     }
     const int revision = document()->revision();
     handleKey(event);
-    if (!isReadOnly())
-        completionTyped(event, document()->revision() != revision);
+    if (!isReadOnly()) {
+        const bool edited = document()->revision() != revision;
+        completionTyped(event, edited);
+        signatureTyped(event, edited);
+    }
 }
 
 void CodeEditor::handleKey(QKeyEvent *event)
@@ -2239,6 +2306,7 @@ void CodeEditor::focusOutEvent(QFocusEvent *event)
     QPlainTextEdit::focusOutEvent(event);
     updateLink(false);
     hideCompletion();
+    hideSignatureHelp();
 }
 
 void CodeEditor::leaveEvent(QEvent *event)
@@ -2250,6 +2318,7 @@ void CodeEditor::leaveEvent(QEvent *event)
 void CodeEditor::mousePressEvent(QMouseEvent *event)
 {
     hideCompletion();
+    hideSignatureHelp();
     if (event->button() == Qt::LeftButton && event->modifiers() == Qt::NoModifier)
         for (int i = 0; i < m_swatches.size(); ++i)
             if (m_swatches.at(i).rect.contains(event->pos())) {
@@ -2518,6 +2587,11 @@ bool CodeEditor::foldIconAt(const QPoint &pos) const
 
 void CodeEditor::gutterClicked(const QPoint &pos)
 {
+    if (m_bulbEnabled && m_bulbLine >= 0 && m_bulbRect.adjusted(-2, -2, 2, 2).contains(pos) &&
+        cursorForPosition(QPoint(0, pos.y())).blockNumber() == m_bulbLine) {
+        requestCodeActions();
+        return;
+    }
     if (pos.x() >= m_lineArea->width() - kFoldWidth) {
         const QTextBlock b = cursorForPosition(QPoint(0, pos.y())).block();
         if (b.isValid() && (isFolded(b) || isFoldable(b)))
@@ -2863,9 +2937,14 @@ void CodeEditor::showCompletions(const QVector<LspCompletionItem> &items, bool i
         m_completion = new CompletionPopup(this);
         m_completion->setFont(font());
         connect(m_completion, &CompletionPopup::accepted, this, &CodeEditor::acceptCompletion);
+        connect(m_completion, &CompletionPopup::currentItemChanged, this, [this] {
+            if (m_completion && m_completion->isVisible())
+                m_docsTimer->start();
+        });
         connect(verticalScrollBar(), &QScrollBar::valueChanged, this, &CodeEditor::hideCompletion);
     }
     m_completionIncomplete = incomplete;
+    m_docCache.clear();
     m_completion->setItems(local.isEmpty() ? items : local + items, snippets);
     if (m_completion->setPrefix(prefix) == 0) {
         hideCompletion();
@@ -2875,6 +2954,7 @@ void CodeEditor::showCompletions(const QVector<LspCompletionItem> &items, bool i
     anchor.setPosition(m_completionAnchor);
     const QRect r = cursorRect(anchor);
     m_completion->popup(viewport()->mapToGlobal(r.bottomLeft() + QPoint(0, 2)), viewport()->mapToGlobal(r.topLeft() - QPoint(0, 2)));
+    m_docsTimer->start();
 }
 
 namespace {
@@ -2999,7 +3079,7 @@ void CodeEditor::acceptCompletion()
         if (taken)
             return;
     }
-    if (!item.resolveData.isEmpty() && m_resolver) {
+    if (item.resolveOnAccept && !item.resolveData.isEmpty() && m_resolver) {
         // The editor stays usable while the server answers: insert only when nothing was typed meanwhile.
         const int revision = document()->revision();
         QPointer<CodeEditor> guard(this);
@@ -3024,13 +3104,22 @@ bool CodeEditor::applyTextEdits(const QVector<LspTextEdit> &list)
         return b.position() + qMin(column, b.length() - 1);
     };
     struct Edit {
-        int start, end;
+        int start, end, index;
         QString text;
     };
     QVector<Edit> edits;
     for (const LspTextEdit &e : list)
-        edits.append({position(e.startLine, e.startColumn), position(e.endLine, e.endColumn), e.text});
-    std::stable_sort(edits.begin(), edits.end(), [](const Edit &a, const Edit &b) { return a.start > b.start; });
+        edits.append({position(e.startLine, e.startColumn), position(e.endLine, e.endColumn), int(edits.size()), e.text});
+    // Back to front keeps the earlier offsets valid. At the same start a longer range goes first (a deletion and an insertion at
+    // its start: the insertion must land in front of what is left), and equal ranges in reverse order of the list, so inserts at
+    // one position end up in list order, as the protocol demands.
+    std::sort(edits.begin(), edits.end(), [](const Edit &a, const Edit &b) {
+        if (a.start != b.start)
+            return a.start > b.start;
+        if (a.end != b.end)
+            return a.end > b.end;
+        return a.index > b.index;
+    });
     QTextCursor c(doc);
     c.beginEditBlock();
     for (const Edit &e : std::as_const(edits)) {
@@ -3264,13 +3353,25 @@ void CodeEditor::setColorSwatches(const QVector<ColorSwatch> &swatches)
     viewport()->update();
 }
 
-QVector<int> CodeEditor::swatchGapColumns(const QTextBlock &block) const
+QVector<QPair<int, int>> CodeEditor::gapColumns(const QTextBlock &block) const
 {
     if (m_gapRevision != document()->revision()) {
         m_gapMap.clear();
+        auto add = [this](int blockNumber, int column, int pixels) {
+            QVector<QPair<int, int>> &list = m_gapMap[blockNumber];
+            for (QPair<int, int> &g : list)
+                if (g.first == column) { // a swatch and a hint in the same spot add up
+                    g.second += pixels;
+                    return;
+                }
+            list.append({column, pixels});
+        };
         for (const Swatch &sw : m_swatches)
             if (!sw.start.isNull() && !sw.start.atBlockStart())
-                m_gapMap[sw.start.blockNumber()] << sw.start.positionInBlock() - 1;
+                add(sw.start.blockNumber(), sw.start.positionInBlock() - 1, swatchGap());
+        for (const Hint &h : m_hints)
+            if (!h.at.isNull() && !h.at.atBlockStart() && !h.at.atBlockEnd())
+                add(h.at.blockNumber(), h.at.positionInBlock() - 1, h.width);
         m_gapRevision = document()->revision();
     }
     return m_gapMap.value(block.blockNumber());
@@ -3281,7 +3382,9 @@ void CodeEditor::applyGapProvider(const QSet<int> &blocks)
     auto *hl = document()->findChild<SyntaxHighlighter *>();
     if (!hl)
         return;
-    hl->setGapProvider([this](const QTextBlock &b) { return swatchGapColumns(b); }, m_swatches.isEmpty() ? 0 : swatchGap());
+    hl->setGapProvider([this](const QTextBlock &b) { return gapColumns(b); });
+    m_gapUpdating = true;
+    const auto done = qScopeGuard([this] { m_gapUpdating = false; });
     for (const int n : blocks) {
         const QTextBlock b = document()->findBlockByNumber(n);
         if (b.isValid())
@@ -3321,8 +3424,13 @@ void CodeEditor::paintSwatches()
     const int gap = swatchGap();
     const int size = qMax(8, gap - 4);
     const int viewBottom = viewport()->height();
+    int firstBlock = 0, lastBlock = 0;
+    visibleBlockRange(&firstBlock, &lastBlock); // cursorRect() lays a line out: only ask for the lines on screen
     for (Swatch &sw : m_swatches) {
         if (sw.start.isNull() || sw.start.atBlockStart() || !sw.start.block().isVisible())
+            continue;
+        const int bn = sw.start.blockNumber();
+        if (bn < firstBlock || bn > lastBlock)
             continue;
         const QRect r = cursorRect(sw.start);
         if (r.bottom() < 0 || r.top() > viewBottom)

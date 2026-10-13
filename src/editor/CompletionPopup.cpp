@@ -10,6 +10,8 @@
 #include <QScreen>
 #include <QScrollBar>
 #include <QStyledItemDelegate>
+#include <QTextBrowser>
+#include <QTextDocument>
 #include <QVBoxLayout>
 #include <algorithm>
 
@@ -251,6 +253,63 @@ private:
 };
 } // namespace
 
+// The documentation beside the list: same look as the list (rounded, themed), a read-only rich text view inside.
+class CompletionPopup::DocsFrame : public QFrame
+{
+public:
+    explicit DocsFrame(QWidget *parent)
+        : QFrame(parent, Qt::ToolTip | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint), m_view(new QTextBrowser(this))
+    {
+        setAttribute(Qt::WA_ShowWithoutActivating);
+        setAttribute(Qt::WA_TranslucentBackground);
+        setFocusPolicy(Qt::NoFocus);
+        auto *lay = new QVBoxLayout(this);
+        lay->setContentsMargins(11, 9, 11, 9);
+        lay->addWidget(m_view);
+        m_view->setFrameShape(QFrame::NoFrame);
+        m_view->setOpenLinks(false);
+        m_view->setFocusPolicy(Qt::NoFocus);
+        m_view->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    }
+    // Sizes itself to the text (width up to kDocsWidth, height up to `maxHeight`) and returns the size.
+    QSize setContent(const QString &html, int maxHeight)
+    {
+        const Theme t = Theme::byName(SettingsManager::instance().theme());
+        m_bg = t.panel;
+        m_border = t.border;
+        m_view->setStyleSheet(QStringLiteral("QTextBrowser { background: transparent; color: %1; border: none; }").arg(t.editorFg.name()));
+        m_view->document()->setDefaultStyleSheet(QStringLiteral("a { color: %1; }").arg(t.accent.name()));
+        m_view->setHtml(html);
+        QTextDocument *doc = m_view->document();
+        doc->setDocumentMargin(0);
+        doc->setTextWidth(kDocsWidth);
+        const int w = qBound(320, int(doc->idealWidth()) + 2, kDocsWidth);
+        doc->setTextWidth(w);
+        const int docH = int(doc->size().height()) + 2;
+        const int h = qMin(maxHeight, docH);
+        m_view->setVerticalScrollBarPolicy(docH > maxHeight ? Qt::ScrollBarAsNeeded : Qt::ScrollBarAlwaysOff);
+        const QMargins m = layout()->contentsMargins();
+        const QSize size(w + m.left() + m.right() + (docH > maxHeight ? 14 : 0), h + m.top() + m.bottom());
+        resize(size);
+        return size;
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override
+    {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(QPen(m_border, 1));
+        p.setBrush(m_bg);
+        p.drawRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 8, 8);
+    }
+
+private:
+    static constexpr int kDocsWidth = 400;
+    QTextBrowser *m_view;
+    QColor m_bg, m_border;
+};
+
 CompletionPopup::CompletionPopup(QWidget *editor)
     : QFrame(editor, Qt::ToolTip | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint),
       m_model(new Model(this)),
@@ -276,6 +335,45 @@ CompletionPopup::CompletionPopup(QWidget *editor)
     m_view->setItemDelegate(new Delegate(Theme::byName(SettingsManager::instance().theme()), this));
     m_view->viewport()->setCursor(Qt::PointingHandCursor);
     connect(m_view, &QListView::clicked, this, &CompletionPopup::accepted);
+    connect(m_view->selectionModel(), &QItemSelectionModel::currentChanged, this, &CompletionPopup::currentItemChanged);
+}
+
+void CompletionPopup::showDocs(const QString &html)
+{
+    if (html.isEmpty() || !isVisible()) {
+        if (m_docs)
+            m_docs->hide();
+        return;
+    }
+    if (!m_docs)
+        m_docs = new DocsFrame(this);
+    m_docs->setContent(html, qMax(height(), 260));
+    placeDocs();
+    m_docs->show();
+    m_docs->raise();
+}
+
+bool CompletionPopup::docsVisible() const { return m_docs && m_docs->isVisible(); }
+
+void CompletionPopup::placeDocs()
+{
+    if (!m_docs)
+        return;
+    const QScreen *screen = parentWidget() && parentWidget()->screen() ? parentWidget()->screen() : QApplication::primaryScreen();
+    const QRect avail = screen->availableGeometry();
+    int x = frameGeometry().right() + 4;
+    if (x + m_docs->width() > avail.right())
+        x = frameGeometry().left() - m_docs->width() - 4;
+    int y = frameGeometry().top();
+    y = qBound(avail.top(), y, qMax(avail.top(), avail.bottom() - m_docs->height()));
+    m_docs->move(qMax(avail.left(), x), y);
+}
+
+void CompletionPopup::hideEvent(QHideEvent *event)
+{
+    QFrame::hideEvent(event);
+    if (m_docs)
+        m_docs->hide();
 }
 
 void CompletionPopup::applyTheme()

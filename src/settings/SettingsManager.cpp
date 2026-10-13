@@ -138,6 +138,56 @@ void SettingsManager::setFormatOnSave(bool on)
     emit saveSettingsChanged();
 }
 
+bool SettingsManager::fixOnSave() const
+{
+    return projectValue(QStringLiteral("fixOnSave"), m_settings.value(QStringLiteral("save/fixOnSave"), false)).toBool();
+}
+
+void SettingsManager::setFixOnSave(bool on)
+{
+    setScopedValue(QStringLiteral("save/fixOnSave"), QStringLiteral("fixOnSave"), on);
+    emit saveSettingsChanged();
+}
+
+bool SettingsManager::organizeImportsOnSave() const
+{
+    return projectValue(QStringLiteral("organizeImportsOnSave"), m_settings.value(QStringLiteral("save/organizeImportsOnSave"), false)).toBool();
+}
+
+void SettingsManager::setOrganizeImportsOnSave(bool on)
+{
+    setScopedValue(QStringLiteral("save/organizeImportsOnSave"), QStringLiteral("organizeImportsOnSave"), on);
+    emit saveSettingsChanged();
+}
+
+bool SettingsManager::inlayParameterHints() const { return m_settings.value(QStringLiteral("editor/inlayParameterHints"), false).toBool(); }
+void SettingsManager::setInlayParameterHints(bool on)
+{
+    m_settings.setValue(QStringLiteral("editor/inlayParameterHints"), on);
+    emit editorSettingsChanged();
+}
+
+bool SettingsManager::inlayTypeHints() const { return m_settings.value(QStringLiteral("editor/inlayTypeHints"), false).toBool(); }
+void SettingsManager::setInlayTypeHints(bool on)
+{
+    m_settings.setValue(QStringLiteral("editor/inlayTypeHints"), on);
+    emit editorSettingsChanged();
+}
+
+bool SettingsManager::symbolHighlight() const { return m_settings.value(QStringLiteral("editor/symbolHighlight"), true).toBool(); }
+void SettingsManager::setSymbolHighlight(bool on)
+{
+    m_settings.setValue(QStringLiteral("editor/symbolHighlight"), on);
+    emit editorSettingsChanged();
+}
+
+bool SettingsManager::lightBulb() const { return m_settings.value(QStringLiteral("editor/lightBulb"), true).toBool(); }
+void SettingsManager::setLightBulb(bool on)
+{
+    m_settings.setValue(QStringLiteral("editor/lightBulb"), on);
+    emit editorSettingsChanged();
+}
+
 bool SettingsManager::showBreadcrumbs() const
 {
     return m_settings.value(QStringLiteral("editor/breadcrumbs"), true).toBool();

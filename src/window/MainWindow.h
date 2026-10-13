@@ -1,6 +1,7 @@
 #pragma once
 
 #include "git/GitTypes.h"
+#include "lsp/LspManager.h"
 #include "lsp/LspTypes.h"
 #include "project/Project.h"
 
@@ -140,6 +141,20 @@ private:
     void removeUnusedImports(CodeEditor *editor);
     void renameSymbol();
     void findReferences();
+    void showReferencesAt(CodeEditor *editor, int line, int column);
+
+    // Language server assists: hints, highlights, light bulb, source actions (MainWindowAssist.cpp)
+    void createAssistActions();
+    void wireAssists(Document *doc, CodeEditor *editor);
+    void applyAssistSettings();
+    void requestHighlights(Document *doc, CodeEditor *editor);
+    void updateLightBulb(Document *doc, CodeEditor *editor);
+    void requestHints(Document *doc, CodeEditor *editor, int firstLine, int lastLine);
+    void runSourceAction(const QStringList &kinds, const QString &what);
+    void applyFileOps(const QVector<LspManager::FileOp> &ops, bool before);
+    QAction *m_organizeImportsAct = nullptr, *m_removeUnusedAct = nullptr, *m_addMissingAct = nullptr, *m_fixAllAct = nullptr, *m_quickFixAct = nullptr;
+    QAction *m_fixOnSaveAct = nullptr, *m_organizeOnSaveAct = nullptr, *m_hintParamsAct = nullptr, *m_hintTypesAct = nullptr;
+    QAction *m_symbolHighlightAct = nullptr, *m_lightBulbAct = nullptr, *m_signatureAct = nullptr;
     void requestColors(Document *doc, CodeEditor *editor);
     void pickColor(Document *doc, CodeEditor *editor, int index);
     Document *documentOf(CodeEditor *editor) const;

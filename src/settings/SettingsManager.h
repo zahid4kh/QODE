@@ -41,6 +41,21 @@ public:
     void setAutoActivateVenv(bool on);
     bool formatOnSave() const;
     void setFormatOnSave(bool on);
+    // Language server actions run before a save (Edit > Source Actions), per project like Format on Save.
+    bool fixOnSave() const;            // source.fixAll: ESLint / TypeScript fixes
+    void setFixOnSave(bool on);
+    bool organizeImportsOnSave() const;
+    void setOrganizeImportsOnSave(bool on);
+
+    // Language server decorations in the editor.
+    bool inlayParameterHints() const;  // parameter names in front of arguments (off by default)
+    void setInlayParameterHints(bool on);
+    bool inlayTypeHints() const;       // inferred types after variables, return types (off by default)
+    void setInlayTypeHints(bool on);
+    bool symbolHighlight() const;      // tint the other uses of the symbol under the caret
+    void setSymbolHighlight(bool on);
+    bool lightBulb() const;            // quick-fix bulb in the gutter
+    void setLightBulb(bool on);
 
     bool showBreadcrumbs() const;
     void setShowBreadcrumbs(bool on);

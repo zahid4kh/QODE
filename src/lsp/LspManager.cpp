@@ -247,6 +247,7 @@ void LspManager::startServer(Server &s, const QString &rootPath)
     if (s.spec->id == QLatin1String("html") || s.spec->id == QLatin1String("css") || s.spec->id == QLatin1String("json"))
         options.insert(QStringLiteral("provideFormatter"), true);
     if (s.spec->id == QLatin1String("typescript")) {
+        options.insert(QStringLiteral("preferences"), tsPreferences());
         // typescript-language-server does not look next to itself for TypeScript: use the project's own version when it
         // has one (so the editor agrees with its build), otherwise the copy installed together with the server.
         const QString rel = QStringLiteral("node_modules/typescript/lib/tsserver.js");
@@ -1004,6 +1005,7 @@ LspCompletionItem parseCompletionItem(const QJsonObject &o)
     it.signature = details.value(QStringLiteral("detail")).toString();
     if (it.detail.isEmpty())
         it.detail = details.value(QStringLiteral("description")).toString();
+    it.documentation = markupText(o.value(QStringLiteral("documentation"))).trimmed();
     it.insertText = o.value(QStringLiteral("insertText")).toString();
     it.filterText = o.value(QStringLiteral("filterText")).toString();
     it.sortText = o.value(QStringLiteral("sortText")).toString();
@@ -1065,13 +1067,18 @@ void LspManager::completion(Document *doc, int line, int column, int triggerKind
     gather->pending = clients.size();
     gather->done = std::move(done);
     for (LspClient *c : clients) {
-        // jdtls adds an item's import (additionalTextEdits) only when the item is resolved.
-        bool resolvable = false;
+        // Servers that resolve items (completionItem/resolve): the details panel asks for documentation, and jdtls /
+        // typescript-language-server add an item's import (additionalTextEdits) only there.
+        bool resolvable = false, onAccept = false;
+        QString serverId;
         for (auto it = m_servers.constBegin(); it != m_servers.constEnd(); ++it)
-            if (it->client == c && it->spec && it->spec->resolvesCompletions)
+            if (it->client == c && it->spec) {
+                serverId = it.key();
                 resolvable = c->serverCapabilities().value(QStringLiteral("completionProvider")).toObject().value(QStringLiteral("resolveProvider")).toBool();
+                onAccept = resolvable && it->spec->resolvesCompletions;
+            }
         const int id = c->request(QStringLiteral("textDocument/completion"), params,
-                                  [gather, resolvable](const QJsonValue &result, const QJsonObject &error) {
+                                  [gather, resolvable, onAccept, serverId](const QJsonValue &result, const QJsonObject &error) {
                                       if (error.isEmpty()) {
                                           QJsonArray items;
                                           if (result.isArray()) {
@@ -1083,8 +1090,12 @@ void LspManager::completion(Document *doc, int line, int column, int triggerKind
                                           gather->items.reserve(gather->items.size() + items.size());
                                           for (const QJsonValue &v : items) {
                                               gather->items << parseCompletionItem(v.toObject());
-                                              if (resolvable)
-                                                  gather->items.last().resolveData = v.toObject();
+                                              LspCompletionItem &last = gather->items.last();
+                                              last.server = serverId;
+                                              if (resolvable) {
+                                                  last.resolveData = v.toObject();
+                                                  last.resolveOnAccept = onAccept;
+                                              }
                                           }
                                       }
                                       if (--gather->pending == 0)
@@ -1096,7 +1107,7 @@ void LspManager::completion(Document *doc, int line, int column, int triggerKind
         QTimer::singleShot(400, this, [gather] { gather->deliver(); });
 }
 
-QHash<QString, QVector<LspTextEdit>> LspManager::editsOf(const QJsonObject &edit, bool *ok)
+QHash<QString, QVector<LspTextEdit>> LspManager::editsOf(const QJsonObject &edit, bool *ok, bool allowFileOps)
 {
     QHash<QString, QVector<LspTextEdit>> out;
     *ok = true;
@@ -1113,11 +1124,35 @@ QHash<QString, QVector<LspTextEdit>> LspManager::editsOf(const QJsonObject &edit
         *ok = add(it.key(), it.value().toArray()) && *ok;
     for (const QJsonValue &v : edit.value(QStringLiteral("documentChanges")).toArray()) {
         const QJsonObject o = v.toObject();
-        if (o.contains(QStringLiteral("kind"))) { // create / rename / delete file: not supported
-            *ok = false;
+        if (o.contains(QStringLiteral("kind"))) { // create / rename / delete file
+            if (!allowFileOps)
+                *ok = false;
             continue;
         }
         *ok = add(o.value(QStringLiteral("textDocument")).toObject().value(QStringLiteral("uri")).toString(), o.value(QStringLiteral("edits")).toArray()) && *ok;
+    }
+    return out;
+}
+
+QVector<LspManager::FileOp> LspManager::fileOpsOf(const QJsonObject &edit)
+{
+    QVector<FileOp> out;
+    for (const QJsonValue &v : edit.value(QStringLiteral("documentChanges")).toArray()) {
+        const QJsonObject o = v.toObject();
+        if (!o.contains(QStringLiteral("kind")))
+            continue;
+        FileOp op;
+        op.kind = o.value(QStringLiteral("kind")).toString();
+        const QJsonObject opts = o.value(QStringLiteral("options")).toObject();
+        op.overwrite = opts.value(QStringLiteral("overwrite")).toBool();
+        if (op.kind == QLatin1String("rename")) {
+            op.path = QUrl(o.value(QStringLiteral("oldUri")).toString()).toLocalFile();
+            op.target = QUrl(o.value(QStringLiteral("newUri")).toString()).toLocalFile();
+        } else {
+            op.path = QUrl(o.value(QStringLiteral("uri")).toString()).toLocalFile();
+        }
+        if (!op.path.isEmpty())
+            out << op;
     }
     return out;
 }
@@ -1225,12 +1260,23 @@ void LspManager::runCompletionCommand(Document *doc, const LspCompletionItem &it
     });
 }
 
-// completionItem/resolve fills in what the server left out of the list (jdtls: the import line of a type that is not
-// imported yet). `done` always runs once: with the resolved item, or the original after a timeout / on error.
+// completionItem/resolve fills in what the server left out of the list (jdtls and typescript-language-server: the import line
+// of a symbol that is not imported yet; most servers: the documentation). `done` always runs once: with the resolved item,
+// or the original after a timeout / on error.
 void LspManager::resolveCompletion(Document *doc, const LspCompletionItem &item, std::function<void(const LspCompletionItem &)> done)
 {
     QString uri;
-    LspClient *c = item.resolveData.isEmpty() ? nullptr : readyClientFor(doc, &uri);
+    LspClient *c = nullptr;
+    if (!item.resolveData.isEmpty()) {
+        const QList<LspClient *> clients = readyClientsFor(doc, &uri);
+        for (LspClient *candidate : clients) {
+            for (auto it = m_servers.constBegin(); it != m_servers.constEnd(); ++it)
+                if (it->client == candidate && (item.server.isEmpty() || it.key() == item.server))
+                    c = candidate;
+            if (c)
+                break;
+        }
+    }
     if (!c) {
         done(item);
         return;
@@ -1250,16 +1296,24 @@ void LspManager::resolveCompletion(Document *doc, const LspCompletionItem &item,
             out.additionalEdits = fresh.additionalEdits;
             if (!fresh.hasEdit && !fresh.insertText.isEmpty() && !out.hasEdit)
                 out.insertText = fresh.insertText;
+            if (!fresh.documentation.isEmpty())
+                out.documentation = fresh.documentation;
+            out.longDetail = fresh.detail;
+            out.resolved = true;
         }
         finish(out);
     });
 }
 
 void LspManager::codeActions(Document *doc, int startLine, int startColumn, int endLine, int endColumn,
-                             std::function<void(const QVector<LspCodeAction> &)> done)
+                             std::function<void(const QVector<LspCodeAction> &)> done, const QStringList &only, bool automatic, const QString &serverOnly)
 {
     QString uri;
-    const QList<LspClient *> clients = readyClientsFor(doc, &uri);
+    QList<LspClient *> clients = readyClientsFor(doc, &uri);
+    if (!serverOnly.isEmpty()) {
+        const Server &only = m_servers[serverOnly];
+        clients.removeIf([&only](LspClient *c) { return c != only.client; });
+    }
     if (clients.isEmpty()) {
         done({});
         return;
@@ -1297,10 +1351,13 @@ void LspManager::codeActions(Document *doc, int startLine, int startColumn, int 
             if (!before && !after && !d.raw.isEmpty() && d.server == serverId)
                 diagnostics.append(d.raw);
         }
+        QJsonObject context{{QStringLiteral("diagnostics"), diagnostics}, {QStringLiteral("triggerKind"), automatic ? 2 : 1}};
+        if (!only.isEmpty())
+            context.insert(QStringLiteral("only"), QJsonArray::fromStringList(only));
         c->request(QStringLiteral("textDocument/codeAction"),
                    QJsonObject{{QStringLiteral("textDocument"), QJsonObject{{QStringLiteral("uri"), uri}}},
                                {QStringLiteral("range"), range},
-                               {QStringLiteral("context"), QJsonObject{{QStringLiteral("diagnostics"), diagnostics}}}},
+                               {QStringLiteral("context"), context}},
                    [gather, done, serverId](const QJsonValue &result, const QJsonObject &error) {
                        if (error.isEmpty())
                            for (const QJsonValue &v : result.toArray()) {
@@ -1372,13 +1429,40 @@ void LspManager::runCodeAction(Document *doc, const LspCodeAction &action, std::
         done(false);
         return;
     }
+    // A lazy action (TypeScript refactors, quick fixes): the list only carries the title and `data`; the edit comes from
+    // codeAction/resolve. Servers that do not resolve send the edit up front.
+    const QJsonObject json = action.json;
+    const QJsonValue provider = c->serverCapabilities().value(QStringLiteral("codeActionProvider"));
+    const bool canResolve = provider.isObject() && provider.toObject().value(QStringLiteral("resolveProvider")).toBool();
+    if (canResolve && !json.contains(QStringLiteral("edit")) && !json.value(QStringLiteral("command")).isObject() &&
+        json.contains(QStringLiteral("data"))) {
+        QPointer<LspClient> guard(c);
+        QPointer<Document> docGuard(doc);
+        c->request(QStringLiteral("codeAction/resolve"), json, [this, guard, docGuard, action, done](const QJsonValue &result, const QJsonObject &error) {
+            if (!guard || !docGuard || !error.isEmpty() || !result.isObject()) {
+                done(false);
+                return;
+            }
+            LspCodeAction resolved = action;
+            resolved.json = result.toObject();
+            resolved.json.remove(QStringLiteral("data")); // resolved once
+            if (!resolved.json.contains(QStringLiteral("edit")) && !resolved.json.value(QStringLiteral("command")).isObject()) {
+                done(false);
+                return;
+            }
+            runCodeAction(docGuard, resolved, done);
+        });
+        return;
+    }
     bool ok = true;
-    const QJsonObject edit = action.json.value(QStringLiteral("edit")).toObject();
+    const QJsonObject edit = json.value(QStringLiteral("edit")).toObject();
     if (!edit.isEmpty())
         ok = m_applyEdit && m_applyEdit(edit);
-    const QJsonValue command = action.json.value(QStringLiteral("command"));
+    const QJsonValue command = json.value(QStringLiteral("command"));
     // CodeAction.command is a Command object; a bare Command (the whole action) carries a string.
-    const QJsonObject cmd = command.isObject() ? command.toObject() : QJsonObject();
+    QJsonObject cmd = command.isObject() ? command.toObject() : QJsonObject();
+    if (cmd.isEmpty() && command.isString())
+        cmd = json;
     if (cmd.isEmpty()) {
         done(ok);
         return;
@@ -1394,6 +1478,293 @@ void LspManager::runCodeAction(Document *doc, const LspCodeAction &action, std::
     c->request(QStringLiteral("workspace/executeCommand"),
                QJsonObject{{QStringLiteral("command"), cmd.value(QStringLiteral("command"))}, {QStringLiteral("arguments"), cmd.value(QStringLiteral("arguments"))}},
                [done, ok](const QJsonValue &, const QJsonObject &err) { done(ok && err.isEmpty()); });
+}
+
+// Source actions (organize imports, fix all ...): for each kind, every server holding the file is asked in turn (main server
+// first) and what it offers is run before the next request, so each action sees the text the previous one produced.
+void LspManager::applySourceActions(Document *doc, const QStringList &kinds, std::function<void(int, int)> done, std::shared_ptr<bool> cancel)
+{
+    const auto tracked = m_tracked.constFind(doc);
+    if (tracked == m_tracked.constEnd() || !tracked->opened()) {
+        done(0, 0);
+        return;
+    }
+    struct Step {
+        QString kind, server;
+    };
+    struct Run {
+        QVector<Step> steps;
+        int next = 0, applied = 0, found = 0;
+        std::function<void()> step;
+    };
+    auto run = std::make_shared<Run>();
+    for (const QString &kind : kinds)
+        for (const QString &id : tracked->servers())
+            if (tracked->openOn.contains(id))
+                run->steps.append({kind, id});
+    QPointer<Document> guard(doc);
+    run->step = [this, run, guard, done, cancel] {
+        if (!guard || (cancel && *cancel) || run->next >= run->steps.size()) {
+            auto finish = done;
+            const int applied = run->applied, found = run->found;
+            run->step = nullptr; // break the cycle
+            finish(applied, found);
+            return;
+        }
+        const Step st = run->steps.at(run->next++);
+        const QTextDocument *td = guard->textDocument();
+        const int lastLine = qMax(0, td->blockCount() - 1);
+        const int lastColumn = td->lastBlock().isValid() ? qMax(0, td->lastBlock().length() - 1) : 0;
+        codeActions(guard, 0, 0, lastLine, lastColumn, [this, run, guard, st, cancel](const QVector<LspCodeAction> &found) {
+            QVector<LspCodeAction> wanted;
+            for (const LspCodeAction &a : found)
+                if (a.kind == st.kind || a.kind.startsWith(st.kind + QLatin1Char('.')))
+                    wanted << a;
+            run->found += int(wanted.size());
+            // Actions of one answer are alternatives computed from the same text; the first is enough, and running a
+            // second would work from positions the first already moved.
+            if (wanted.isEmpty() || !guard || (cancel && *cancel)) {
+                QTimer::singleShot(0, [run] { if (run->step) run->step(); });
+                return;
+            }
+            runCodeAction(guard, wanted.first(), [run](bool ok) {
+                if (ok)
+                    ++run->applied;
+                QTimer::singleShot(0, [run] { if (run->step) run->step(); });
+            });
+        }, {st.kind}, false, st.server);
+    };
+    run->step();
+}
+
+int LspManager::applySourceActionsBlocking(Document *doc, const QStringList &kinds, int timeoutMs)
+{
+    struct State {
+        bool finished = false;
+        int applied = 0;
+        QEventLoop loop;
+    };
+    auto st = std::make_shared<State>();
+    QTimer timeout;
+    timeout.setSingleShot(true);
+    connect(&timeout, &QTimer::timeout, &st->loop, &QEventLoop::quit);
+    auto cancel = std::make_shared<bool>(false);
+    applySourceActions(doc, kinds, [st](int applied, int) {
+        st->finished = true;
+        st->applied = applied;
+        st->loop.quit();
+    }, cancel);
+    if (!st->finished) {
+        timeout.start(timeoutMs);
+        st->loop.exec();
+    }
+    *cancel = true; // a step still in flight must not edit the document after the save
+    return st->applied;
+}
+
+// --- Signature help / highlights / inlay hints -----------------------------------------------------
+
+bool LspManager::signatureTriggers(Document *doc, QString *triggers, QString *retriggers) const
+{
+    const auto it = m_tracked.constFind(doc);
+    if (it == m_tracked.constEnd())
+        return false;
+    for (const QString &id : it->servers()) {
+        const Server &s = m_servers[id];
+        if (!it->openOn.contains(id) || !s.client || !s.client->isRunning())
+            continue;
+        const QJsonValue p = s.client->serverCapabilities().value(QStringLiteral("signatureHelpProvider"));
+        if (!p.isObject())
+            continue;
+        auto chars = [&p](const char *key) {
+            QString out;
+            for (const QJsonValue &v : p.toObject().value(QLatin1String(key)).toArray())
+                out += v.toString();
+            return out;
+        };
+        *triggers = chars("triggerCharacters");
+        *retriggers = chars("retriggerCharacters");
+        return true;
+    }
+    return false;
+}
+
+static QString signatureDoc(const QJsonValue &v)
+{
+    return markupText(v).trimmed();
+}
+
+void LspManager::signatureHelp(Document *doc, int line, int column, int triggerKind, const QString &triggerChar, bool retrigger,
+                               std::function<void(const LspSignatureHelp &)> done)
+{
+    QString uri;
+    LspClient *c = nullptr;
+    for (LspClient *candidate : readyClientsFor(doc, &uri))
+        if (candidate->serverCapabilities().value(QStringLiteral("signatureHelpProvider")).isObject()) {
+            c = candidate;
+            break;
+        }
+    if (!c) {
+        done({});
+        return;
+    }
+    if (m_signatureClient && m_signatureRequest)
+        m_signatureClient->cancel(m_signatureRequest);
+    QJsonObject params = positionParams(uri, line, column);
+    QJsonObject context{{QStringLiteral("triggerKind"), triggerKind}, {QStringLiteral("isRetrigger"), retrigger}};
+    if (triggerKind == 2 && !triggerChar.isEmpty())
+        context.insert(QStringLiteral("triggerCharacter"), triggerChar);
+    params.insert(QStringLiteral("context"), context);
+    m_signatureClient = c;
+    m_signatureRequest = c->request(QStringLiteral("textDocument/signatureHelp"), params, [done](const QJsonValue &result, const QJsonObject &error) {
+        LspSignatureHelp out;
+        if (error.isEmpty() && result.isObject()) {
+            const QJsonObject o = result.toObject();
+            out.activeSignature = o.value(QStringLiteral("activeSignature")).toInt(0);
+            out.activeParameter = o.value(QStringLiteral("activeParameter")).toInt(-1);
+            for (const QJsonValue &sv : o.value(QStringLiteral("signatures")).toArray()) {
+                const QJsonObject so = sv.toObject();
+                LspSignature sig;
+                sig.label = so.value(QStringLiteral("label")).toString();
+                sig.documentation = signatureDoc(so.value(QStringLiteral("documentation")));
+                sig.active = so.contains(QStringLiteral("activeParameter")) ? so.value(QStringLiteral("activeParameter")).toInt(-1) : -1;
+                for (const QJsonValue &pv : so.value(QStringLiteral("parameters")).toArray()) {
+                    const QJsonObject po = pv.toObject();
+                    const QJsonValue label = po.value(QStringLiteral("label"));
+                    QPair<int, int> range{-1, -1};
+                    if (label.isArray() && label.toArray().size() == 2) {
+                        range = {label.toArray().at(0).toInt(), label.toArray().at(1).toInt()};
+                    } else if (label.isString()) {
+                        const int at = sig.label.indexOf(label.toString());
+                        if (at >= 0)
+                            range = {at, at + int(label.toString().size())};
+                    }
+                    sig.params << range;
+                    sig.paramDocs << signatureDoc(po.value(QStringLiteral("documentation")));
+                }
+                out.signatures << sig;
+            }
+        }
+        done(out);
+    });
+}
+
+bool LspManager::supportsHighlights(Document *doc) const
+{
+    const auto it = m_tracked.constFind(doc);
+    if (it == m_tracked.constEnd() || !it->opened())
+        return false;
+    const Server &s = m_servers[it->serverId];
+    if (!s.client || !s.client->isRunning())
+        return false;
+    const QJsonValue v = s.client->serverCapabilities().value(QStringLiteral("documentHighlightProvider"));
+    return v.isObject() || v.toBool(false);
+}
+
+void LspManager::documentHighlights(Document *doc, int line, int column, std::function<void(const QVector<LspHighlight> &)> done)
+{
+    QString uri;
+    LspClient *c = supportsHighlights(doc) ? readyClientFor(doc, &uri) : nullptr;
+    if (!c) {
+        done({});
+        return;
+    }
+    c->request(QStringLiteral("textDocument/documentHighlight"), positionParams(uri, line, column), [done](const QJsonValue &result, const QJsonObject &error) {
+        QVector<LspHighlight> out;
+        if (error.isEmpty() && result.isArray())
+            for (const QJsonValue &v : result.toArray()) {
+                const QJsonObject o = v.toObject();
+                const QJsonObject r = o.value(QStringLiteral("range")).toObject();
+                const QJsonObject a = r.value(QStringLiteral("start")).toObject(), b = r.value(QStringLiteral("end")).toObject();
+                LspHighlight h;
+                h.startLine = a.value(QStringLiteral("line")).toInt();
+                h.startColumn = a.value(QStringLiteral("character")).toInt();
+                h.endLine = b.value(QStringLiteral("line")).toInt();
+                h.endColumn = b.value(QStringLiteral("character")).toInt();
+                h.kind = o.value(QStringLiteral("kind")).toInt(1);
+                out << h;
+            }
+        done(out);
+    });
+}
+
+bool LspManager::supportsInlayHints(Document *doc) const
+{
+    const auto it = m_tracked.constFind(doc);
+    if (it == m_tracked.constEnd())
+        return false;
+    for (const QString &id : it->servers()) {
+        const Server &s = m_servers[id];
+        if (!it->openOn.contains(id) || !s.client || !s.client->isRunning())
+            continue;
+        const QJsonValue v = s.client->serverCapabilities().value(QStringLiteral("inlayHintProvider"));
+        if (v.isObject() || v.toBool(false))
+            return true;
+    }
+    return false;
+}
+
+void LspManager::inlayHints(Document *doc, int startLine, int endLine, std::function<void(const QVector<LspInlayHint> &)> done)
+{
+    QString uri;
+    LspClient *c = nullptr;
+    for (LspClient *candidate : readyClientsFor(doc, &uri)) {
+        const QJsonValue v = candidate->serverCapabilities().value(QStringLiteral("inlayHintProvider"));
+        if (v.isObject() || v.toBool(false)) {
+            c = candidate;
+            break;
+        }
+    }
+    if (!c) {
+        done({});
+        return;
+    }
+    const QTextDocument *td = doc->textDocument();
+    const QTextBlock last = td->findBlockByNumber(qMin(endLine, td->blockCount() - 1));
+    const QJsonObject range{{QStringLiteral("start"), QJsonObject{{QStringLiteral("line"), startLine}, {QStringLiteral("character"), 0}}},
+                            {QStringLiteral("end"), QJsonObject{{QStringLiteral("line"), last.isValid() ? last.blockNumber() : endLine},
+                                                                {QStringLiteral("character"), last.isValid() ? last.length() - 1 : 0}}}};
+    c->request(QStringLiteral("textDocument/inlayHint"),
+               QJsonObject{{QStringLiteral("textDocument"), QJsonObject{{QStringLiteral("uri"), uri}}}, {QStringLiteral("range"), range}},
+               [done](const QJsonValue &result, const QJsonObject &error) {
+                   QVector<LspInlayHint> out;
+                   if (error.isEmpty() && result.isArray())
+                       for (const QJsonValue &v : result.toArray()) {
+                           const QJsonObject o = v.toObject();
+                           const QJsonObject pos = o.value(QStringLiteral("position")).toObject();
+                           LspInlayHint h;
+                           h.line = pos.value(QStringLiteral("line")).toInt();
+                           h.column = pos.value(QStringLiteral("character")).toInt();
+                           const QJsonValue label = o.value(QStringLiteral("label"));
+                           if (label.isString()) {
+                               h.label = label.toString();
+                           } else {
+                               for (const QJsonValue &part : label.toArray())
+                                   h.label += part.toObject().value(QStringLiteral("value")).toString();
+                           }
+                           h.kind = o.value(QStringLiteral("kind")).toInt(0);
+                           h.padLeft = o.value(QStringLiteral("paddingLeft")).toBool();
+                           h.padRight = o.value(QStringLiteral("paddingRight")).toBool();
+                           if (!h.label.isEmpty())
+                               out << h;
+                       }
+                   done(out);
+               });
+}
+
+// typescript-language-server computes hints only for the kinds its preferences allow, and they are read when it starts (a
+// later didChangeConfiguration is ignored). So every kind is switched on and the editor filters what it shows: toggling
+// a hint class in QODE needs no server restart, and nothing is computed until hints are requested.
+QJsonObject LspManager::tsPreferences() const
+{
+    return {{QStringLiteral("includeInlayParameterNameHints"), QStringLiteral("all")},
+            {QStringLiteral("includeInlayParameterNameHintsWhenArgumentMatchesName"), false},
+            {QStringLiteral("includeInlayFunctionParameterTypeHints"), true},
+            {QStringLiteral("includeInlayVariableTypeHints"), true},
+            {QStringLiteral("includeInlayVariableTypeHintsWhenTypeMatchesName"), false},
+            {QStringLiteral("includeInlayPropertyDeclarationTypeHints"), true},
+            {QStringLiteral("includeInlayFunctionLikeReturnTypeHints"), true},
+            {QStringLiteral("includeInlayEnumMemberValueHints"), true}};
 }
 
 // Documentation comment and declaration found in a source file at a definition's line: the fallback for servers whose hover
@@ -1666,6 +2037,17 @@ void LspManager::onNotification(const QString &id, const QString &method, const 
         for (auto it = m_tracked.begin(); it != m_tracked.end(); ++it)
             if (it->servers().contains(id) && it->openOn.contains(id))
                 pullDiagnostics(it.key());
+        return;
+    }
+    if (method == QLatin1String("workspace/inlayHint/refresh")) {
+        emit inlayHintsRefresh();
+        return;
+    }
+    if (method == QLatin1String("_typescript.rename")) {
+        const QJsonObject o = params.toObject();
+        const QJsonObject pos = o.value(QStringLiteral("position")).toObject();
+        emit renameRequested(QUrl(o.value(QStringLiteral("textDocument")).toObject().value(QStringLiteral("uri")).toString()).toLocalFile(),
+                             pos.value(QStringLiteral("line")).toInt(), pos.value(QStringLiteral("character")).toInt());
         return;
     }
     if (method != QLatin1String("textDocument/publishDiagnostics"))

@@ -52,6 +52,8 @@ public:
     // Fallback when no formatter program exists for a file: asks the language server (set by MainWindow). Returns true when
     // the server formatted the document (edits applied, possibly none).
     void setLspFormatter(std::function<bool(Document *, CodeEditor *)> f) { m_lspFormatter = std::move(f); }
+    // Runs the language server's source actions (fix all, organize imports) before a save; see SettingsManager::fixOnSave.
+    void setLspFixer(std::function<void(Document *)> f) { m_lspFixer = std::move(f); }
     bool formatCurrent(); // Format Document: runs the installed formatter for the file type
     bool closeCurrent();
     bool closeDocument(Document *doc); // prompts if modified
@@ -135,6 +137,7 @@ private:
     bool maybeSave(Document *doc);
     // Format / trim / final newline as configured, as one undo step. `automatic` = triggered by auto save.
     std::function<bool(Document *, CodeEditor *)> m_lspFormatter;
+    std::function<void(Document *)> m_lspFixer;
     bool formatWithLsp(Document *doc);
     void prepareForSave(Document *doc, bool automatic, const QString &path);
     bool autoSaveDocument(Document *doc);

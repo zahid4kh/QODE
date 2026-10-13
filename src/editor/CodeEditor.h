@@ -13,6 +13,7 @@
 
 class CompletionPopup;
 class HoverPopup;
+class SignaturePopup;
 class MiniMap;
 class QTextBlock;
 class QTimer;
@@ -126,6 +127,34 @@ public:
     QTextCursor swatchRange(int index) const;
     void replaceSwatch(int index, const QString &text); // one undo step
 
+    // --- Language server assists (CodeEditorAssist.cpp) ---------------------------------------------
+    // Inlay hints: text drawn inside the code (inferred types, parameter names). The list replaces the previous one; the
+    // hints follow edits until the next list arrives. Switched off, the editor neither asks for nor shows them.
+    void setInlayHints(const QVector<LspInlayHint> &hints);
+    void setInlayHintsWanted(bool on);
+    bool inlayHintsWanted() const { return m_hintsWanted; }
+    int inlayHintCount() const { return m_hints.size(); }
+    void requestInlayHintsSoon();
+    void requestAssistsSoon(); // ask for the symbol highlights and the light bulb again (after the diagnostics changed)
+    // Other uses of the symbol under the caret, tinted in the text. They are dropped when the caret leaves them.
+    void setSymbolHighlights(const QVector<LspHighlight> &list);
+    void clearSymbolHighlights();
+    bool hasSymbolHighlights() const { return !m_highlights.isEmpty(); }
+    // The light bulb in the gutter: the line (0-based) the server has quick fixes for, -1 for none. Clicking it behaves
+    // like Alt+Enter. `enabled` also reserves the gutter room for it.
+    void setLightBulb(int line);
+    int lightBulbLine() const { return m_bulbLine; }
+    void setLightBulbEnabled(bool on);
+    // Parameter hints: asked after the server's trigger characters, kept up to date while the call is edited.
+    using SignatureTriggers = std::function<bool(QString *triggers, QString *retriggers)>;
+    void setSignatureTriggers(SignatureTriggers f) { m_signatureTriggers = std::move(f); }
+    void showSignatureHelp(const LspSignatureHelp &help, int token);
+    void hideSignatureHelp();
+    void triggerSignatureHelp(); // Ctrl+Shift+Space
+    bool signatureVisible() const;
+    // Opens the Alt+Enter menu for the caret / selection.
+    void requestCodeActions();
+
     // --- Bookmarks ----------------------------------------------------------
     // 0-based, sorted lines. They follow the text while it is edited; setBookmarks() does not emit.
     const QList<int> &bookmarks() const { return m_bookmarks; }
@@ -167,6 +196,11 @@ signals:
     // Alt+Enter: quick fixes / actions for the selection (or the caret when it is empty); 0-based line / UTF-16 column.
     void removeUnusedImportsRequested();
     void codeActionsRequested(int startLine, int startColumn, int endLine, int endColumn);
+    void inlayHintsRequested(int firstLine, int lastLine); // 0-based, the visible lines plus some margin
+    void caretSettled();             // the caret rested for a moment: document highlights, light bulb
+    // triggerKind: 1 invoked, 2 trigger character, 3 content change (LSP numbering); `token` goes back to showSignatureHelp()
+    void signatureHelpRequested(int line, int column, int triggerKind, const QString &triggerChar, bool retrigger, int token);
+    void referencesRequested(int line, int column); // "Find References" in the hover popup
     void colorsRequested();          // the text settled after an edit: ask the server for colour literals again
     void swatchClicked(int index);   // index into the list given to setColorSwatches()
 
@@ -292,10 +326,11 @@ private:
     QVector<Swatch> m_swatches;
     QTimer *m_colorTimer = nullptr;
     int swatchGap() const;
-    QVector<int> swatchGapColumns(const QTextBlock &block) const;
+    QVector<QPair<int, int>> gapColumns(const QTextBlock &block) const; // swatches and inlay hints: (column, pixels)
     mutable int m_gapRevision = -1;
-    mutable QHash<int, QVector<int>> m_gapMap; // block number -> columns followed by a swatch gap (valid for m_gapRevision)
+    mutable QHash<int, QVector<QPair<int, int>>> m_gapMap; // block number -> gaps (valid for m_gapRevision)
     void applyGapProvider(const QSet<int> &blocks);
+    bool m_gapUpdating = false; // re-highlighting for swatches / hints: Qt reports that as a text change, which it is not
     void paintSwatches();
     QList<QTextCursor> m_unusedImports; // each selects the text of one import line
     int importRunEnd(const QTextBlock &header) const; // last block of the import list starting at `header`, or -1
@@ -332,6 +367,41 @@ private:
     QHash<int, int> m_deletedAt;  // line above which lines were removed -> hunk index
     QTimer *m_diffTimer;
 
+    // Language server assists
+    struct Hint {
+        QTextCursor at; // the hint sits in front of this position
+        QString text;
+        int kind = 0, width = 0; // width: pixels reserved in the text (and used by the pill)
+        QRect rect;              // of the last paint
+    };
+    QVector<Hint> m_hints;
+    bool m_hintsWanted = false;
+    QTimer *m_hintTimer = nullptr;
+    QFont hintFont() const;
+    void paintInlayHints();
+    struct Highlight {
+        QTextCursor from, to;
+        int kind = 1;
+    };
+    QVector<Highlight> m_highlights;
+    QTimer *m_caretTimer = nullptr;
+    int m_bulbLine = -1;
+    bool m_bulbEnabled = true;
+    QRect m_bulbRect;
+    SignatureTriggers m_signatureTriggers;
+    SignaturePopup *m_signature = nullptr;
+    QTimer *m_signatureTimer = nullptr;
+    int m_signatureToken = 0;
+    bool m_signatureOpen = false; // a call is being edited: keep asking
+    void signatureTyped(QKeyEvent *event, bool edited);
+    void scheduleSignature(int kind, const QString &trigger, bool retrigger);
+    void setupAssists();
+    QTimer *m_docsTimer = nullptr;
+    QHash<QString, LspCompletionItem> m_docCache; // resolved items of the current list, by label + detail
+    void updateCompletionDocs();
+    QString completionDocsHtml(const LspCompletionItem &item) const;
+    void applyHoverLink(const QString &href);
+    void paintLightBulb(QPainter &painter, int top, int lineHeight);
     CompletionPopup *m_completion = nullptr;
     QTimer *m_completionTimer = nullptr;
     int m_completionToken = 0;

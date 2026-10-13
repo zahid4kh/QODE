@@ -214,6 +214,7 @@ MainWindow::MainWindow(QWidget *parent)
     });
     m_lsp->setApplyEditHandler([this](const QJsonObject &edit) { return applyWorkspaceEdit(edit); });
     createActions();
+    createAssistActions();
     createMenus();
     createToolBar();
     createStatusBar();
@@ -225,6 +226,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_explorer, &ProjectExplorer::fileCreated, m_editors, &EditorManager::openFile);
     m_mover = new MoveController(m_explorer, m_editors, this);
     connect(m_explorer, &ProjectExplorer::moveRequested, m_mover, &MoveController::move);
+    connect(m_explorer, &ProjectExplorer::renameRequested, m_mover, &MoveController::rename);
     connect(m_explorer, &ProjectExplorer::pathRenamed, m_editors, &EditorManager::pathRenamed);
     connect(m_explorer, &ProjectExplorer::pathDeleted, m_editors, &EditorManager::closeDocumentsUnder);
     connect(m_explorer, &ProjectExplorer::contentsChanged, m_projectFiles, &ProjectFiles::invalidate);
@@ -312,6 +314,7 @@ MainWindow::MainWindow(QWidget *parent)
                     SettingsManager::instance().setImportsFolded(doc->filePath(), folded);
             });
         }
+        wireAssists(doc, ed);
         connect(ed, &CodeEditor::hoverRequested, this, [this, doc, ed](int line, int column) {
             QPointer<CodeEditor> guard(ed);
             m_lsp->hover(doc, line, column, [guard](const QString &text) {
@@ -402,6 +405,7 @@ MainWindow::MainWindow(QWidget *parent)
         if (Document *d = m_editors->documentForPath(path))
             if (CodeEditor *ed = m_editors->editorFor(d)) {
                 ed->setDiagnostics(m_lsp->diagnostics(path));
+                ed->requestAssistsSoon(); // the light bulb follows the diagnostics
                 m_importPath = path;
                 m_importTimer->start(); // settles after the diagnostics stop changing
             }
@@ -753,6 +757,8 @@ void MainWindow::createMenus()
     saveOptions->addAction(m_trimAct);
     saveOptions->addAction(m_finalNewlineAct);
     saveOptions->addAction(m_formatOnSaveAct);
+    saveOptions->addAction(m_fixOnSaveAct);
+    saveOptions->addAction(m_organizeOnSaveAct);
     file->addSeparator();
     file->addAction(m_closeFileAct);
     file->addSeparator();
@@ -768,6 +774,13 @@ void MainWindow::createMenus()
     edit->addAction(m_selectAllAct);
     edit->addSeparator();
     edit->addAction(m_formatAct);
+    QMenu *sourceMenu = edit->addMenu(tr("Source Actions"));
+    sourceMenu->addAction(m_organizeImportsAct);
+    sourceMenu->addAction(m_removeUnusedAct);
+    sourceMenu->addAction(m_addMissingAct);
+    sourceMenu->addAction(m_fixAllAct);
+    edit->addAction(m_quickFixAct);
+    edit->addAction(m_signatureAct);
     edit->addSeparator();
     edit->addAction(m_findAct);
     edit->addAction(m_replaceAct);
@@ -813,6 +826,11 @@ void MainWindow::createMenus()
     view->addAction(m_indentGuidesAct);
     view->addAction(m_stickyAct);
     view->addAction(m_minimapAct);
+    QMenu *hintsMenu = view->addMenu(tr("Inlay Hints"));
+    hintsMenu->addAction(m_hintParamsAct);
+    hintsMenu->addAction(m_hintTypesAct);
+    view->addAction(m_symbolHighlightAct);
+    view->addAction(m_lightBulbAct);
     view->addAction(m_hiddenFilesAct);
     view->addAction(m_breadcrumbsAct);
     QMenu *theme = view->addMenu(tr("Theme"));
@@ -1724,10 +1742,16 @@ void MainWindow::showCodeActions(Document *doc, CodeEditor *editor, int startLin
         QVector<LspCodeAction> actions = found;
         // An import that no installed package satisfies: offer to install it into the project's virtual environment.
         const QStringList missing = unresolvedPythonImports(doc, startLine, startColumn, endLine, endColumn);
-        auto rank = [](const LspCodeAction &a) { return a.kind.startsWith(QLatin1String("quickfix")) ? 0 : a.kind.startsWith(QLatin1String("source")) ? 1 : 2; };
-        std::stable_sort(actions.begin(), actions.end(), [&](const LspCodeAction &a, const LspCodeAction &b) { return rank(a) < rank(b); });
+        // Quick fixes first, then refactorings, then source actions (organize imports ...); the server's preferred fix leads its group.
+        auto group = [](const LspCodeAction &a) { return a.kind.startsWith(QLatin1String("refactor")) ? 1 : a.kind.startsWith(QLatin1String("source")) ? 2 : 0; };
+        auto preferred = [](const LspCodeAction &a) { return a.json.value(QStringLiteral("isPreferred")).toBool(); };
+        std::stable_sort(actions.begin(), actions.end(), [&](const LspCodeAction &a, const LspCodeAction &b) {
+            if (group(a) != group(b))
+                return group(a) < group(b);
+            return preferred(a) && !preferred(b);
+        });
         if (actions.isEmpty() && missing.isEmpty()) {
-            statusBar()->showMessage(tr("No quick fixes available here"), 3000);
+            statusBar()->showMessage(tr("No quick fixes or refactorings available here"), 3000);
             return;
         }
         auto *menu = new QMenu(guard);
@@ -1738,29 +1762,52 @@ void MainWindow::showCodeActions(Document *doc, CodeEditor *editor, int startLin
         const Theme theme = Theme::byName(SettingsManager::instance().theme());
         menu->setStyleSheet(QStringLiteral("QMenu { background: %1; color: %2; border: 1px solid %3; border-radius: 8px; padding: 4px; }"
                                            "QMenu::item { padding: 5px 22px 5px 12px; border-radius: 5px; }"
-                                           "QMenu::item:selected { background: %4; }")
+                                           "QMenu::item:selected { background: %4; }"
+                                           "QMenu::separator { height: 1px; background: %3; margin: 4px 8px; }")
                                 .arg(theme.panel.name(), theme.editorFg.name(), theme.border.name(), theme.selection.name()));
+        QAction *firstItem = nullptr;
         const bool hasVenv = m_projects->hasProject() && !PythonEnv::activeVenv(m_projects->project().root).isEmpty();
+        int shownGroup = -1;
+        auto heading = [&](int g) {
+            if (shownGroup == g)
+                return;
+            const bool needsHeading = actions.size() + missing.size() > 4 || g != 0 || shownGroup >= 0;
+            shownGroup = g;
+            if (needsHeading) {
+                static const char *titles[] = {QT_TR_NOOP("Quick Fix"), QT_TR_NOOP("Refactor"), QT_TR_NOOP("Source Actions")};
+                addMenuSection(menu, tr(titles[g]), theme, menu->actions().size() > 0);
+            }
+        };
         for (const QString &package : missing) {
+            heading(0);
             QString title = hasVenv ? tr("Install \"%1\" in the virtual environment…").arg(package)
                                     : tr("Install \"%1\" (set up a virtual environment first)…").arg(package);
             title.replace(QLatin1Char('&'), QStringLiteral("&&"));
-            connect(menu->addAction(title), &QAction::triggered, this, [this, package, hasVenv] {
+            QAction *act = menu->addAction(title);
+            firstItem = firstItem ? firstItem : act;
+            connect(act, &QAction::triggered, this, [this, package, hasVenv] {
                 showPythonPackages();
                 if (m_pkgDialog && hasVenv)
                     m_pkgDialog->installNow({package});
             });
         }
         for (const LspCodeAction &a : std::as_const(actions)) {
+            heading(group(a));
             QString title = a.title;
             title.replace(QLatin1Char('&'), QStringLiteral("&&"));
-            connect(menu->addAction(title), &QAction::triggered, this, [this, doc, a] {
+            if (preferred(a))
+                title += QStringLiteral("  ★");
+            QAction *act = menu->addAction(title);
+            firstItem = firstItem ? firstItem : act;
+            connect(act, &QAction::triggered, this, [this, doc, a] {
                 m_lsp->runCodeAction(doc, a, [this](bool ok) {
                     if (!ok)
                         statusBar()->showMessage(tr("The language server could not apply that action"), 4000);
                 });
             });
         }
+        if (firstItem)
+            menu->setActiveAction(firstItem);
         menu->popup(guard->viewport()->mapToGlobal(guard->cursorRect().bottomLeft() + QPoint(0, 2)));
     });
 }
@@ -1797,10 +1844,19 @@ QStringList MainWindow::unresolvedPythonImports(Document *doc, int startLine, in
 bool MainWindow::applyWorkspaceEdit(const QJsonObject &edit)
 {
     bool ok = false;
-    const QHash<QString, QVector<LspTextEdit>> byPath = LspManager::editsOf(edit, &ok);
-    if (!ok || byPath.isEmpty())
+    const QHash<QString, QVector<LspTextEdit>> byPath = LspManager::editsOf(edit, &ok, true);
+    const QVector<LspManager::FileOp> ops = LspManager::fileOpsOf(edit);
+    if (!ok || (byPath.isEmpty() && ops.isEmpty()))
         return false;
+    applyFileOps(ops, true);
     for (auto it = byPath.constBegin(); it != byPath.constEnd(); ++it) {
+        // "Move to a new file": TypeScript sends the text for a file that does not exist yet, without a create operation.
+        if (!QFileInfo::exists(it.key())) {
+            QDir().mkpath(QFileInfo(it.key()).absolutePath());
+            QFile created(it.key());
+            if (created.open(QIODevice::WriteOnly))
+                created.close();
+        }
         Document *doc = m_editors->documentForPath(it.key());
         if (!doc && m_editors->openFile(it.key()))
             doc = m_editors->documentForPath(it.key());
@@ -1808,6 +1864,7 @@ bool MainWindow::applyWorkspaceEdit(const QJsonObject &edit)
         if (!ed || !ed->applyTextEdits(it.value()))
             return false;
     }
+    applyFileOps(ops, false);
     return true;
 }
 
@@ -3239,6 +3296,12 @@ void MainWindow::renameSymbol()
 void MainWindow::findReferences()
 {
     CodeEditor *ed = m_editors->currentEditor();
+    if (ed)
+        showReferencesAt(ed, ed->textCursor().blockNumber(), ed->textCursor().positionInBlock());
+}
+
+void MainWindow::showReferencesAt(CodeEditor *ed, int line, int column)
+{
     Document *doc = ed ? documentOf(ed) : nullptr;
     if (!doc)
         return;
@@ -3246,11 +3309,13 @@ void MainWindow::findReferences()
         statusBar()->showMessage(tr("Find All References needs a running language server that supports it for this file"), 4000);
         return;
     }
-    QTextCursor word = ed->textCursor();
+    QTextCursor word(ed->document());
+    const QTextBlock block = ed->document()->findBlockByNumber(line);
+    word.setPosition(block.position() + qMin(column, qMax(0, block.length() - 1)));
     word.select(QTextCursor::WordUnderCursor);
     const QString symbol = word.selectedText();
     QPointer<CodeEditor> guard(ed);
-    m_lsp->references(doc, ed->textCursor().blockNumber(), ed->textCursor().positionInBlock(), [this, guard, symbol](const QVector<LspLocation> &locations) {
+    m_lsp->references(doc, line, column, [this, guard, symbol](const QVector<LspLocation> &locations) {
         if (!guard)
             return;
         if (locations.isEmpty()) {

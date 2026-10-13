@@ -102,6 +102,9 @@ SOURCES += \
     src/editor/CsvTable.cpp \
     src/editor/CodeEditor.cpp \
     src/editor/CompletionPopup.cpp \
+    src/editor/HoverRender.cpp \
+    src/editor/SignaturePopup.cpp \
+    src/editor/CodeEditorAssist.cpp \
     src/editor/Snippets.cpp \
     src/editor/Emmet.cpp \
     src/editor/HoverPopup.cpp \
@@ -127,7 +130,8 @@ SOURCES += \
     src/python/PackageManager.cpp \
     src/window/Island.cpp \
     src/window/SideSections.cpp \
-    src/window/MainWindow.cpp
+    src/window/MainWindow.cpp \
+    src/window/MainWindowAssist.cpp
 
 HEADERS += \
     src/refactor/MoveRefactor.h \
@@ -207,6 +211,8 @@ HEADERS += \
     src/editor/CsvTable.h \
     src/editor/CodeEditor.h \
     src/editor/CompletionPopup.h \
+    src/editor/HoverRender.h \
+    src/editor/SignaturePopup.h \
     src/editor/Snippets.h \
     src/editor/Emmet.h \
     src/editor/HoverPopup.h \

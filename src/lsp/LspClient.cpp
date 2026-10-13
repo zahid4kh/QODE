@@ -46,18 +46,31 @@ LspClient::LspClient(const QString &program, const QStringList &arguments, const
             {QStringLiteral("rename"), QJsonObject{{QStringLiteral("prepareSupport"), true}}},
             {QStringLiteral("colorProvider"), QJsonObject{{QStringLiteral("dynamicRegistration"), false}}},
             {QStringLiteral("codeAction"),
-             QJsonObject{{QStringLiteral("codeActionLiteralSupport"),
+             QJsonObject{{QStringLiteral("isPreferredSupport"), true},
+                         {QStringLiteral("dataSupport"), true},
+                         {QStringLiteral("resolveSupport"), QJsonObject{{QStringLiteral("properties"), QJsonArray{QStringLiteral("edit")}}}}, // edits arrive with codeAction/resolve
+                         {QStringLiteral("codeActionLiteralSupport"),
                           QJsonObject{{QStringLiteral("codeActionKind"),
                                        QJsonObject{{QStringLiteral("valueSet"),
-                                                    QJsonArray{QStringLiteral("quickfix"), QStringLiteral("refactor"), QStringLiteral("source"),
-                                                               QStringLiteral("source.organizeImports")}}}}}}}},
+                                                    QJsonArray{QStringLiteral("quickfix"), QStringLiteral("refactor"), QStringLiteral("refactor.extract"),
+                                                               QStringLiteral("refactor.inline"), QStringLiteral("refactor.move"), QStringLiteral("refactor.rewrite"),
+                                                               QStringLiteral("source"), QStringLiteral("source.organizeImports"), QStringLiteral("source.fixAll")}}}}}}}},
+            {QStringLiteral("signatureHelp"),
+             QJsonObject{{QStringLiteral("contextSupport"), true},
+                         {QStringLiteral("signatureInformation"),
+                          QJsonObject{{QStringLiteral("documentationFormat"), QJsonArray{QStringLiteral("markdown"), QStringLiteral("plaintext")}},
+                                      {QStringLiteral("activeParameterSupport"), true},
+                                      {QStringLiteral("parameterInformation"), QJsonObject{{QStringLiteral("labelOffsetSupport"), true}}}}}}},
+            {QStringLiteral("documentHighlight"), QJsonObject{{QStringLiteral("dynamicRegistration"), false}}},
+            {QStringLiteral("inlayHint"), QJsonObject{{QStringLiteral("dynamicRegistration"), false}}},
             {QStringLiteral("completion"),
              QJsonObject{{QStringLiteral("contextSupport"), true},
                          {QStringLiteral("completionItem"),
                           QJsonObject{{QStringLiteral("snippetSupport"), true},
                                       {QStringLiteral("deprecatedSupport"), true},
                                       {QStringLiteral("labelDetailsSupport"), true},
-                                      {QStringLiteral("documentationFormat"), QJsonArray{QStringLiteral("plaintext")}}}}}},
+                                      {QStringLiteral("documentationFormat"), QJsonArray{QStringLiteral("markdown"), QStringLiteral("plaintext")}},
+                                      {QStringLiteral("resolveSupport"), QJsonObject{{QStringLiteral("properties"), QJsonArray{QStringLiteral("documentation"), QStringLiteral("detail")}}}}}}}},
         };
         QJsonObject params{
             {QStringLiteral("processId"), int(QCoreApplication::applicationPid())},
@@ -72,7 +85,8 @@ LspClient::LspClient(const QString &program, const QStringList &arguments, const
                          {QStringLiteral("workspace"),
                           QJsonObject{{QStringLiteral("applyEdit"), true},
                                       {QStringLiteral("configuration"), bool(m_configuration)},
-                                      {QStringLiteral("workspaceEdit"), QJsonObject{{QStringLiteral("documentChanges"), true}}}}},
+                                      {QStringLiteral("workspaceEdit"), QJsonObject{{QStringLiteral("documentChanges"), true}}},
+                                      {QStringLiteral("inlayHint"), QJsonObject{{QStringLiteral("refreshSupport"), true}}}}},
                          {QStringLiteral("window"), QJsonObject{{QStringLiteral("workDoneProgress"), true}}},
                          {QStringLiteral("general"), QJsonObject{{QStringLiteral("positionEncodings"), QJsonArray{QStringLiteral("utf-16")}}}}}},
         };
@@ -242,12 +256,17 @@ void LspClient::handleServerRequest(const QJsonObject &message)
         if (method == QLatin1String("eslint/openDoc")) // "Show documentation for <rule>"
             QDesktopServices::openUrl(QUrl(message.value(QStringLiteral("params")).toObject().value(QStringLiteral("url")).toString()));
         reply.insert(QStringLiteral("result"), method == QLatin1String("eslint/confirmESLintExecution") ? QJsonValue(4) : QJsonValue(QJsonValue::Null));
+    } else if (method == QLatin1String("_typescript.rename")) {
+        // After "Extract to function" the TypeScript server asks the editor to start a rename at the new name.
+        reply.insert(QStringLiteral("result"), QJsonValue(QJsonValue::Null));
+        const QJsonValue params = message.value(QStringLiteral("params"));
+        QTimer::singleShot(0, this, [this, params] { emit notification(QStringLiteral("_typescript.rename"), params); });
     } else if (method == QLatin1String("client/registerCapability") || method == QLatin1String("client/unregisterCapability") ||
                method == QLatin1String("window/workDoneProgress/create") || method == QLatin1String("window/showMessageRequest") ||
                method.endsWith(QLatin1String("/refresh"))) {
         reply.insert(QStringLiteral("result"), QJsonValue::Null);
-        if (method == QLatin1String("workspace/diagnostic/refresh"))
-            QTimer::singleShot(0, this, [this] { emit notification(QStringLiteral("workspace/diagnostic/refresh"), QJsonObject()); });
+        if (method == QLatin1String("workspace/diagnostic/refresh") || method == QLatin1String("workspace/inlayHint/refresh"))
+            QTimer::singleShot(0, this, [this, method] { emit notification(method, QJsonObject()); });
     } else {
         reply.insert(QStringLiteral("error"), QJsonObject{{QStringLiteral("code"), -32601}, {QStringLiteral("message"), QStringLiteral("Method not found")}});
     }

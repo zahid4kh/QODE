@@ -52,6 +52,9 @@ public:
 
 signals:
     void moveRequested(const QStringList &sources, const QString &targetDir); // dropped on a folder
+    // Rename chosen in the dialog (not done yet): whoever handles it renames on disk and may update references. Without a
+    // handler the explorer renames the file itself.
+    void renameRequested(const QString &from, const QString &to);
     void fileActivated(const QString &path);
     void fileCreated(const QString &path);
     void pathRenamed(const QString &oldPath, const QString &newPath);

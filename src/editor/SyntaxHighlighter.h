@@ -20,13 +20,11 @@ public:
     void setLanguage(const LanguageDefinition *lang);
     const LanguageDefinition *language() const { return m_lang; }
     void setTheme(const Theme &theme);
-    // Extra advance after the given columns of a block (CodeEditor leaves room for colour swatches this way: only formats
-    // set here, not extra selections, change the layout). Call rehighlightBlock() for the blocks affected.
-    void setGapProvider(std::function<QVector<int>(const QTextBlock &)> provider, qreal pixels)
-    {
-        m_gaps = std::move(provider);
-        m_gapPixels = pixels;
-    }
+    // Extra advance after the given columns of a block, as (column, pixels): CodeEditor leaves room for colour swatches and
+    // inlay hints this way (only formats set here, not extra selections, change the layout). Call rehighlightBlock() for
+    // the blocks affected.
+    using Gap = QPair<int, int>;
+    void setGapProvider(std::function<QVector<Gap>(const QTextBlock &)> provider) { m_gaps = std::move(provider); }
 
 protected:
     void highlightBlock(const QString &text) override;
@@ -40,7 +38,6 @@ private:
     const LanguageDefinition *m_lang = nullptr;
     Theme m_theme;
     QHash<int, QTextCharFormat> m_formats;
-    std::function<QVector<int>(const QTextBlock &)> m_gaps;
-    qreal m_gapPixels = 0;
+    std::function<QVector<Gap>(const QTextBlock &)> m_gaps;
     QChar m_csvDelimiter;
 };

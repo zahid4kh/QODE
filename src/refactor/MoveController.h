@@ -19,6 +19,8 @@ public:
 
     void setProjectRoot(const QString &root);
     void move(const QStringList &sources, const QString &targetDir);
+    // Renames a file or folder in place; imports, includes and links that point at it are updated like after a move.
+    void rename(const QString &from, const QString &to);
     bool busy() const { return m_busy; }
     void undo(); // the last move, including the references it rewrote
 
@@ -33,8 +35,10 @@ private:
         QVector<MoveRefactor::PathMove> moves;
         QVector<Changed> changed;
         QString targetDir;
+        bool renamed = false;
     };
 
+    void start(const QVector<MoveRefactor::PathMove> &moves, const QString &targetDir);
     void execute(const QVector<MoveRefactor::PathMove> &moves, const MoveRefactor::Plan &plan, const QString &targetDir);
     bool applyEdits(const QString &path, const QVector<MoveRefactor::TextEdit> &edits, size_t expectedHash, Changed *record, int references);
     QString where(const QString &dir) const;
@@ -45,5 +49,6 @@ private:
     QString m_root;
     bool m_busy = false;
     bool m_hasLast = false;
+    bool m_renaming = false; // the batch in flight is a rename: the messages say so
     Batch m_last;
 };

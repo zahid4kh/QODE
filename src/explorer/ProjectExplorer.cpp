@@ -289,6 +289,10 @@ void ProjectExplorer::renamePath(const QString &path)
     if (dlg.exec() != QDialog::Accepted || dlg.name() == fi.fileName())
         return;
     const QString target = QDir(fi.absolutePath()).filePath(dlg.name());
+    if (receivers(SIGNAL(renameRequested(QString,QString))) > 0) {
+        emit renameRequested(path, target);
+        return;
+    }
     QString err;
     if (!FileManager::renamePath(path, target, &err)) {
         showError(tr("Unable to rename"), tr("Path:\n%1\n\nReason:\n%2").arg(FileManager::displayPath(path), err));

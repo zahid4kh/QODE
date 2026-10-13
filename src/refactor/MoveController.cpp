@@ -64,7 +64,24 @@ void MoveController::move(const QStringList &sources, const QString &targetDir)
     }
     if (moves.isEmpty())
         return;
+    m_renaming = false;
+    start(moves, targetDir);
+}
 
+void MoveController::rename(const QString &from, const QString &to)
+{
+    if (m_busy || m_root.isEmpty() || from == to || !QFileInfo::exists(from))
+        return;
+    if (QFileInfo::exists(to) && from.compare(to, Qt::CaseInsensitive) != 0) {
+        fail(tr("“%1” already exists here.").arg(QFileInfo(to).fileName()));
+        return;
+    }
+    m_renaming = true;
+    start({{from, to}}, QFileInfo(to).absolutePath());
+}
+
+void MoveController::start(const QVector<PathMove> &moves, const QString &targetDir)
+{
     m_busy = true;
     MoveRefactor::Input in;
     in.root = m_root;
@@ -140,7 +157,8 @@ void MoveController::execute(const QVector<PathMove> &moves, const MoveRefactor:
                 QFile::rename(done.at(i).to, done.at(i).from);
                 m_explorer->notifyMoved(done.at(i).to, done.at(i).from);
             }
-            fail(tr("Couldn't move “%1” to %2.").arg(QFileInfo(m.from).fileName(), where(targetDir)));
+            fail(m_renaming ? tr("Couldn't rename “%1”.").arg(QFileInfo(m.from).fileName())
+                            : tr("Couldn't move “%1” to %2.").arg(QFileInfo(m.from).fileName(), where(targetDir)));
             return;
         }
         done.append(m);
@@ -151,6 +169,7 @@ void MoveController::execute(const QVector<PathMove> &moves, const MoveRefactor:
     Batch batch;
     batch.moves = moves;
     batch.targetDir = targetDir;
+    batch.renamed = m_renaming;
     int skipped = 0, references = 0;
     for (const MoveRefactor::FileChange &c : plan.changes) {
         Changed rec;
@@ -168,7 +187,7 @@ void MoveController::execute(const QVector<PathMove> &moves, const MoveRefactor:
     // 3. tell the person
     ProjectExplorer::Notice n;
     const QString what = moves.size() == 1 ? tr("“%1”").arg(QFileInfo(moves.first().from).fileName()) : tr("%1 items").arg(moves.size());
-    n.text = tr("Moved %1 to %2").arg(what, where(targetDir));
+    n.text = m_renaming ? tr("Renamed %1 to “%2”").arg(what, QFileInfo(moves.first().to).fileName()) : tr("Moved %1 to %2").arg(what, where(targetDir));
     if (references > 0)
         n.text += QLatin1Char('\n') + tr("Updated %1 in %2").arg(references == 1 ? tr("1 reference") : tr("%1 references").arg(references),
                                                                 batch.changed.size() == 1 ? tr("1 file") : tr("%1 files").arg(batch.changed.size()));
@@ -224,7 +243,7 @@ void MoveController::undo()
     for (int i = b.moves.size() - 1; i >= 0; --i) {
         const PathMove &m = b.moves.at(i);
         if (QFileInfo::exists(m.from) || !QFile::rename(m.to, m.from)) {
-            fail(tr("Couldn't move “%1” back.").arg(QFileInfo(m.to).fileName()));
+            fail(tr("Couldn't put “%1” back.").arg(QFileInfo(m.to).fileName()));
             return;
         }
         m_explorer->notifyMoved(m.to, m.from);
@@ -232,7 +251,7 @@ void MoveController::undo()
     }
     m_busy = false;
     ProjectExplorer::Notice n;
-    n.text = tr("Move undone");
+    n.text = b.renamed ? tr("Rename undone") : tr("Move undone");
     if (skipped > 0) {
         n.text += QLatin1Char('\n') + (skipped == 1 ? tr("1 file was edited since and keeps its updated references")
                                                        : tr("%1 files were edited since and keep their updated references").arg(skipped));

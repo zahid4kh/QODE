@@ -985,6 +985,10 @@ void EditorManager::prepareForSave(Document *doc, bool automatic, const QString 
     const bool whileTyping = automatic && s.autoSaveMode() == SettingsManager::AutoSaveAfterDelay;
     QTextDocument *td = doc->textDocument();
 
+    // Fixes first (unused imports, lint fixes), then the formatter has the last word on layout.
+    if (m_lspFixer && !whileTyping && !path.isEmpty() && path == doc->filePath() && (s.fixOnSave() || s.organizeImportsOnSave()))
+        m_lspFixer(doc);
+
     if (s.formatOnSave() && !whileTyping && !path.isEmpty()) {
         if (Formatter::isAvailable(path)) {
             const QString before = doc->text();

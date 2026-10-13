@@ -27,7 +27,7 @@ struct LspServerSpec {
     // but every document it applies to is opened in it too, and its diagnostics / completions / colours are merged in.
     bool companion = false;
     bool (*relevant)(const QString &projectRoot) = nullptr; // companions only start where this holds (e.g. eslint is a dependency)
-    bool resolvesCompletions = false; // accepting an item asks completionItem/resolve first (jdtls adds its imports there)
+    bool resolvesCompletions = false; // accepting an item asks completionItem/resolve first (jdtls and typescript-language-server add imports there)
     bool wantsConfiguration = false; // asks the client for settings through workspace/configuration (we answer in LspManager)
     QHash<QString, QString> languageIds; // extension -> LSP language id when it differs from `id`
 

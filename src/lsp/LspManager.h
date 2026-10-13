@@ -10,6 +10,7 @@
 #include <QPointer>
 #include <QSet>
 #include <QVector>
+#include <memory>
 
 class Document;
 class QFileSystemWatcher;
@@ -110,7 +111,14 @@ public:
 
     // The per-file text edits of a WorkspaceEdit (`changes` or `documentChanges`); *ok is false when it holds something
     // that cannot be applied as text edits (file create / rename / delete, non-file URIs).
-    static QHash<QString, QVector<LspTextEdit>> editsOf(const QJsonObject &edit, bool *ok);
+    static QHash<QString, QVector<LspTextEdit>> editsOf(const QJsonObject &edit, bool *ok, bool allowFileOps = false);
+    // File operations of a WorkspaceEdit's documentChanges, in order ("Move to a new file" creates one): kind is create / rename /
+    // delete, `path` the file (the old one for rename), `target` the new path of a rename.
+    struct FileOp {
+        QString kind, path, target;
+        bool overwrite = false;
+    };
+    static QVector<FileOp> fileOpsOf(const QJsonObject &edit);
     // 0-based lines of imports that organize-imports would remove (Kotlin); empty when unknown or none.
     void unusedImports(Document *doc, std::function<void(const QVector<int> &)> done);
     // True when the server of this document lists `command` among its executeCommandProvider commands.
@@ -120,12 +128,34 @@ public:
     void runCompletionCommand(Document *doc, const LspCompletionItem &item, int line, int column, std::function<void(bool)> done);
     // Asks the server to complete an item the list left unfinished (item.resolveData set: jdtls imports); `done` runs once.
     void resolveCompletion(Document *doc, const LspCompletionItem &item, std::function<void(const LspCompletionItem &)> done);
-    // Quick fixes / refactorings for the range (Alt+Enter); diagnostics inside it are passed along.
+    // Quick fixes / refactorings for the range (Alt+Enter); diagnostics inside it are passed along. `only` restricts the
+    // kinds ("quickfix", "source.organizeImports" ...); `automatic` marks a request the user did not ask for (the light bulb).
     void codeActions(Document *doc, int startLine, int startColumn, int endLine, int endColumn,
-                     std::function<void(const QVector<LspCodeAction> &)> done);
+                     std::function<void(const QVector<LspCodeAction> &)> done, const QStringList &only = {}, bool automatic = false,
+                     const QString &serverOnly = {}); // serverOnly: ask just that server
+    // Source actions of the given kinds (organize imports, fix all ...) for the whole document, applied one after the other.
+    // done(applied, found): how many were applied and whether any server offered one. Used by Edit > Source Actions.
+    void applySourceActions(Document *doc, const QStringList &kinds, std::function<void(int applied, int found)> done,
+                            std::shared_ptr<bool> cancel = nullptr); // *cancel set: stop before the next step
+    // The same, waited for with a local event loop (Fix on Save). Returns the number of actions applied.
+    int applySourceActionsBlocking(Document *doc, const QStringList &kinds, int timeoutMs);
+
+    // Signature help (parameter hints inside a call). The trigger characters the file's server asks for are returned in
+    // `triggers` ("(" ","), the ones that only refresh an open popup in `retriggers`; false when no server provides it.
+    bool signatureTriggers(Document *doc, QString *triggers, QString *retriggers) const;
+    // triggerKind: 1 invoked, 2 trigger character, 3 content change. A newer request cancels the previous one.
+    void signatureHelp(Document *doc, int line, int column, int triggerKind, const QString &triggerChar, bool retrigger,
+                       std::function<void(const LspSignatureHelp &)> done);
+    // Other uses of the symbol under (line, column) in this file.
+    bool supportsHighlights(Document *doc) const;
+    void documentHighlights(Document *doc, int line, int column, std::function<void(const QVector<LspHighlight> &)> done);
+    // Inlay hints (inferred types, parameter names) for the lines [startLine, endLine]; the editor filters them by kind.
+    bool supportsInlayHints(Document *doc) const;
+    void inlayHints(Document *doc, int startLine, int endLine, std::function<void(const QVector<LspInlayHint> &)> done);
     // textDocument/formatting, waited for with a local event loop (save must stay synchronous). False when no running
     // server formats this document, it timed out or failed; *edits may be empty when the text is already formatted.
     bool formatting(Document *doc, int tabSize, bool spaces, int timeoutMs, QVector<LspTextEdit> *edits);
+    // Applies the action; an action the server left unfinished (no edit, no command) is resolved first (codeAction/resolve).
     void runCodeAction(Document *doc, const LspCodeAction &action, std::function<void(bool)> done);
     // Applies a WorkspaceEdit the server sends (workspace/applyEdit) or a code action carries; returns whether it went through.
     void setApplyEditHandler(std::function<bool(const QJsonObject &edit)> handler) { m_applyEdit = std::move(handler); }
@@ -135,6 +165,8 @@ public:
 
 signals:
     void statusChanged();
+    void inlayHintsRefresh();   // a server wants its hints fetched again (workspace/inlayHint/refresh, new settings)
+    void renameRequested(const QString &path, int line, int column); // "Extract to function" asks for a rename of the new name
     void buildSyncFinished(const QString &serverName); // the re-import ended
     void diagnosticsChanged(const QString &path);
 
@@ -191,6 +223,9 @@ private:
     QFileSystemWatcher *m_dbWatcher = nullptr;
     QTimer *m_dbTimer = nullptr;
     QJsonArray m_jsonSchemas;
+    QJsonObject tsPreferences() const;
+    QPointer<LspClient> m_signatureClient;
+    int m_signatureRequest = 0;
     QHash<QString, Server> m_servers;
     QHash<Document *, Tracked> m_tracked;
     QHash<QString, QVector<LspDiagnostic>> m_diagnostics;                    // merged over all servers

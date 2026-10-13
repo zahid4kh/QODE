@@ -379,6 +379,7 @@ const QList<LspServerSpec> &all()
                           {QStringLiteral("cts"), QStringLiteral("typescript")},     {QStringLiteral("tsx"), QStringLiteral("typescriptreact")},
                           {QStringLiteral("js"), QStringLiteral("javascript")},      {QStringLiteral("mjs"), QStringLiteral("javascript")},
                           {QStringLiteral("cjs"), QStringLiteral("javascript")},     {QStringLiteral("jsx"), QStringLiteral("javascriptreact")}};
+        ts.resolvesCompletions = true; // auto-import edits arrive with completionItem/resolve
         l.append(ts);
 
         LspServerSpec html = webServer(QStringLiteral("html"), QStringLiteral("HTML"), QStringLiteral("vscode-html-language-server"),

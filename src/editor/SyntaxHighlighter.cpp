@@ -63,13 +63,13 @@ void SyntaxHighlighter::highlightBlock(const QString &text)
     highlightText(text);
     if (!m_gaps)
         return;
-    for (const int col : m_gaps(currentBlock())) {
-        if (col < 0 || col >= text.size())
+    for (const Gap &gap : m_gaps(currentBlock())) {
+        if (gap.first < 0 || gap.first >= text.size())
             continue;
-        QTextCharFormat f = format(col);
+        QTextCharFormat f = format(gap.first);
         f.setFontLetterSpacingType(QFont::AbsoluteSpacing);
-        f.setFontLetterSpacing(m_gapPixels);
-        setFormat(col, 1, f);
+        f.setFontLetterSpacing(gap.second);
+        setFormat(gap.first, 1, f);
     }
 }
 

@@ -23,7 +23,7 @@
 namespace {
 constexpr int kContext = 2;      // unchanged lines kept around a change
 constexpr int kMaxRows = 400;    // rows rendered in one diff
-constexpr int kMaxVisible = 22;  // rows before the view stops growing and scrolls
+constexpr int kMaxVisible = 12;  // rows before the view stops growing and scrolls
 
 QStringList linesOf(const QString &text)
 {
@@ -160,8 +160,6 @@ void AiDiffView::rebuild()
 
 void AiDiffView::fitHeight()
 {
-    const bool tall = blockCount() > kMaxVisible;
-    setVerticalScrollBarPolicy(tall ? Qt::ScrollBarAsNeeded : Qt::ScrollBarAlwaysOff);
     const int lines = qMin(kMaxVisible, qMax(1, blockCount()));
     const int h = lines * fontMetrics().lineSpacing() + 2 * int(document()->documentMargin()) + 6
                   + (horizontalScrollBar()->maximum() > 0 ? horizontalScrollBar()->sizeHint().height() : 0);
@@ -175,11 +173,15 @@ void AiDiffView::resizeEvent(QResizeEvent *e)
     fitHeight();
 }
 
-// The chat scrolls, not the diff, unless the diff is a tall one that scrolls itself.
+
 void AiDiffView::wheelEvent(QWheelEvent *e)
 {
-    const bool tall = blockCount() > kMaxVisible;
-    if (!tall && qAbs(e->angleDelta().x()) <= qAbs(e->angleDelta().y())) {
+    // The diff scrolls while it can; at its ends the wheel goes on to the chat.
+    QScrollBar *bar = verticalScrollBar();
+    const int dy = e->angleDelta().y();
+    const bool horizontal = qAbs(e->angleDelta().x()) > qAbs(dy);
+    const bool canScroll = horizontal || (dy > 0 ? bar->value() > bar->minimum() : bar->value() < bar->maximum());
+    if (!canScroll) {
         e->ignore();
         return;
     }

@@ -28,6 +28,7 @@ class CallHierarchyDialog;
 class MarkdownPreview;
 class GradlePanel;
 class AiPanel;
+class QVariantAnimation;
 class GitRepository;
 class LspManager;
 class EditorManager;
@@ -105,6 +106,7 @@ private:
     void updatePythonUi();
     void updateGradleUi();
     void toggleAiPanel();
+    void slideRightPanel(bool open);
     void toggleGradlePanel();           // shows the Python Packages button only while the project has a virtual environment
     void showPythonPackages();
     void restartPythonServer();
@@ -219,6 +221,7 @@ private:
     QMetaObject::Connection m_previewConn;
     QTimer *m_previewTimer;
     int m_mediaWidth = 420;
+    QVariantAnimation *m_slideAnim = nullptr;
     int m_sideWidth = 250;
     QSplitter *m_vsplit;
     int m_terminalHeight = 240;

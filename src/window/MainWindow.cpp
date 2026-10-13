@@ -24,6 +24,7 @@
 #include "project/QmakeProject.h"
 #include "media/MarkdownPreview.h"
 #include "ai/AiPanel.h"
+#include <QVariantAnimation>
 #include "tasks/TasksPanel.h"
 #include "git/BranchButton.h"
 #include "git/BranchPopup.h"
@@ -2318,7 +2319,10 @@ void MainWindow::toggleAiPanel()
     m_media->clear();
     m_md->clear();
     m_rightStack->setCurrentWidget(m_ai);
-    openRightPanel();
+    if (!m_rightStack->parentWidget()->isVisible() && m_hsplit->isVisible())
+        slideRightPanel(true);
+    else
+        openRightPanel();
     m_projectFiles->ensureFresh();
     m_ai->setProjectFiles(m_projectFiles->files());
     m_ai->focusInput();
@@ -2340,9 +2344,62 @@ void MainWindow::toggleGradlePanel()
     m_gradle->ensureLoaded();
 }
 
+// Slides the right-hand island open or closed by animating its width in the splitter (AI chat only).
+void MainWindow::slideRightPanel(bool open)
+{
+    auto *island = static_cast<Island *>(m_rightStack->parentWidget());
+    if (!m_slideAnim) {
+        m_slideAnim = new QVariantAnimation(this);
+    }
+    m_slideAnim->stop();
+    m_slideAnim->disconnect();
+
+    const int total = m_hsplit->width();
+    int w = qBound(280, m_mediaWidth, qMax(280, total / 2));
+    QList<int> start = m_hsplit->sizes();
+    if (open) {
+        if (island->isVisible())
+            return;
+        island->setSliding(true, w);
+        island->show();
+        start = m_hsplit->sizes(); // island hidden before, so its slot is 0
+        start[1] += start[2];
+        start[2] = 0;
+    } else {
+        w = qMax(1, island->width());
+        m_mediaWidth = w;
+        island->setSliding(true, w);
+    }
+    const int middle = start[1];
+    const int from = open ? 0 : w, to = open ? w : 0;
+    m_slideAnim->setDuration(240);
+    m_slideAnim->setEasingCurve(QEasingCurve::OutCubic);
+    m_slideAnim->setStartValue(from);
+    m_slideAnim->setEndValue(to);
+    connect(m_slideAnim, &QVariantAnimation::valueChanged, this, [=](const QVariant &v) {
+        const int x = v.toInt();
+        QList<int> s = start;
+        s[2] = x;
+        s[1] = qMax(200, open ? middle - x : middle + w - x);
+        m_hsplit->setSizes(s);
+    });
+    connect(m_slideAnim, &QVariantAnimation::finished, this, [=] {
+        island->setSliding(false);
+        if (!open)
+            island->hide();
+    });
+    m_slideAnim->start();
+}
+
 void MainWindow::openRightPanel()
 {
     QWidget *island = m_rightStack->parentWidget();
+    if (m_slideAnim && m_slideAnim->state() == QAbstractAnimation::Running) {
+        m_slideAnim->stop();
+        static_cast<Island *>(island)->setSliding(false);
+        if (island->isVisible())
+            return;
+    }
     if (island->isVisible())
         return;
     island->show();
@@ -2366,13 +2423,19 @@ void MainWindow::showMedia(const QString &path)
 void MainWindow::hideMedia()
 {
     QWidget *island = m_rightStack->parentWidget();
-    if (island->isVisible())
+    const bool slide = island->isVisible() && m_rightStack->currentWidget() == m_ai && m_hsplit->isVisible()
+                       && !(m_slideAnim && m_slideAnim->state() == QAbstractAnimation::Running);
+    if (island->isVisible() && !slide)
         m_mediaWidth = island->width();
     disconnect(m_previewConn);
     m_previewDoc = nullptr;
     m_previewTimer->stop();
     m_media->clear();
     m_md->clear();
+    if (slide) {
+        slideRightPanel(false);
+        return;
+    }
     island->hide();
 }
 

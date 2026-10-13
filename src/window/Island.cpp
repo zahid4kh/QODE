@@ -49,13 +49,35 @@ Island::Island(QWidget *content, QWidget *parent)
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(content);
+    m_content = content;
     m_overlay = new Overlay(this);
     m_overlay->raise();
+}
+
+void Island::setSliding(bool on, int fullWidth)
+{
+    m_sliding = on;
+    m_fullWidth = fullWidth;
+    layout()->setEnabled(!on);
+    if (on) {
+        m_content->setGeometry(qMin(0, width() - m_fullWidth), 0, qMax(width(), m_fullWidth), height());
+    } else {
+        layout()->setEnabled(true);
+        layout()->activate();
+    }
+    updateGeometry();
+}
+
+QSize Island::minimumSizeHint() const
+{
+    return m_sliding ? QSize(0, 0) : QWidget::minimumSizeHint();
 }
 
 void Island::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);
+    if (m_sliding)
+        m_content->setGeometry(qMin(0, width() - m_fullWidth), 0, qMax(width(), m_fullWidth), height());
     m_overlay->setGeometry(rect());
     m_overlay->raise();
 }

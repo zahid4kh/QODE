@@ -10,6 +10,11 @@ class Island : public QWidget
 public:
     explicit Island(QWidget *content, QWidget *parent = nullptr);
 
+    // While sliding, the island may be narrower than its content's minimum: the content keeps `fullWidth`,
+    // anchored to the right edge, and is clipped. Ending restores the normal layout.
+    void setSliding(bool on, int fullWidth = 0);
+    QSize minimumSizeHint() const override;
+
 protected:
     void resizeEvent(QResizeEvent *event) override;
     void showEvent(QShowEvent *event) override;
@@ -17,4 +22,7 @@ protected:
 private:
     class Overlay;
     Overlay *m_overlay;
+    QWidget *m_content = nullptr;
+    bool m_sliding = false;
+    int m_fullWidth = 0;
 };

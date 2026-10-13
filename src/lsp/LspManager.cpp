@@ -22,6 +22,7 @@
 #include <QRegularExpression>
 #include <QTextBlock>
 #include <QTextDocument>
+#include <QElapsedTimer>
 #include <QTimer>
 #include <QUrl>
 
@@ -149,7 +150,24 @@ LspManager::LspManager(QObject *parent) : QObject(parent), m_changeTimer(new QTi
 {
     m_changeTimer->setSingleShot(true);
     m_changeTimer->setInterval(kChangeDelayMs);
-    connect(m_changeTimer, &QTimer::timeout, this, &LspManager::flushChanges);
+    connect(m_changeTimer, &QTimer::timeout, this, [this] { flushChanges(); });
+
+    // Watchdog: a 20 ms timer that notices when the UI thread was blocked (typing feels late) and notes it in the
+    // server logs next to the request timings.
+    auto *watch = new QTimer(this);
+    watch->setInterval(20);
+    auto *clock = new QElapsedTimer;
+    clock->start();
+    connect(watch, &QTimer::timeout, this, [this, clock] {
+        const qint64 gap = clock->restart();
+        if (gap < 80)
+            return;
+        for (const Server &s : std::as_const(m_servers))
+            if (s.client && s.client->isRunning())
+                s.client->logTiming(QStringLiteral("UI thread was blocked for %1 ms").arg(gap));
+    });
+    connect(this, &QObject::destroyed, this, [clock] { delete clock; });
+    watch->start();
 }
 
 LspManager::~LspManager()
@@ -433,7 +451,7 @@ QString LspManager::installHelp(const QString &serverId) const
     return spec ? spec->installHelp : QString();
 }
 
-QList<LspManager::ServerState> LspManager::servers() const
+QList<LspManager::ServerState> LspManager::servers(bool resolve) const
 {
     QList<ServerState> out;
     for (const LspServerSpec &spec : LspServers::all()) {
@@ -445,8 +463,14 @@ QList<LspManager::ServerState> LspManager::servers() const
             st.id = spec.id;
             st.name = spec.displayName;
             // Show "not installed" up front, before any C++ file is opened.
-            st.path = LspServers::locate(spec, serverPath(spec.id));
-            if (st.path.isEmpty())
+            // locate() walks PATH, nvm and JDK folders; this runs on every status change, so remember the answer a while.
+            auto &cached = m_locateCache[spec.id];
+            if (resolve && (!cached.second.isValid() || cached.second.elapsed() > 10000)) {
+                cached.first = LspServers::locate(spec, serverPath(spec.id));
+                cached.second.start();
+            }
+            st.path = cached.first;
+            if (st.path.isEmpty() && cached.second.isValid())
                 st.status = Status::NotFound;
         }
         st.installable = spec.installable;
@@ -738,10 +762,14 @@ void LspManager::sendOpen(Document *doc, Tracked &t, const QString &serverId)
     pullDiagnostics(doc);
 }
 
-void LspManager::flushChanges()
+void LspManager::flushChanges(bool pull)
 {
     for (auto it = m_tracked.begin(); it != m_tracked.end(); ++it) {
         Tracked &t = it.value();
+        if (!t.openOn.isEmpty() && t.pullDue && pull) {
+            t.pullDue = false;
+            pullDiagnostics(it.key());
+        }
         if (!t.dirty || t.openOn.isEmpty())
             continue;
         t.dirty = false;
@@ -756,7 +784,10 @@ void LspManager::flushChanges()
                                           QJsonObject{{QStringLiteral("uri"), t.uri}, {QStringLiteral("version"), t.version}}},
                                          {QStringLiteral("contentChanges"), QJsonArray{QJsonObject{{QStringLiteral("text"), text}}}}});
         }
-        pullDiagnostics(it.key());
+        if (pull)
+            pullDiagnostics(it.key());
+        else
+            t.pullDue = true; // sent early for a completion: the diagnostics follow with the debounced flush
     }
 }
 
@@ -1060,6 +1091,7 @@ LspCompletionItem parseCompletionItem(const QJsonObject &o)
 void LspManager::completion(Document *doc, int line, int column, int triggerKind, const QString &triggerChar,
                             std::function<void(const QVector<LspCompletionItem> &, bool)> done)
 {
+    flushChanges(false); // the server must complete the text the caret refers to, not the text from 200 ms ago
     QString uri;
     QList<LspClient *> clients;
     for (LspClient *c : readyClientsFor(doc, &uri))

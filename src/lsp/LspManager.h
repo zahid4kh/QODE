@@ -3,6 +3,7 @@
 #include "LspTypes.h"
 
 #include <QColor>
+#include <QElapsedTimer>
 #include <QHash>
 #include <QJsonArray>
 #include <functional>
@@ -61,7 +62,8 @@ public:
     bool canSyncBuildFiles() const;  // ... and a Java / Kotlin server is running
     static bool isJvmBuildFile(const QString &path);
 
-    QList<ServerState> servers() const;
+    // resolve=false skips looking for the executable of servers that are not running (a disk search): for hot paths.
+    QList<ServerState> servers(bool resolve = true) const;
     QString installHelp(const QString &serverId) const;
     QString serverPath(const QString &serverId) const; // configured override, "" = search PATH
     void setServerPath(const QString &serverId, const QString &path);
@@ -208,6 +210,7 @@ private:
         QSet<QString> openOn;        // servers that have received didOpen (cleared per server when it stops)
         int version = 0;
         bool dirty = false;
+        bool pullDue = false;
         bool opened() const { return openOn.contains(serverId); }
         QStringList servers() const { return QStringList{serverId} + companions; }
     };
@@ -228,7 +231,7 @@ private:
     void sendOpen(Document *doc, Tracked &t, const QString &serverId);
     // Every running server holding the document, main server first.
     QList<LspClient *> readyClientsFor(Document *doc, QString *uri);
-    void flushChanges();
+    void flushChanges(bool pull = true);
     void setStatus(Server &s, Status status, const QString &detail = {});
     QString rootFor(const QString &filePath) const;
     LspClient *readyClientFor(Document *doc, QString *uri);
@@ -251,6 +254,7 @@ private:
     QPointer<LspClient> m_signatureClient;
     int m_signatureRequest = 0;
     QHash<QString, Server> m_servers;
+    mutable QHash<QString, QPair<QString, QElapsedTimer>> m_locateCache; // servers(): not-running servers' executable lookups
     QHash<Document *, Tracked> m_tracked;
     QHash<QString, QVector<LspDiagnostic>> m_diagnostics;                    // merged over all servers
     QHash<QString, QHash<QString, QVector<LspDiagnostic>>> m_diagBySource;  // path -> server id -> its diagnostics

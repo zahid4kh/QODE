@@ -5,6 +5,7 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QPointer>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QTimer>
@@ -182,16 +183,75 @@ void LspClient::shutdown(int waitMs)
     }
 }
 
+namespace {
+bool isInteractive(const QString &m)
+{
+    return m == QLatin1String("textDocument/completion") || m == QLatin1String("completionItem/resolve") ||
+           m == QLatin1String("textDocument/signatureHelp");
+}
+bool isBackground(const QString &m)
+{
+    return m == QLatin1String("textDocument/inlayHint") || m == QLatin1String("textDocument/semanticTokens/full") ||
+           m == QLatin1String("textDocument/documentSymbol") || m == QLatin1String("textDocument/foldingRange") ||
+           m == QLatin1String("textDocument/documentHighlight") || m == QLatin1String("textDocument/diagnostic") ||
+           m == QLatin1String("textDocument/documentColor");
+}
+}
+
 int LspClient::request(const QString &method, const QJsonValue &params, Callback callback)
 {
     const int id = m_nextId++;
-    if (callback)
+    if (callback && isBackground(method) && m_interactive > 0) {
+        // Same method on the same document supersedes the held one (its caller is told it was cancelled).
+        const QString key = method + QLatin1Char('|') + params.toObject().value(QStringLiteral("textDocument")).toObject().value(QStringLiteral("uri")).toString();
+        for (int i = 0; i < m_deferred.size(); ++i)
+            if (m_deferred[i].key == key) {
+                const Callback old = m_deferred[i].callback;
+                m_deferred.removeAt(i);
+                old(QJsonValue(), QJsonObject{{QStringLiteral("code"), -32800}, {QStringLiteral("message"), QStringLiteral("superseded")}});
+                break;
+            }
+        m_deferred.append({id, method, key, params, std::move(callback)});
+        return id;
+    }
+    transmit(id, method, params, std::move(callback));
+    return id;
+}
+
+void LspClient::transmit(int id, const QString &method, const QJsonValue &params, Callback callback)
+{
+    if (callback) {
+        if (isInteractive(method)) {
+            ++m_interactive;
+            m_interactiveIds.insert(id);
+            // Hold-back must never outlive a lost answer: flush after 1.5 s whatever happens.
+            QTimer::singleShot(1500, this, [this, id] {
+                if (m_interactiveIds.remove(id)) {
+                    --m_interactive;
+                    flushDeferred();
+                }
+            });
+        }
         m_pending.insert(id, std::move(callback));
+        Sent s;
+        s.method = method;
+        s.outstanding = int(m_pending.size()) - 1;
+        s.timer.start();
+        m_sent.insert(id, s);
+    }
     QJsonObject msg{{QStringLiteral("jsonrpc"), QStringLiteral("2.0")}, {QStringLiteral("id"), id}, {QStringLiteral("method"), method}};
     if (!params.isUndefined())
         msg.insert(QStringLiteral("params"), params);
     send(msg);
-    return id;
+}
+
+void LspClient::flushDeferred()
+{
+    if (m_interactive > 0 || m_deferred.isEmpty())
+        return;
+    const QList<Deferred> list = std::exchange(m_deferred, {});
+    for (const Deferred &d : list)
+        transmit(d.id, d.method, d.params, d.callback);
 }
 
 void LspClient::notify(const QString &method, const QJsonValue &params)
@@ -204,6 +264,14 @@ void LspClient::notify(const QString &method, const QJsonValue &params)
 
 void LspClient::cancel(int id)
 {
+    for (int i = 0; i < m_deferred.size(); ++i)
+        if (m_deferred[i].id == id) {
+            m_deferred.removeAt(i);
+            return;
+        }
+    m_sent.remove(id);
+    if (m_interactiveIds.remove(id))
+        --m_interactive;
     if (m_pending.remove(id))
         notify(QStringLiteral("$/cancelRequest"), QJsonObject{{QStringLiteral("id"), id}});
 }
@@ -254,7 +322,10 @@ void LspClient::onStdout()
 
 void LspClient::handle(const QByteArray &body)
 {
+    QElapsedTimer parseTimer;
+    parseTimer.start();
     const QJsonObject msg = QJsonDocument::fromJson(body).object();
+    const qint64 parseMs = parseTimer.elapsed();
     if (msg.isEmpty())
         return;
     if (msg.contains(QStringLiteral("method"))) {
@@ -278,7 +349,33 @@ void LspClient::handle(const QByteArray &body)
         return;
     const Callback cb = it.value();
     m_pending.erase(it);
+    // Timing: how long the server took (round trip) and how long our handler then blocked the UI thread.
+    const auto sent = m_sent.take(id);
+    const bool wasInteractive = m_interactiveIds.remove(id);
+    const qint64 roundTrip = sent.timer.isValid() ? sent.timer.elapsed() : -1;
+    QElapsedTimer handler;
+    handler.start();
+    const QPointer<LspClient> self(this); // a callback may stop or restart the server, deleting us
     cb(msg.value(QStringLiteral("result")), msg.value(QStringLiteral("error")).toObject());
+    if (!self)
+        return;
+    const qint64 ui = handler.elapsed();
+    if (wasInteractive) {
+        --m_interactive;
+        flushDeferred();
+        if (!self)
+            return;
+    }
+    if (roundTrip >= 0 && (roundTrip >= 100 || ui + parseMs >= 15 || sent.method.startsWith(QLatin1String("textDocument/completion"))))
+        logTiming(QStringLiteral("%1: server %2 ms, handler %3 ms, json parse %6 ms, %4 bytes, %5 other requests were waiting")
+                      .arg(sent.method).arg(roundTrip).arg(ui).arg(body.size()).arg(sent.outstanding).arg(parseMs));
+}
+
+void LspClient::logTiming(const QString &text)
+{
+    m_log << QStringLiteral("[qode] ") + text;
+    while (m_log.size() > kMaxLogLines)
+        m_log.removeFirst();
 }
 
 // Requests the server sends us. We implement none of the optional ones yet; answer so it never waits.
@@ -324,6 +421,10 @@ void LspClient::onFinished(int, int exitStatus)
     const bool crashed = !m_exiting && m_state != State::Stopped;
     m_state = State::Stopped;
     m_pending.clear();
+    m_sent.clear();
+    m_deferred.clear();
+    m_interactiveIds.clear();
+    m_interactive = 0;
     if (crashed && m_error.isEmpty()) {
         // Kotlin's EAP builds print "This build of kotlin-server has expired." on stdout and quit.
         const QString out = QString::fromUtf8(m_buffer + m_proc->readAllStandardOutput());
@@ -342,6 +443,10 @@ void LspClient::fail(const QString &error)
     m_error = error;
     m_state = State::Stopped;
     m_pending.clear();
+    m_sent.clear();
+    m_deferred.clear();
+    m_interactiveIds.clear();
+    m_interactive = 0;
     if (m_proc->state() != QProcess::NotRunning)
         m_proc->kill();
     emit stopped(true);

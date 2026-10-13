@@ -2884,7 +2884,8 @@ void CodeEditor::scheduleCompletion(int kind, const QString &triggerChar)
     }
     m_pendingKind = kind;
     m_pendingTrigger = triggerChar;
-    m_completionTimer->start(60);
+    // A re-ask for an incomplete list waits for a typing pause (the popup is already filtering locally meanwhile).
+    m_completionTimer->start(kind == 3 ? 250 : 25);
 }
 
 void CodeEditor::triggerCompletion()

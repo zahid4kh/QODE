@@ -103,6 +103,7 @@
 #include <QTabBar>
 #include <QTextBlock>
 #include <QTextDocument>
+#include <QElapsedTimer>
 #include <QTimer>
 #include <algorithm>
 #include <QToolBar>
@@ -1532,7 +1533,7 @@ void MainWindow::updateLspStatus()
     QString text = tr("LSP");
     QColor color = t.textMuted;
     QString tip = tr("Language servers");
-    for (const LspManager::ServerState &st : m_lsp->servers()) {
+    for (const LspManager::ServerState &st : m_lsp->servers(false)) {
         if (st.documents == 0 || st.companion)
             continue; // nothing open that this server handles (companions report through the diagnostics counts)
         const QString name = st.name.section(QLatin1Char(' '), 0, 0);
@@ -1585,8 +1586,11 @@ void MainWindow::updateLspStatus()
     }
     m_lspButton->setText(text);
     m_lspButton->setToolTip(tip);
-    m_lspButton->setStyleSheet(QStringLiteral("QToolButton { padding: 1px 6px; color: %1; } QToolButton::menu-indicator { image: none; }")
-                                   .arg(color.name()));
+    if (m_lspButtonColor != color) { // a style sheet change re-polishes the widget: only when the colour really changed
+        m_lspButtonColor = color;
+        m_lspButton->setStyleSheet(QStringLiteral("QToolButton { padding: 1px 6px; color: %1; } QToolButton::menu-indicator { image: none; }")
+                                       .arg(color.name()));
+    }
 }
 
 // Jumps to where the symbol at (line, column) of `editor` is defined; several candidates are offered in a menu.

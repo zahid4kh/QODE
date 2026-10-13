@@ -187,6 +187,7 @@ private:
     QTimer *m_importTimer = nullptr; // recomputes the unused imports once diagnostics settle
     QString m_importPath;
     QToolButton *m_lspButton;
+    QColor m_lspButtonColor;
     QPointer<ReferencesDialog> m_refsDialog;
     QPointer<CallHierarchyDialog> m_callDialog;
     QHash<CodeEditor *, QVector<LspColor>> m_colorData; // the colour literals behind each editor's swatches

@@ -27,6 +27,7 @@ class ReferencesDialog;
 class CallHierarchyDialog;
 class MarkdownPreview;
 class GradlePanel;
+class AiPanel;
 class GitRepository;
 class LspManager;
 class EditorManager;
@@ -103,6 +104,7 @@ private:
     void showExpoSchemaCache();
     void updatePythonUi();
     void updateGradleUi();
+    void toggleAiPanel();
     void toggleGradlePanel();           // shows the Python Packages button only while the project has a virtual environment
     void showPythonPackages();
     void restartPythonServer();
@@ -210,7 +212,9 @@ private:
     MediaPanel *m_media;
     MarkdownPreview *m_md;
     GradlePanel *m_gradle = nullptr;
-    QStackedWidget *m_rightStack; // media panel | markdown preview | Gradle tasks
+    AiPanel *m_ai = nullptr;
+    QAction *m_aiAct = nullptr;
+    QStackedWidget *m_rightStack; // media panel | markdown preview | Gradle tasks | AI chat
     QPointer<Document> m_previewDoc; // the Markdown / SVG file the right panel is previewing live
     QMetaObject::Connection m_previewConn;
     QTimer *m_previewTimer;

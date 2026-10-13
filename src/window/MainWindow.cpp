@@ -23,6 +23,7 @@
 #include "project/VersionCatalog.h"
 #include "project/QmakeProject.h"
 #include "media/MarkdownPreview.h"
+#include "ai/AiPanel.h"
 #include "tasks/TasksPanel.h"
 #include "git/BranchButton.h"
 #include "git/BranchPopup.h"
@@ -193,6 +194,13 @@ MainWindow::MainWindow(QWidget *parent)
         m_terminal->runCommand(QStringLiteral("(cd '%1' && %2)").arg(quoted, command));
         m_terminal->focusTerminal();
     });
+    m_ai = new AiPanel(this);
+    m_ai->setEditors(m_editors);
+    m_rightStack->addWidget(m_ai);
+    connect(m_ai, &AiPanel::closeRequested, this, &MainWindow::hideMedia);
+    connect(m_ai, &AiPanel::openFileRequested, this, [this](const QString &path) { m_editors->openFile(path); });
+    connect(m_ai, &AiPanel::gitInitRequested, this, [this] { m_gitInitAct->trigger(); });
+    connect(m_projectFiles, &ProjectFiles::updated, this, [this] { m_ai->setProjectFiles(m_projectFiles->files()); });
     m_hsplit->addWidget(new Island(m_rightStack));
     m_previewTimer = new QTimer(this);
     m_previewTimer->setSingleShot(true);
@@ -497,6 +505,8 @@ void MainWindow::createActions()
     m_runAct->setToolTip(tr("Run the project, or this file (F5)"));
     m_runConfigAct = make(tr("Run Configuration…"), {}, QStringLiteral(":/new-icons/cog.svg"));
     m_runConfigAct->setToolTip(tr("Set the command that runs the project or this type of file"));
+    m_aiAct = make(tr("AI Chat"), QKeySequence(C | A | K::Key_G), QStringLiteral(":/new-icons/sparkles.svg"));
+    m_aiAct->setToolTip(tr("Ask Gemini to change the project: it plans, edits the files and reports (Ctrl+Alt+G)"));
     m_gradleAct = make(tr("Gradle Tasks"), {}, QStringLiteral(":/new-icons/gradle.svg"));
     m_gradleAct->setToolTip(tr("Show the Gradle tasks of this project (build, test, package, …) and run them"));
     m_pythonPkgAct = make(tr("Python Packages…"), {}, QStringLiteral(":/new-icons/package.svg"));
@@ -656,6 +666,7 @@ void MainWindow::createActions()
     connect(m_runConfigAct, &QAction::triggered, this, &MainWindow::configureRun);
     connect(m_pythonPkgAct, &QAction::triggered, this, &MainWindow::showPythonPackages);
     connect(m_gradleAct, &QAction::triggered, this, &MainWindow::toggleGradlePanel);
+    connect(m_aiAct, &QAction::triggered, this, &MainWindow::toggleAiPanel);
     connect(m_fullscreenAct, &QAction::triggered, this, [this] { setWindowState(windowState() ^ Qt::WindowFullScreen); });
     connect(m_wordWrapAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setWordWrap(on); });
     connect(m_breadcrumbsAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setShowBreadcrumbs(on); });
@@ -823,6 +834,7 @@ void MainWindow::createMenus()
     view->addAction(m_runConfigAct);
     view->addAction(m_pythonPkgAct);
     view->addAction(m_gradleAct);
+    view->addAction(m_aiAct);
     view->addSeparator();
     view->addAction(m_splitRightAct);
     view->addAction(m_splitDownAct);
@@ -899,6 +911,7 @@ void MainWindow::createToolBar()
     tb->addSeparator();
     tb->addAction(m_scmAct);
     tb->addAction(m_terminalAct);
+    tb->addAction(m_aiAct);
     tb->addSeparator();
     m_mainToolBar = tb;
     // A web project runs its dev server instead of single files: the server controls replace the two run buttons.
@@ -2125,6 +2138,7 @@ void MainWindow::onProjectOpened(const Project &p)
     SettingsManager::instance().addRecentProject(p.root);
     m_explorer->setProjectRoot(p.root);
     m_mover->setProjectRoot(p.root);
+    m_ai->setProject(p.root);
     m_projectFiles->setRoot(p.root);
     m_editors->setProjectRoot(p.root);
     m_searchPanel->setProjectRoot(p.root);
@@ -2168,6 +2182,7 @@ void MainWindow::onProjectClosed()
     m_tasks->setBookmarks(m_bookmarks);
     m_explorer->setProjectRoot({});
     m_mover->setProjectRoot({});
+    m_ai->setProject({});
     m_projectFiles->setRoot({});
     m_editors->setProjectRoot({});
     m_searchPanel->setProjectRoot({});
@@ -2289,6 +2304,24 @@ void MainWindow::updateGradleUi()
     m_gradle->setBuildDir(dir);
     if (dir.isEmpty() && m_rightStack->currentWidget() == m_gradle && m_rightStack->parentWidget()->isVisible())
         hideMedia();
+}
+
+void MainWindow::toggleAiPanel()
+{
+    if (m_rightStack->parentWidget()->isVisible() && m_rightStack->currentWidget() == m_ai) {
+        hideMedia();
+        return;
+    }
+    disconnect(m_previewConn);
+    m_previewDoc = nullptr;
+    m_previewTimer->stop();
+    m_media->clear();
+    m_md->clear();
+    m_rightStack->setCurrentWidget(m_ai);
+    openRightPanel();
+    m_projectFiles->ensureFresh();
+    m_ai->setProjectFiles(m_projectFiles->files());
+    m_ai->focusInput();
 }
 
 void MainWindow::toggleGradlePanel()
@@ -3082,6 +3115,7 @@ void MainWindow::setupGit()
 
 void MainWindow::onGitStatusChanged()
 {
+    m_ai->setGitRepo(m_git->isRepo());
     // Status bar branch indicator
     if (m_git->isRepo()) {
         const QString name = m_git->branch().isEmpty() ? tr("(no branch)") : m_git->branch();

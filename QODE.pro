@@ -64,7 +64,16 @@ SOURCES += \
     src/project/ProjectModel.cpp \
     src/project/PythonEnv.cpp \
     src/media/MarkdownPreview.cpp \
+    src/media/MarkdownView.cpp \
     src/media/MarkdownHtml.cpp \
+    src/ai/AiAgent.cpp \
+    src/ai/AiChat.cpp \
+    src/ai/AiEdits.cpp \
+    src/ai/AiEnv.cpp \
+    src/ai/AiInput.cpp \
+    src/ai/AiPanel.cpp \
+    src/ai/AiWorkspace.cpp \
+    src/ai/GeminiClient.cpp \
     src/gradle/GradlePanel.cpp \
     src/gradle/GradleTasks.cpp \
     src/media/MediaPanel.cpp \
@@ -173,7 +182,16 @@ HEADERS += \
     src/project/ProjectModel.h \
     src/project/PythonEnv.h \
     src/media/MarkdownPreview.h \
+    src/media/MarkdownView.h \
     src/media/MarkdownHtml.h \
+    src/ai/AiAgent.h \
+    src/ai/AiChat.h \
+    src/ai/AiEdits.h \
+    src/ai/AiEnv.h \
+    src/ai/AiInput.h \
+    src/ai/AiPanel.h \
+    src/ai/AiWorkspace.h \
+    src/ai/GeminiClient.h \
     src/gradle/GradlePanel.h \
     src/gradle/GradleTasks.h \
     src/media/MediaPanel.h \

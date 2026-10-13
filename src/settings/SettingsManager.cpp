@@ -669,6 +669,26 @@ QString SettingsManager::projectFilePath() const
     return dir + QLatin1Char('/') + name + QLatin1Char('-') + hash + QStringLiteral(".json");
 }
 
+QString SettingsManager::projectDataDir() const
+{
+    QString file = projectFilePath();
+    if (file.isEmpty())
+        return {};
+    file.chop(5); // ".json"
+    return file;
+}
+
+QString SettingsManager::aiModel() const
+{
+    const QString m = m_settings.value(QStringLiteral("ai/model")).toString().trimmed();
+    return m.isEmpty() ? QStringLiteral("gemini-3.5-flash-lite") : m;
+}
+
+void SettingsManager::setAiModel(const QString &model)
+{
+    m_settings.setValue(QStringLiteral("ai/model"), model.trimmed());
+}
+
 void SettingsManager::setProject(const QString &root)
 {
     const QString before = theme();

@@ -89,6 +89,8 @@ public:
     // project open these accessors work on a throwaway in-memory copy that is never saved.
     void setProject(const QString &root); // empty = no project
     QString projectFilePath() const;
+    // Folder next to the project's JSON file for bigger per-project data (AI chat sessions); empty without a project.
+    QString projectDataDir() const;
 
     QString theme() const; // a theme id ("dark", "light" or a user theme); the project's override, else the global default
     void refreshTheme() { emit themeChanged(theme()); } // the active theme's colours changed (editor, file edit)
@@ -164,6 +166,10 @@ public:
     // The Python venv (root-relative folder name) this project works with; empty = detect automatically.
     QString pythonVenv() const;
     void setPythonVenv(const QString &name);
+
+    // Gemini model used by the AI chat (global); any model name is accepted.
+    QString aiModel() const;
+    void setAiModel(const QString &model);
 
     QStringList recentCommands() const; // most recent first
     void setRecentCommands(const QStringList &commands);

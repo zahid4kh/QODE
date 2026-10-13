@@ -158,7 +158,7 @@ private:
     void applyFileOps(const QVector<LspManager::FileOp> &ops, bool before);
     QAction *m_organizeImportsAct = nullptr, *m_removeUnusedAct = nullptr, *m_addMissingAct = nullptr, *m_fixAllAct = nullptr, *m_quickFixAct = nullptr;
     QAction *m_fixOnSaveAct = nullptr, *m_organizeOnSaveAct = nullptr, *m_hintParamsAct = nullptr, *m_hintTypesAct = nullptr;
-    QAction *m_symbolHighlightAct = nullptr, *m_lightBulbAct = nullptr, *m_signatureAct = nullptr;
+    QAction *m_symbolHighlightAct = nullptr, *m_lightBulbAct = nullptr, *m_signatureAct = nullptr, *m_quickInfoAct = nullptr;
     QAction *m_semanticAct = nullptr, *m_typeDefAct = nullptr, *m_callHierarchyAct = nullptr, *m_implAct = nullptr, *m_workspaceSymbolAct = nullptr;
     void requestColors(Document *doc, CodeEditor *editor);
     void pickColor(Document *doc, CodeEditor *editor, int index);

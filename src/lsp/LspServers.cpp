@@ -308,6 +308,7 @@ const QList<LspServerSpec> &all()
         kotlin.extensions = {QStringLiteral("kt"), QStringLiteral("kts")};
         kotlin.installer = LspServerSpec::Installer::Download;
         kotlin.installable = true;
+        kotlin.wantsConfiguration = true; // inlay hint options (section "jetbrains.kotlin"), asked again for every request
         kotlin.managedId = QStringLiteral("kotlin");
         kotlin.managedBinary = QStringLiteral("current/bin/intellij-server");
         kotlin.installHelp = QStringLiteral(

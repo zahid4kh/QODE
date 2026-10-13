@@ -151,7 +151,8 @@ public:
     void setSignatureTriggers(SignatureTriggers f) { m_signatureTriggers = std::move(f); }
     void showSignatureHelp(const LspSignatureHelp &help, int token);
     void hideSignatureHelp();
-    void triggerSignatureHelp(); // Ctrl+Shift+Space
+    void triggerSignatureHelp(bool fallbackToInfo = false); // Ctrl+P / Ctrl+Shift+Space
+    void showQuickInfo();                                   // hover text of the symbol at the caret (Ctrl+Shift+I)
     bool signatureVisible() const;
     // Opens the Alt+Enter menu for the caret / selection.
     void requestCodeActions();
@@ -359,6 +360,8 @@ private:
     QList<QTextCursor> m_unusedImports; // each selects the text of one import line
     int importRunEnd(const QTextBlock &header) const; // last block of the import list starting at `header`, or -1
     QPair<int, int> m_link{-1, -1}; // identifier under the mouse while Ctrl is held
+    bool m_hoverFromCaret = false; // the pending hover was asked for by key, not by the mouse
+    bool m_signatureFallback = false; // no signature at the caret: show the symbol's hover text instead
     int m_hoverPos = -1;       // document position of the pending hover request
     QPointer<HoverPopup> m_hoverPopup; // the language server's hover text; stays until clicked away
     QPoint m_hoverGlobal;      // where its tooltip goes

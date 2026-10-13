@@ -538,7 +538,7 @@ void MainWindow::createActions()
     m_splitDownAct = make(tr("Split Editor Down"), QKeySequence(C | Qt::ALT | K::Key_Backslash));
     m_aboutAct = make(tr("About QODE"));
     m_paletteAct = make(tr("Command Palette…"), QKeySequence(C | S | K::Key_P), QStringLiteral(":/new-icons/search.svg"));
-    m_quickOpenAct = make(tr("Go to File…"), QKeySequence(C | K::Key_P), QStringLiteral(":/new-icons/file-input.svg"));
+    m_quickOpenAct = make(tr("Go to File…"), QKeySequence(C | K::Key_E), QStringLiteral(":/new-icons/file-input.svg"));
     m_gotoDefinitionAct = make(tr("Go to Definition"), QKeySequence(K::Key_F12));
     m_gotoLineAct = make(tr("Go to Line…"), QKeySequence(C | K::Key_G));
     m_bookmarkToggleAct = make(tr("Toggle Bookmark"), QKeySequence(C | K::Key_F2));
@@ -782,6 +782,7 @@ void MainWindow::createMenus()
     sourceMenu->addAction(m_fixAllAct);
     edit->addAction(m_quickFixAct);
     edit->addAction(m_signatureAct);
+    edit->addAction(m_quickInfoAct);
     edit->addSeparator();
     edit->addAction(m_findAct);
     edit->addAction(m_replaceAct);

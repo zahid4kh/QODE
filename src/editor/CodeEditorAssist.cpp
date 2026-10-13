@@ -366,12 +366,37 @@ void CodeEditor::scheduleSignature(int kind, const QString &trigger, bool retrig
     m_signatureTimer->start();
 }
 
-void CodeEditor::triggerSignatureHelp()
+void CodeEditor::triggerSignatureHelp(bool fallbackToInfo)
 {
     QString triggers, retriggers;
-    if (!m_signatureTriggers || !m_signatureTriggers(&triggers, &retriggers))
+    if (!m_signatureTriggers || !m_signatureTriggers(&triggers, &retriggers)) {
+        if (fallbackToInfo)
+            showQuickInfo();
         return;
+    }
     scheduleSignature(1, {}, signatureVisible());
+    m_signatureFallback = fallbackToInfo;
+}
+
+// Hover text for the word at (or just before) the caret, shown under it like the mouse tooltip.
+void CodeEditor::showQuickInfo()
+{
+    const QTextCursor c = textCursor();
+    const QString text = c.block().text();
+    auto word = [&text](int i) { return i >= 0 && i < text.size() && (text.at(i).isLetterOrNumber() || text.at(i) == QLatin1Char('_')); };
+    int col = c.positionInBlock();
+    if (!word(col))
+        --col;
+    if (!word(col))
+        return;
+    m_hoverPos = c.block().position() + col;
+    m_hoverFromCaret = true;
+    QTextCursor w(document());
+    w.setPosition(m_hoverPos);
+    const QRect r = cursorRect(w);
+    m_hoverGlobal = viewport()->mapToGlobal(r.bottomLeft() + QPoint(0, 4));
+    m_hoverDiagnostics.clear();
+    emit hoverRequested(c.blockNumber(), col);
 }
 
 // Typing a trigger character ("(" or ",") opens the popup; while it is open every caret move asks again (see setupAssists),
@@ -402,6 +427,12 @@ void CodeEditor::showSignatureHelp(const LspSignatureHelp &help, int token)
 {
     if (token != m_signatureToken)
         return;
+    const bool fallback = m_signatureFallback;
+    m_signatureFallback = false;
+    if (help.isEmpty() && fallback && hasFocus()) {
+        showQuickInfo();
+        return;
+    }
     if (help.isEmpty() || !hasFocus()) {
         if (m_signature)
             m_signature->hide();

@@ -25,6 +25,7 @@
 #include <QTimer>
 #include <QUrl>
 
+#include <algorithm>
 #include <memory>
 
 namespace {
@@ -82,6 +83,22 @@ QJsonValue configurationFor(const QString &serverId, const QJsonObject &item, co
             return analysis;
         }
         return out;
+    }
+    if (serverId == QLatin1String("kotlin")) {
+        // The Kotlin server builds its inlay hints from a map of option id -> bool in this section (null makes the request
+        // fail) and asks again for every request, so toggling a hint class in QODE takes effect without a restart.
+        if (section != QLatin1String("jetbrains.kotlin"))
+            return QJsonValue::Null;
+        const auto &cfg = SettingsManager::instance();
+        const bool params = cfg.inlayParameterHints(), types = cfg.inlayTypeHints();
+        return QJsonObject{{QStringLiteral("hints.parameters"), params},
+                           {QStringLiteral("hints.parameters.compiled"), params}, // arguments of library functions (Compose's Spacer, Button ...)
+                           {QStringLiteral("hints.type.property"), types},
+                           {QStringLiteral("hints.type.variable"), types},
+                           {QStringLiteral("hints.type.function.return"), types},
+                           {QStringLiteral("hints.type.function.parameter"), types},
+                           {QStringLiteral("hints.lambda.return"), types},
+                           {QStringLiteral("hints.lambda.receivers.parameters"), types}};
     }
     if (serverId == QLatin1String("tailwindcss")) {
         if (section == QLatin1String("editor"))
@@ -1745,9 +1762,18 @@ void LspManager::inlayHints(Document *doc, int startLine, int endLine, std::func
                            h.kind = o.value(QStringLiteral("kind")).toInt(0);
                            h.padLeft = o.value(QStringLiteral("paddingLeft")).toBool();
                            h.padRight = o.value(QStringLiteral("paddingRight")).toBool();
-                           if (!h.label.isEmpty())
-                               out << h;
+                           // The Kotlin server sends one hint per part at the same spot ("this: " + type, spaces around):
+                           // they become a single pill.
+                           if (!out.isEmpty() && out.last().line == h.line && out.last().column == h.column) {
+                               out.last().label += h.label;
+                               out.last().padRight = out.last().padRight || h.padRight;
+                               continue;
+                           }
+                           out << h;
                        }
+                   for (LspInlayHint &h : out)
+                       h.label = h.label.trimmed();
+                   out.erase(std::remove_if(out.begin(), out.end(), [](const LspInlayHint &h) { return h.label.isEmpty(); }), out.end());
                    done(out);
                });
 }

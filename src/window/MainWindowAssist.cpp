@@ -53,7 +53,8 @@ void MainWindow::createAssistActions()
     m_fixAllAct = make(tr("Fix All Auto-fixable Problems"));
     m_quickFixAct = make(tr("Quick Fix / Refactor…"));
     m_quickFixAct->setToolTip(tr("Alt+Enter"));
-    m_signatureAct = make(tr("Parameter Hints"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Space));
+    m_signatureAct = make(tr("Parameter Info"), QKeySequence(Qt::CTRL | Qt::Key_P));
+    m_quickInfoAct = make(tr("Quick Definition"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_I));
     m_typeDefAct = make(tr("Go to Type Definition"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F12));
     m_callHierarchyAct = make(tr("Call Hierarchy…"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_H));
     m_implAct = make(tr("Go to Implementation"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_F12));
@@ -78,7 +79,11 @@ void MainWindow::createAssistActions()
     });
     connect(m_signatureAct, &QAction::triggered, this, [this] {
         if (CodeEditor *ed = m_editors->currentEditor())
-            ed->triggerSignatureHelp();
+            ed->triggerSignatureHelp(true);
+    });
+    connect(m_quickInfoAct, &QAction::triggered, this, [this] {
+        if (CodeEditor *ed = m_editors->currentEditor())
+            ed->showQuickInfo();
     });
 
     m_fixOnSaveAct = toggle(tr("Fix All on Save"), cfg.fixOnSave());

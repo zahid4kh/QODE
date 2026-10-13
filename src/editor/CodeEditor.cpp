@@ -633,6 +633,7 @@ bool CodeEditor::viewportEvent(QEvent *event)
         }
         m_hoverDiagnostics = lines.isEmpty() ? QString() : QStringLiteral("<div style='white-space:pre'>") + lines.join(QStringLiteral("<hr>")) + QStringLiteral("</div>");
         m_hoverPos = -1;
+        m_hoverFromCaret = false;
         if (m_hoverDiagnostics.isEmpty() && !m_unusedImports.isEmpty() && at.positionInBlock() < at.block().text().size() &&
             unusedImportLines().contains(at.blockNumber())) {
             QToolTip::hideText();
@@ -763,10 +764,19 @@ QString tidyHoverMarkdown(const QString &markdown)
 
 void CodeEditor::showHover(const QString &markdown)
 {
-    if (m_hoverPos < 0 || markdown.isEmpty() || !viewport()->underMouse())
+    const bool fromCaret = m_hoverFromCaret;
+    m_hoverFromCaret = false;
+    if (m_hoverPos < 0 || markdown.isEmpty())
         return;
-    if (cursorForPosition(viewport()->mapFromGlobal(QCursor::pos())).position() != m_hoverPos)
-        return; // the mouse moved on
+    if (fromCaret) {
+        if (!hasFocus())
+            return;
+    } else {
+        if (!viewport()->underMouse())
+            return;
+        if (cursorForPosition(viewport()->mapFromGlobal(QCursor::pos())).position() != m_hoverPos)
+            return; // the mouse moved on
+    }
     constexpr int kMaxChars = 1800;
     QString md = tidyHoverMarkdown(markdown);
     if (md.size() > kMaxChars) {

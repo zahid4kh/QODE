@@ -251,6 +251,7 @@ private:
     void scheduleCompletion(int kind, const QString &triggerChar);
     void requestCompletion(int kind, const QString &triggerChar);
     void acceptCompletion();
+    void finishCompletion(const LspCompletionItem &item, const QTextCursor &mark);
     void insertCompletion(const LspCompletionItem &item, int anchor, int cur);
     void hideCompletion();
     QString completionPrefix() const; // text from the anchor to the caret, empty when there is no anchor

@@ -3088,13 +3088,21 @@ void CodeEditor::acceptCompletion()
     const int anchor = m_completionAnchor;
     hideCompletion();
 
+    // Follows the edits the server and we make, so the word we completed can be found again afterwards.
+    QTextCursor mark(document());
+    mark.setPosition(anchor);
+    mark.setKeepPositionOnInsert(true);
+
     if (!item.command.isEmpty() && m_commandRunner) {
         const QTextCursor c = textCursor();
         const int revision = document()->revision();
         QPointer<CodeEditor> guard(this);
-        const bool taken = m_commandRunner(item, c.blockNumber(), c.positionInBlock(), [guard, item, anchor, cur, revision](bool done) {
-            if (!done && guard && guard->document()->revision() == revision)
+        const bool taken = m_commandRunner(item, c.blockNumber(), c.positionInBlock(), [guard, item, anchor, cur, revision, mark](bool done) {
+            if (!guard)
+                return;
+            if (!done && guard->document()->revision() == revision)
                 guard->insertCompletion(item, anchor, cur);
+            guard->finishCompletion(item, mark);
         });
         if (taken)
             return;
@@ -3103,13 +3111,84 @@ void CodeEditor::acceptCompletion()
         // The editor stays usable while the server answers: insert only when nothing was typed meanwhile.
         const int revision = document()->revision();
         QPointer<CodeEditor> guard(this);
-        m_resolver(item, [guard, anchor, cur, revision](const LspCompletionItem &resolved) {
-            if (guard && guard->document()->revision() == revision)
+        m_resolver(item, [guard, anchor, cur, revision, mark](const LspCompletionItem &resolved) {
+            if (guard && guard->document()->revision() == revision) {
                 guard->insertCompletion(resolved, anchor, cur);
+                guard->finishCompletion(resolved, mark);
+            }
         });
         return;
     }
     insertCompletion(item, anchor, cur);
+    finishCompletion(item, mark);
+}
+
+// What an IDE adds after a completed word: a function gets its parentheses with the caret between them, and a named argument
+// of function type (`onClick`) becomes `onClick = {}` with the caret inside the braces. Works on the text as it is after the
+// server's own edit, so it only adds what the server left out.
+void CodeEditor::finishCompletion(const LspCompletionItem &item, const QTextCursor &mark)
+{
+    if (item.builtin || item.snippet || !m_snippetStops.isEmpty() || isReadOnly() || mark.isNull())
+        return;
+    const QString label = item.label.trimmed();
+    QString name;
+    for (const QChar ch : label) {
+        if (!isIdentifierChar(ch))
+            break;
+        name += ch;
+    }
+    if (name.isEmpty())
+        return;
+    const QTextBlock block = mark.block();
+    const QString line = block.text();
+    const int col = mark.positionInBlock();
+    if (!block.isValid() || !line.mid(col).startsWith(name))
+        return;
+    const QString first = line.trimmed();
+    if (first.startsWith(QLatin1String("import ")) || first.startsWith(QLatin1String("package ")))
+        return;
+    const int end = col + name.size();
+    const QString rest = line.mid(end);
+    const int caretNow = textCursor().position();
+    if (caretNow < block.position() + col || caretNow > block.position() + line.size())
+        return; // the caret went elsewhere meanwhile
+
+    const bool isFunction = item.kind == 2 || item.kind == 3 || item.kind == 4; // method, function, constructor
+    const bool namedArgument = label.endsWith(QLatin1Char('='));
+    const QString typeText = item.detail + item.signature + item.longDetail;
+    QTextCursor c(document());
+    c.joinPreviousEditBlock();
+    int caret = -1;
+    if (isFunction && !namedArgument && !(col >= 2 && line.mid(col - 2, 2) == QLatin1String("::"))) {
+        if (rest.startsWith(QLatin1String("()"))) {
+            caret = block.position() + end + 1;
+        } else if (!rest.startsWith(QLatin1Char('(')) && !rest.startsWith(QLatin1String(" {"))) {
+            c.setPosition(block.position() + end);
+            c.insertText(QStringLiteral("()"));
+            caret = block.position() + end + 1;
+        }
+    } else if (namedArgument && typeText.contains(QLatin1String("->"))) {
+        int k = 0;
+        while (k < rest.size() && rest[k].isSpace())
+            ++k;
+        if (k < rest.size() && rest[k] == QLatin1Char('='))
+            ++k;
+        while (k < rest.size() && rest[k].isSpace())
+            ++k;
+        const QString after = rest.mid(k);
+        if (after.isEmpty() || after[0] == QLatin1Char(',') || after[0] == QLatin1Char(')')) {
+            c.setPosition(block.position() + end);
+            c.setPosition(block.position() + end + k, QTextCursor::KeepAnchor);
+            c.insertText(QStringLiteral(" = {}"));
+            caret = block.position() + end + 4;
+        }
+    }
+    c.endEditBlock();
+    if (caret >= 0) {
+        QTextCursor place(document());
+        place.setPosition(caret);
+        setTextCursor(place);
+    }
 }
 
 bool CodeEditor::applyTextEdits(const QVector<LspTextEdit> &list)

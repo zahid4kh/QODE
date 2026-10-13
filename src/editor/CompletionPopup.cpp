@@ -56,6 +56,8 @@ QString shownLabel(const QString &label)
     return label.mid(i);
 }
 
+bool isNamedArgument(const LspCompletionItem &it) { return !it.builtin && it.label.trimmed().endsWith(QLatin1Char('=')); }
+
 // Lower is better, -1 = no match.
 int matchScore(const QString &text, const QString &prefix)
 {
@@ -133,6 +135,11 @@ public:
             const LspCompletionItem &x = m_all[a.index], &y = m_all[b.index];
             if (x.deprecated != y.deprecated)
                 return !x.deprecated;
+            // Inside a call, the parameters it still takes (Kotlin lists them as "name =") come before everything else
+            // that merely starts with the same letters.
+            const bool xn = isNamedArgument(x), yn = isNamedArgument(y);
+            if (xn != yn)
+                return xn;
             return x.sortText < y.sortText;
         });
         beginResetModel();

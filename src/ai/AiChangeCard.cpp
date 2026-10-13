@@ -6,6 +6,7 @@
 #include "settings/Theme.h"
 
 #include <QEvent>
+#include <cmath>
 #include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -75,7 +76,15 @@ void AiDiffView::applyTheme()
 
 void AiDiffView::rebuild()
 {
-    const Theme t = Theme::byName(SettingsManager::instance().theme());
+    Theme t = Theme::byName(SettingsManager::instance().theme());
+    // Greyscale themes would make added and removed lines look alike; a diff keeps its red and green.
+    if (t.diffAddBg.saturation() < 20 || t.diffDelBg.saturation() < 20) {
+        const bool dark = t.editorBg.lightness() < 128;
+        t.diffAddBg = dark ? QColor(QStringLiteral("#1f3a2a")) : QColor(QStringLiteral("#cfeccf"));
+        t.diffDelBg = dark ? QColor(QStringLiteral("#442328")) : QColor(QStringLiteral("#f2cfcf"));
+        t.success = dark ? QColor(QStringLiteral("#4ec969")) : QColor(QStringLiteral("#1a8f3c"));
+        t.danger = dark ? QColor(QStringLiteral("#f26b6b")) : QColor(QStringLiteral("#c42b2b"));
+    }
     struct Row {
         QChar sign;
         QString text;
@@ -161,7 +170,7 @@ void AiDiffView::rebuild()
 void AiDiffView::fitHeight()
 {
     const int lines = qMin(kMaxVisible, qMax(1, blockCount()));
-    const int h = lines * fontMetrics().lineSpacing() + 2 * int(document()->documentMargin()) + 6
+    const int h = int(std::ceil(lines * QFontMetricsF(font()).lineSpacing())) + 2 * int(document()->documentMargin()) + 8
                   + (horizontalScrollBar()->maximum() > 0 ? horizontalScrollBar()->sizeHint().height() : 0);
     if (h != height())
         setFixedHeight(h);

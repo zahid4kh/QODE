@@ -107,8 +107,11 @@ AiPanel::AiPanel(QWidget *parent)
     m_modelBtn->setCursor(Qt::PointingHandCursor);
     {
         auto *bl = new QHBoxLayout(m_modelBtn);
-        bl->setContentsMargins(0, 0, 10, 0);
-        bl->addStretch(1);
+        bl->setContentsMargins(14, 0, 10, 0);
+        m_modelText = new QLabel(m_modelBtn);
+        m_modelText->setAttribute(Qt::WA_TransparentForMouseEvents);
+        m_modelText->setObjectName(QStringLiteral("aiModelText"));
+        bl->addWidget(m_modelText, 1);
         m_modelArrow = new QLabel(m_modelBtn);
         m_modelArrow->setAttribute(Qt::WA_TransparentForMouseEvents);
         m_modelArrow->setFixedSize(14, 14);
@@ -308,7 +311,7 @@ void AiPanel::setModel(const QString &name)
         return;
     m_modelName = m;
     SettingsManager::instance().setAiModel(m);
-    m_modelBtn->setText(m);
+    m_modelText->setText(m);
 }
 
 // The presets as checkable entries, then a field for any other model name. The menu uses the application's rounded menu style.
@@ -826,6 +829,7 @@ void AiPanel::applyTheme()
                       "QFrame#aiInputBox { background: %6; border: 1px solid %5; border-radius: 10px; }"
                       "AiInput { background: transparent; border: none; padding: 2px; }"
                       "QPushButton#aiModel { background: %6; border: 1px solid %5; border-radius: 8px; padding: 6px 12px; text-align: left; }"
+                      "QLabel#aiModelText { background: transparent; }"
                       "QPushButton#aiModel:hover { border-color: %7; }"
                       "QPushButton#aiModel:disabled { color: %2; }"
                       "QPushButton#aiModel::menu-indicator { image: none; width: 0px; }"

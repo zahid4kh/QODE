@@ -93,6 +93,7 @@ private:
     QPushButton *m_modelBtn;
     QMenu *m_modelMenu;
     QLabel *m_modelArrow;
+    QLabel *m_modelText;
     QLineEdit *m_customModel = nullptr;
     QString m_modelName;
     QFrame *m_notice;

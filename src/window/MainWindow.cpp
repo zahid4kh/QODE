@@ -364,6 +364,8 @@ MainWindow::MainWindow(QWidget *parent)
         connect(ed, &CodeEditor::colorsRequested, this, [this, doc, ed] { requestColors(doc, ed); });
         connect(ed, &CodeEditor::swatchClicked, this, [this, doc, ed](int index) { pickColor(doc, ed, index); });
         connect(ed, &QObject::destroyed, this, [this, ed, doc] {
+            if (m_dying)
+                return;
             m_colorData.remove(ed);
             m_colorAsked.remove(doc);
         });

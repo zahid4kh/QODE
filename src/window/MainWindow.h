@@ -51,6 +51,7 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 public:
     explicit MainWindow(QWidget *parent = nullptr);
+    ~MainWindow() override { m_dying = true; }
 
     void openInitialPaths(const QStringList &paths, bool restoreLastSession = true);
 
@@ -188,6 +189,7 @@ private:
     QString m_importPath;
     QToolButton *m_lspButton;
     QColor m_lspButtonColor;
+    bool m_dying = false; // the editors are deleted after our members: their destroyed() slots must not touch them
     QPointer<ReferencesDialog> m_refsDialog;
     QPointer<CallHierarchyDialog> m_callDialog;
     QHash<CodeEditor *, QVector<LspColor>> m_colorData; // the colour literals behind each editor's swatches

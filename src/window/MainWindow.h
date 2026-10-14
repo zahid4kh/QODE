@@ -27,7 +27,7 @@ class ReferencesDialog;
 class CallHierarchyDialog;
 class MarkdownPreview;
 class GradlePanel;
-class AiPanel;
+class AiHub;
 class QVariantAnimation;
 class GitRepository;
 class LspManager;
@@ -214,7 +214,7 @@ private:
     MediaPanel *m_media;
     MarkdownPreview *m_md;
     GradlePanel *m_gradle = nullptr;
-    AiPanel *m_ai = nullptr;
+    AiHub *m_ai = nullptr;
     QAction *m_aiAct = nullptr;
     QStackedWidget *m_rightStack; // media panel | markdown preview | Gradle tasks | AI chat
     QPointer<Document> m_previewDoc; // the Markdown / SVG file the right panel is previewing live

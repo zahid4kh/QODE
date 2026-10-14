@@ -59,6 +59,16 @@ QString messageOf(const QJsonObject &errorBody, int status, const QString &fallb
 }
 } // namespace
 
+int GeminiClient::retryDelayOf(const QJsonObject &errorBody)
+{
+    return serverRetryDelay(errorBody);
+}
+
+QString GeminiClient::errorText(const QJsonObject &errorBody, int status, const QString &fallback, const QString &model)
+{
+    return messageOf(errorBody, status, fallback, model);
+}
+
 GeminiClient::GeminiClient(QObject *parent)
     : QObject(parent)
     , m_net(new QNetworkAccessManager(this))

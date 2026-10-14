@@ -35,6 +35,7 @@ public:
     void setProjectFiles(const QStringList &absolutePaths);
     void focusInput();
     void editApiKey();
+    void setTitle(const QString &title);
 
 signals:
     void closeRequested();

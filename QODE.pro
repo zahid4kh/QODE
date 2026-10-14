@@ -66,7 +66,13 @@ SOURCES += \
     src/media/MarkdownPreview.cpp \
     src/media/MarkdownView.cpp \
     src/media/MarkdownHtml.cpp \
+    src/agent/AgentPanel.cpp \
+    src/agent/AgentRun.cpp \
+    src/agent/AgentSession.cpp \
+    src/agent/AgentTools.cpp \
+    src/agent/AgentTurnView.cpp \
     src/ai/AiAgent.cpp \
+    src/ai/AiHub.cpp \
     src/ai/AiChat.cpp \
     src/ai/AiChangeCard.cpp \
     src/ai/AiEdits.cpp \
@@ -186,7 +192,13 @@ HEADERS += \
     src/media/MarkdownPreview.h \
     src/media/MarkdownView.h \
     src/media/MarkdownHtml.h \
+    src/agent/AgentPanel.h \
+    src/agent/AgentRun.h \
+    src/agent/AgentSession.h \
+    src/agent/AgentTools.h \
+    src/agent/AgentTurnView.h \
     src/ai/AiAgent.h \
+    src/ai/AiHub.h \
     src/ai/AiChat.h \
     src/ai/AiChangeCard.h \
     src/ai/AiEdits.h \

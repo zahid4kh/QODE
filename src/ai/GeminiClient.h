@@ -42,6 +42,9 @@ public:
     bool busy() const { return m_reply != nullptr || m_retryTimer; }
 
     static QByteArray buildBody(const Request &request); // exposed for tests
+    // Shared with the streaming agent client: seconds the server asks us to wait, and the message shown for a failed request.
+    static int retryDelayOf(const QJsonObject &errorBody);
+    static QString errorText(const QJsonObject &errorBody, int status, const QString &fallback, const QString &model);
 
 signals:
     void retrying(const QString &reason, int seconds);

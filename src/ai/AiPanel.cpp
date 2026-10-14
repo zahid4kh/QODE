@@ -307,6 +307,11 @@ void AiPanel::editApiKey()
     updateNotice();
 }
 
+void AiPanel::setTitle(const QString &title)
+{
+    m_title->setText(title);
+}
+
 void AiPanel::focusInput()
 {
     updateNotice(); // the key file may have been added since

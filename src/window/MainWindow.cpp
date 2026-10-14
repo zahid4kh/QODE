@@ -23,7 +23,7 @@
 #include "project/VersionCatalog.h"
 #include "project/QmakeProject.h"
 #include "media/MarkdownPreview.h"
-#include "ai/AiPanel.h"
+#include "ai/AiHub.h"
 #include <QVariantAnimation>
 #include "tasks/TasksPanel.h"
 #include "git/BranchButton.h"
@@ -195,12 +195,12 @@ MainWindow::MainWindow(QWidget *parent)
         m_terminal->runCommand(QStringLiteral("(cd '%1' && %2)").arg(quoted, command));
         m_terminal->focusTerminal();
     });
-    m_ai = new AiPanel(this);
+    m_ai = new AiHub(this);
     m_ai->setEditors(m_editors);
     m_rightStack->addWidget(m_ai);
-    connect(m_ai, &AiPanel::closeRequested, this, &MainWindow::hideMedia);
-    connect(m_ai, &AiPanel::openFileRequested, this, [this](const QString &path) { m_editors->openFile(path); });
-    connect(m_ai, &AiPanel::gitInitRequested, this, [this] { m_gitInitAct->trigger(); });
+    connect(m_ai, &AiHub::closeRequested, this, &MainWindow::hideMedia);
+    connect(m_ai, &AiHub::openFileRequested, this, [this](const QString &path) { m_editors->openFile(path); });
+    connect(m_ai, &AiHub::gitInitRequested, this, [this] { m_gitInitAct->trigger(); });
     connect(m_projectFiles, &ProjectFiles::updated, this, [this] { m_ai->setProjectFiles(m_projectFiles->files()); });
     m_hsplit->addWidget(new Island(m_rightStack));
     m_previewTimer = new QTimer(this);
@@ -507,7 +507,7 @@ void MainWindow::createActions()
     m_runConfigAct = make(tr("Run Configuration…"), {}, QStringLiteral(":/new-icons/cog.svg"));
     m_runConfigAct->setToolTip(tr("Set the command that runs the project or this type of file"));
     m_aiAct = make(tr("AI Chat"), QKeySequence(C | A | K::Key_G), QStringLiteral(":/new-icons/sparkles.svg"));
-    m_aiAct->setToolTip(tr("Ask Gemini to change the project: it plans, edits the files and reports (Ctrl+Alt+G)"));
+    m_aiAct->setToolTip(tr("Ask Gemini to change the project: plan-and-edit chat, or an agent that works on its own (Ctrl+Alt+G)"));
     m_gradleAct = make(tr("Gradle Tasks"), {}, QStringLiteral(":/new-icons/gradle.svg"));
     m_gradleAct->setToolTip(tr("Show the Gradle tasks of this project (build, test, package, …) and run them"));
     m_pythonPkgAct = make(tr("Python Packages…"), {}, QStringLiteral(":/new-icons/package.svg"));

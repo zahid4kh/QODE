@@ -3,6 +3,7 @@
 #include <QWidget>
 
 class AiPanel;
+class LspManager;
 class EditorManager;
 class QStackedWidget;
 class QTabBar;
@@ -24,6 +25,7 @@ public:
     void setProject(const QString &root);
     void setGitRepo(bool isRepo);
     void setProjectFiles(const QStringList &absolutePaths);
+    void setLsp(LspManager *lsp);
     void focusInput();
     void editApiKey();
 
@@ -31,6 +33,7 @@ signals:
     void closeRequested();
     void openFileRequested(const QString &absolute);
     void gitInitRequested();
+    void projectChanged(); // the agent changed files on disk
 
 private:
     void currentTabChanged(int index);

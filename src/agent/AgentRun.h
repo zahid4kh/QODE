@@ -30,13 +30,20 @@ public:
         int maxRounds = 40;        // model requests per run
     };
 
+    // What the run cost (summed over its requests). `context` is the size of the last request's prompt.
+    struct Usage {
+        int requests = 0, prompt = 0, cached = 0, output = 0, context = 0;
+    };
+
     AgentRun(AgentTools *tools, QObject *parent = nullptr);
 
     void start(const Config &config);
     void cancel();
     bool running() const { return m_running; }
 
+    // The fixed instructions, then the project's AGENTS.md when there is one (the text stays the same between requests).
     static QString systemPrompt(const QString &root);
+    static QString baseInstructions(const QString &root);
 
 signals:
     void thoughtDelta(const QString &text);
@@ -44,6 +51,7 @@ signals:
     void toolStarted(const QString &name, const QString &call);
     void toolFinished(const QString &name, const agent::ToolResult &result);
     void status(const QString &text);        // "Thinking…", "Waiting 12 s (rate limited)…"; empty = back to normal
+    void usage(const agent::AgentRun::Usage &usage); // before finished() / failed()
     void finished(int rounds);
     void failed(const QString &error);
 
@@ -73,6 +81,8 @@ private:
     bool m_gotOutput = false;  // this round already showed text: no silent retry
     bool m_anyText = false;    // the run produced visible text so far
     QString m_finishReason;
+    Usage m_usage;
+    Usage m_round;             // usageMetadata of the request being received
     int m_rounds = 0;
     int m_attempt = 0;
 };
@@ -80,3 +90,4 @@ private:
 } // namespace agent
 
 Q_DECLARE_METATYPE(agent::ToolResult)
+Q_DECLARE_METATYPE(agent::AgentRun::Usage)

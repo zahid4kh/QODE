@@ -1,5 +1,6 @@
 #pragma once
 
+#include "agent/AgentJournal.h"
 #include "agent/AgentSession.h"
 #include "agent/AgentTools.h"
 
@@ -8,6 +9,9 @@
 #include <QWidget>
 
 class AiInput;
+class GeminiClient;
+class LspManager;
+class QTimer;
 class AiMentionPopup;
 class EditorManager;
 class QFrame;
@@ -37,6 +41,7 @@ public:
     void setProject(const QString &root);          // "" = no project
     void setGitRepo(bool isRepo);
     void setProjectFiles(const QStringList &absolutePaths);
+    void setLsp(LspManager *lsp) { m_lsp = lsp; }
     void focusInput();
     void editApiKey();
 
@@ -44,6 +49,7 @@ signals:
     void closeRequested();
     void openFileRequested(const QString &absolute);
     void gitInitRequested();
+    void projectChanged(); // the agent (or an undo) changed files: refresh git status and the file index
 
 private:
     // sessions
@@ -52,8 +58,22 @@ private:
     void deleteCurrentChat();
     void saveSession();
     void rebuildHistoryMenu();
+    void loadJournal();
+    void saveJournal();
     // running
     void send();
+    void startRun(const QString &display, const QString &request, const QStringList &mentioned);
+    bool runSlash(const QString &prompt);
+    void addNote(const QString &text);
+    void compact();
+    void undoFromUi(int turn, const QString &what);
+    void redoFromUi();
+    QString collectDiagnostics(const QString &abs, QVector<Diag> *rows);
+    bool writeText(const QString &abs, const QString &text);
+    void updateSlash();
+    void scheduleProjectChanged();
+    QWidget *turnFooter(const Message &m);
+    QWidget *summaryCard(const Message &m);
     void stop();
     void abandonRun();
     void setBusy(bool busy);
@@ -78,6 +98,13 @@ private:
     QString relative(const QString &absolute) const;
 
     AgentTools m_tools;
+    Journal m_journal;
+    LspManager *m_lsp = nullptr;
+    GeminiClient *m_gemini;
+    int m_compactGen = 0;
+    bool m_compacting = false;
+    bool m_slash = false;
+    QTimer *m_changedTimer;
     AgentRun *m_run = nullptr;
     Store m_store;
     Session m_session;

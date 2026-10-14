@@ -93,6 +93,14 @@ QJsonObject Message::toJson() const
     }
     if (!model.isEmpty())
         o.insert(QStringLiteral("model"), model);
+    if (!sent.isEmpty())
+        o.insert(QStringLiteral("sent"), sent);
+    if (turn >= 0)
+        o.insert(QStringLiteral("turn"), turn);
+    if (requests > 0)
+        o.insert(QStringLiteral("usage"), QJsonObject{{QStringLiteral("requests"), requests}, {QStringLiteral("prompt"), promptTokens},
+                                                      {QStringLiteral("cached"), cachedTokens}, {QStringLiteral("output"), outputTokens},
+                                                      {QStringLiteral("context"), contextTokens}});
     return o;
 }
 
@@ -103,6 +111,14 @@ Message Message::fromJson(const QJsonObject &o)
     m.text = o.value(QStringLiteral("text")).toString();
     m.time = QDateTime::fromString(o.value(QStringLiteral("time")).toString(), Qt::ISODate);
     m.model = o.value(QStringLiteral("model")).toString();
+    m.sent = o.value(QStringLiteral("sent")).toString();
+    m.turn = o.value(QStringLiteral("turn")).toInt(-1);
+    const QJsonObject u = o.value(QStringLiteral("usage")).toObject();
+    m.requests = u.value(QStringLiteral("requests")).toInt();
+    m.promptTokens = u.value(QStringLiteral("prompt")).toInt();
+    m.cachedTokens = u.value(QStringLiteral("cached")).toInt();
+    m.outputTokens = u.value(QStringLiteral("output")).toInt();
+    m.contextTokens = u.value(QStringLiteral("context")).toInt();
     for (const QJsonValue &v : o.value(QStringLiteral("files")).toArray())
         m.files << v.toString();
     for (const QJsonValue &v : o.value(QStringLiteral("blocks")).toArray())
@@ -133,12 +149,19 @@ QJsonArray Session::history() const
         else
             turns.append({role, text});
     };
-    for (const Message &m : messages) {
-        if (m.role == QLatin1String("user")) {
-            QString text = m.text;
-            if (!m.files.isEmpty())
-                text += QStringLiteral("\n\n(pointed at: %1)").arg(m.files.join(QStringLiteral(", ")));
-            add(QStringLiteral("user"), text);
+    int from = 0;
+    for (int i = messages.size() - 1; i >= 0; --i)
+        if (messages.at(i).role == QLatin1String("summary")) {
+            from = i;
+            break;
+        }
+    for (int i = from; i < messages.size(); ++i) {
+        const Message &m = messages.at(i);
+        if (m.role == QLatin1String("summary")) {
+            add(QStringLiteral("user"), QStringLiteral("[Summary of the earlier conversation, which was compacted]\n\n%1").arg(m.text));
+            add(QStringLiteral("model"), QStringLiteral("Understood. I will continue from this summary."));
+        } else if (m.role == QLatin1String("user")) {
+            add(QStringLiteral("user"), m.sent.isEmpty() ? m.text : m.sent);
         } else if (m.role == QLatin1String("assistant")) {
             QString text = m.answer();
             const QString acts = m.actions();
@@ -240,8 +263,16 @@ bool Store::save(const Session &session) const
     return f.commit();
 }
 
+QString Store::journalPath(const QString &id) const
+{
+    QString safe = id;
+    safe.remove(QRegularExpression(QStringLiteral("[^A-Za-z0-9_-]")));
+    return folder() + QLatin1Char('/') + safe + QStringLiteral(".journal");
+}
+
 bool Store::remove(const QString &id) const
 {
+    QFile::remove(journalPath(id));
     return valid() && QFile::remove(pathOf(id));
 }
 

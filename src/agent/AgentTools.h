@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ai/AiChat.h"
+#include "agent/AgentJournal.h"
 #include "ai/AiEdits.h"
 
 #include <QHash>
@@ -33,6 +34,14 @@ struct ToolResult {
     AiChange change;       // edit tools: the diff for the transcript
 };
 
+// One language-server diagnostic.
+struct Diag {
+    QString path;           // absolute
+    int line = 0, column = 0; // 1-based
+    int severity = 1;       // 1 error, 2 warning, 3 information, 4 hint
+    QString message, source, code;
+};
+
 class AgentTools
 {
 public:
@@ -49,11 +58,18 @@ public:
         std::function<void(const QStringList &absolute)> saveFiles;
         std::function<void(const QString &absolute)> pathDeleted;
         std::function<void(const QString &from, const QString &to)> pathMoved;
+        // Diagnostics of one file (waits until the server has had time to analyse it), or of every open file when `abs` is
+        // empty. Returns a note for the model when there is nothing to report because no server serves the file.
+        std::function<QString(const QString &abs, QVector<Diag> *rows)> diagnostics;
         // Asks the user. `tool` is the function name; false = denied.
         std::function<bool(const QString &tool, const QString &title, const QString &detail)> approve;
     };
 
     void setRoot(const QString &root);
+    // The journal the changes are recorded in, and the number of the current turn (see AgentSession).
+    void setJournal(Journal *journal) { m_journal = journal; }
+    void setTurn(int turn) { m_turn = turn; }
+    bool cancelled() const { return m_cancelled; }
     void setHooks(const Hooks &hooks) { m_hooks = hooks; }
     const QString &root() const { return m_root; }
 
@@ -107,6 +123,18 @@ private:
     ToolResult movePath(const QJsonObject &a, bool copy);
     ToolResult deletePath(const QJsonObject &a);
     ToolResult runCommand(const QJsonObject &a);
+    ToolResult listChanges(const QJsonObject &a);
+    ToolResult undoChanges(const QJsonObject &a);
+    ToolResult redoChanges(const QJsonObject &a);
+    ToolResult diagnosticsTool(const QJsonObject &a);
+
+    struct Before {
+        bool existed = false;
+        QString text;
+    };
+    // The file as it is now (raw, for the journal); false when it exists but cannot be captured.
+    bool snapshot(const QString &abs, Before *b) const;
+    void record(const QString &abs, const Before &b);
 
     // Runs one Edit through the hook and shapes the answer.
     ToolResult applyOne(const AiEdits::Edit &edit, const QString &call);
@@ -117,6 +145,8 @@ private:
     QSet<QString> m_touched;   // absolute paths edited by the agent
     QSet<QString> m_created;   // files the agent created (the project index may not know them yet)
     QSet<QString> m_gone;      // files the agent deleted or moved away
+    Journal *m_journal = nullptr;
+    int m_turn = 0;
     QProcess *m_process = nullptr;
     bool m_cancelled = false;
 };

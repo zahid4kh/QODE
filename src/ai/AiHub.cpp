@@ -34,6 +34,7 @@ AiHub::AiHub(QWidget *parent)
     lay->addWidget(m_tabs);
     lay->addWidget(m_stack, 1);
 
+    connect(m_agent, &agent::AgentPanel::projectChanged, this, &AiHub::projectChanged);
     connect(m_tabs, &QTabBar::currentChanged, this, &AiHub::currentTabChanged);
     for (QObject *panel : {static_cast<QObject *>(m_chat), static_cast<QObject *>(m_agent)}) {
         connect(panel, SIGNAL(closeRequested()), this, SIGNAL(closeRequested()));
@@ -67,6 +68,11 @@ void AiHub::setGitRepo(bool isRepo)
 {
     m_chat->setGitRepo(isRepo);
     m_agent->setGitRepo(isRepo);
+}
+
+void AiHub::setLsp(LspManager *lsp)
+{
+    m_agent->setLsp(lsp);
 }
 
 void AiHub::setProjectFiles(const QStringList &absolutePaths)

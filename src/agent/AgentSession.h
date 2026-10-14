@@ -31,12 +31,16 @@ struct Block {
 };
 
 struct Message {
-    QString role;           // "user" | "assistant" | "error"
-    QString text;           // user: the prompt; error: the message
+    QString role;           // "user" | "assistant" | "error" | "note" | "summary"
+    QString text;           // user: what was typed; error / note: the message; summary: the compacted conversation
+    QString sent;           // user: the full text sent to the model (editor context + request); replayed verbatim so the prefix stays cacheable
     QStringList files;      // user: project-relative files that were pointed at
     QVector<Block> blocks;  // assistant
     QString model;
     QDateTime time;
+    int turn = -1;          // user and assistant: the number the journal files this turn's changes under
+    // assistant: what the run cost
+    int requests = 0, promptTokens = 0, cachedTokens = 0, outputTokens = 0, contextTokens = 0;
 
     // The visible answer: all text blocks of an assistant turn.
     QString answer() const;
@@ -55,7 +59,8 @@ struct Session {
     QVector<Message> messages;
 
     static Session create(const QString &model);
-    // Gemini `contents` of the earlier turns: prompts and final answers (the tool traces are not replayed).
+    // Gemini `contents` of the earlier turns: prompts and final answers (the tool traces are not replayed). Starts at the
+    // last summary when the chat was compacted.
     QJsonArray history() const;
     QJsonObject toJson() const;
     static Session fromJson(const QJsonObject &o);
@@ -74,6 +79,7 @@ public:
     bool load(const QString &id, Session *out) const;
     bool save(const Session &session) const;
     bool remove(const QString &id) const;
+    QString journalPath(const QString &id) const; // the undo journal of a chat
 
 private:
     QString folder() const;

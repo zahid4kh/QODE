@@ -7,6 +7,11 @@
 #include "ai/AiInput.h"
 #include "ai/AiKeyDialog.h"
 #include "ai/AiWorkspace.h"
+#include "ai/GeminiClient.h"
+#include "editor/CodeEditor.h"
+#include "lsp/LspManager.h"
+#include "lsp/LspTypes.h"
+#include "media/MarkdownView.h"
 #include "editor/Document.h"
 #include "editor/EditorManager.h"
 #include "palette/FuzzyMatcher.h"
@@ -18,6 +23,13 @@
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
+#include <QElapsedTimer>
+#include <QEventLoop>
+#include <QFile>
+#include <QJsonDocument>
+#include <QSaveFile>
+#include <QTextCursor>
+#include <QTextDocument>
 #include <QFileInfo>
 #include <QFontMetrics>
 #include <QFrame>
@@ -56,7 +68,12 @@ bool looksBinary(const QString &name)
 
 AgentPanel::AgentPanel(QWidget *parent)
     : QWidget(parent)
+    , m_gemini(new GeminiClient(this))
+    , m_changedTimer(new QTimer(this))
 {
+    m_changedTimer->setSingleShot(true);
+    m_changedTimer->setInterval(400);
+    connect(m_changedTimer, &QTimer::timeout, this, &AgentPanel::projectChanged);
     // --- header -------------------------------------------------------------------------------------------------
     auto *title = new QLabel(tr("AGENT"), this);
     title->setObjectName(QStringLiteral("panelTitle"));
@@ -204,7 +221,22 @@ AgentPanel::AgentPanel(QWidget *parent)
     connect(m_input, &AiInput::sendRequested, this, &AgentPanel::send);
     connect(m_input, &AiInput::mentionQuery, this, &AgentPanel::updateMentions);
     connect(m_input, &AiInput::mentionClosed, this, &AgentPanel::closeMentions);
+    connect(m_input, &AiInput::textChanged, this, [this] { updateSlash(); });
     connect(m_input, &AiInput::mentionKey, this, [this](int key) {
+        if (m_slash && key != Qt::Key_Up && key != Qt::Key_Down && key != Qt::Key_Escape && m_popup->count()) {
+            const QString cmd = m_popup->current().section(QLatin1Char(' '), 0, 0);
+            const bool exact = m_input->toPlainText().trimmed() == cmd;
+            closeMentions();
+            if (exact) {
+                send();
+            } else {
+                m_input->setPlainText(cmd);
+                QTextCursor c = m_input->textCursor();
+                c.movePosition(QTextCursor::End);
+                m_input->setTextCursor(c);
+            }
+            return;
+        }
         if (key == Qt::Key_Up)
             m_popup->step(-1);
         else if (key == Qt::Key_Down)
@@ -219,6 +251,12 @@ AgentPanel::AgentPanel(QWidget *parent)
         }
     });
     connect(m_popup, &AiMentionPopup::chosen, this, [this](const QString &p) {
+        if (m_slash) {
+            closeMentions();
+            m_input->setPlainText(p.section(QLatin1Char(' '), 0, 0));
+            m_input->setFocus();
+            return;
+        }
         m_input->completeMention(p);
         closeMentions();
         m_input->setFocus();
@@ -243,9 +281,12 @@ AgentPanel::AgentPanel(QWidget *parent)
     hooks.saveFiles = [this](const QStringList &paths) {
         if (!m_editors)
             return;
+        bool any = false;
         for (const QString &p : paths)
             if (Document *d = m_editors->documentForPath(p))
-                m_editors->saveQuietly(d);
+                any = m_editors->saveQuietly(d) || any;
+        if (any)
+            scheduleProjectChanged();
     };
     hooks.pathDeleted = [this](const QString &p) {
         if (m_editors)
@@ -256,7 +297,44 @@ AgentPanel::AgentPanel(QWidget *parent)
             m_editors->pathRenamed(from, to);
     };
     hooks.approve = [this](const QString &tool, const QString &title, const QString &detail) { return approve(tool, title, detail); };
+    hooks.diagnostics = [this](const QString &abs, QVector<Diag> *rows) { return collectDiagnostics(abs, rows); };
     m_tools.setHooks(hooks);
+
+    // Undo / redo reach the files through the editor tabs, so open documents stay in sync with the disk.
+    FileAccess io;
+    io.read = [this](const QString &abs, QString *text) {
+        if (m_editors)
+            if (Document *d = m_editors->documentForPath(abs)) {
+                *text = d->text();
+                return true;
+            }
+        QFile f(abs);
+        if (!QFileInfo(abs).isFile() || !f.open(QIODevice::ReadOnly))
+            return false;
+        *text = QString::fromUtf8(f.readAll());
+        return true;
+    };
+    io.write = [this](const QString &abs, const QString &text) { return writeText(abs, text); };
+    io.remove = [this](const QString &abs) {
+        if (m_editors)
+            m_editors->closeDocumentsUnder(abs);
+        return QFile::remove(abs);
+    };
+    io.trash = [this](const QString &abs, QString *inTrash) {
+        if (m_editors)
+            m_editors->closeDocumentsUnder(abs);
+        return QFile::moveToTrash(abs, inTrash);
+    };
+    io.rename = [this](const QString &from, const QString &to) {
+        QDir().mkpath(QFileInfo(to).absolutePath());
+        if (!QDir().rename(from, to))
+            return false;
+        if (m_editors)
+            m_editors->pathRenamed(from, to);
+        return true;
+    };
+    m_journal.setAccess(io);
+    m_tools.setJournal(&m_journal);
 
     connect(&SettingsManager::instance(), &SettingsManager::themeChanged, this, &AgentPanel::applyTheme);
 
@@ -350,14 +428,17 @@ void AgentPanel::setProject(const QString &root)
     m_allFiles.clear();
     m_alwaysAllow.clear();
     m_store.setDirectory(root.isEmpty() ? QString() : SettingsManager::instance().projectDataDir());
-    if (!root.isEmpty())
+    if (!root.isEmpty()) {
         m_tools.setRoot(root);
+        m_journal.setRoot(root);
+    }
     const auto sessions = m_store.list();
     Session loaded;
     if (!sessions.isEmpty() && m_store.load(sessions.first().id, &loaded))
         m_session = loaded;
     else
         m_session = Session::create(SettingsManager::instance().aiModel());
+    loadJournal();
     setBusy(false);
     updateNotice();
     updateContext();
@@ -456,6 +537,7 @@ void AgentPanel::startNewChat()
     saveSession();
     m_session = Session::create(SettingsManager::instance().aiModel());
     m_alwaysAllow.clear();
+    loadJournal();
     setBusy(false);
     rebuild();
     m_input->setFocus();
@@ -470,6 +552,7 @@ void AgentPanel::loadSession(const QString &id)
     saveSession();
     m_session = s;
     m_alwaysAllow.clear();
+    loadJournal();
     setBusy(false);
     rebuild();
 }
@@ -484,8 +567,36 @@ void AgentPanel::deleteCurrentChat()
         m_session = next;
     else
         m_session = Session::create(SettingsManager::instance().aiModel());
+    loadJournal();
     setBusy(false);
     rebuild();
+}
+
+void AgentPanel::loadJournal()
+{
+    m_journal.clear();
+    if (!m_store.valid())
+        return;
+    QFile f(m_store.journalPath(m_session.id));
+    if (f.open(QIODevice::ReadOnly))
+        m_journal.load(QJsonDocument::fromJson(f.readAll()).object());
+}
+
+void AgentPanel::saveJournal()
+{
+    if (!m_store.valid())
+        return;
+    const QString path = m_store.journalPath(m_session.id);
+    if (m_journal.isEmpty() && !m_journal.canRedo()) {
+        QFile::remove(path);
+        return;
+    }
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QSaveFile f(path);
+    if (f.open(QIODevice::WriteOnly)) {
+        f.write(QJsonDocument(m_journal.toJson()).toJson(QJsonDocument::Compact));
+        f.commit();
+    }
 }
 
 void AgentPanel::rebuildHistoryMenu()
@@ -493,6 +604,13 @@ void AgentPanel::rebuildHistoryMenu()
     QMenu *menu = m_historyBtn->menu();
     menu->clear();
     menu->addAction(tr("New agent chat"), this, &AgentPanel::startNewChat);
+    menu->addSeparator();
+    QAction *undoLast = menu->addAction(tr("Undo the agent's last changes"), this, [this] { undoFromUi(Journal::Last, tr("the agent's last changes")); });
+    QAction *undoAll = menu->addAction(tr("Undo all agent changes in this chat"), this, [this] { undoFromUi(Journal::All, tr("all agent changes in this chat")); });
+    QAction *redo = menu->addAction(tr("Redo undone changes"), this, &AgentPanel::redoFromUi);
+    undoLast->setEnabled(!m_busy && !m_journal.isEmpty());
+    undoAll->setEnabled(!m_busy && !m_journal.isEmpty());
+    redo->setEnabled(!m_busy && m_journal.canRedo());
     const auto sessions = m_store.list();
     if (!sessions.isEmpty())
         menu->addSeparator();
@@ -556,29 +674,43 @@ void AgentPanel::send()
     updateNotice();
     if (!m_input->isEnabled())
         return;
+    if (prompt.startsWith(QLatin1Char('/')) && runSlash(prompt)) {
+        m_input->clear();
+        return;
+    }
+    startRun(prompt, prompt, mentionedFiles(prompt));
+}
 
-    const QStringList mentioned = mentionedFiles(prompt);
+// Runs one request. `display` is what the chat shows as the user's message, `request` what the model is asked.
+void AgentPanel::startRun(const QString &display, const QString &request, const QStringList &mentioned)
+{
+    const int turn = int(m_session.messages.size());
+    const QString sent = contextFor(mentioned) + request;
+
     AgentRun::Config cfg;
     cfg.apiKey = AiEnv::apiKey(m_root);
     cfg.model = m_modelName;
     cfg.systemInstruction = AgentRun::systemPrompt(m_root);
     cfg.contents = m_session.history();
-    cfg.contents.append(QJsonObject{{"role", "user"}, {"parts", QJsonArray{QJsonObject{{"text", contextFor(mentioned) + prompt}}}}});
+    cfg.contents.append(QJsonObject{{"role", "user"}, {"parts", QJsonArray{QJsonObject{{"text", sent}}}}});
 
     Message user;
     user.role = QStringLiteral("user");
-    user.text = prompt;
+    user.text = display;
+    user.sent = sent; // replayed as it was, so the start of every later request stays identical and can be cached
     user.files = mentioned;
     user.time = QDateTime::currentDateTime();
+    user.turn = turn;
     m_session.messages.append(user);
     m_session.model = m_modelName;
     if (m_session.title.isEmpty())
-        m_session.title = prompt.simplified().left(60);
+        m_session.title = display.simplified().left(60);
 
     m_live = Message();
     m_live.role = QStringLiteral("assistant");
     m_live.model = m_modelName;
     m_live.time = QDateTime::currentDateTime();
+    m_live.turn = turn;
 
     m_input->clear();
     m_stick = true;
@@ -595,6 +727,7 @@ void AgentPanel::send()
     m_listLayout->insertWidget(m_listLayout->count() - 1, m_liveView);
 
     m_tools.resetCancel();
+    m_tools.setTurn(turn);
     m_run = new AgentRun(&m_tools, this);
     AgentRun *run = m_run;
     connect(run, &AgentRun::thoughtDelta, this, [this](const QString &t) {
@@ -642,20 +775,354 @@ void AgentPanel::send()
         m_status = s;
         updateContext();
     });
+    connect(run, &AgentRun::usage, this, [this](const AgentRun::Usage &u) {
+        m_live.requests = u.requests;
+        m_live.promptTokens = u.prompt;
+        m_live.cachedTokens = u.cached;
+        m_live.outputTokens = u.output;
+        m_live.contextTokens = u.context;
+    });
     connect(run, &AgentRun::finished, this, [this] { finishRun(QString()); });
     connect(run, &AgentRun::failed, this, [this](const QString &err) { finishRun(err); });
     run->start(cfg);
 }
 
+// --- slash commands -----------------------------------------------------------------------------------------------
+
+namespace {
+struct SlashCommand {
+    const char *name, *help;
+};
+const SlashCommand kSlash[] = {{"/init", "create AGENTS.md: a summary of the project for agents"},
+                               {"/compact", "summarize this chat to free up context"},
+                               {"/undo", "undo the agent's last changes (/undo all: everything)"},
+                               {"/redo", "bring back what was undone"}};
+
+const char *kInitPrompt =
+    "Create the file AGENTS.md in the project root: a briefing that future coding agents read before they touch this project. "
+    "First explore: directory_tree, README, the build files (package.json, build.gradle*, pom.xml, CMakeLists.txt, *.pro, Cargo.toml, "
+    "pyproject.toml, Makefile ... whatever exists) and a few central source files. Then write the file with create_file. Contents, in this order and in "
+    "plain Markdown: (1) one paragraph: what the project is and does; (2) tech stack: language(s), frameworks, key libraries, versions that matter; "
+    "(3) layout: the important folders and files and what lives where; (4) how to build, run and test, using only commands you saw in the build files or "
+    "README; (5) code conventions you can actually observe (naming, formatting, patterns, where new code goes); (6) pitfalls and things not to touch. "
+    "Only state what you verified in the files; leave a section out rather than guess. Keep it under about 120 lines. Do not change any other file. "
+    "Finish with two sentences on what you wrote.";
+} // namespace
+
+void AgentPanel::updateSlash()
+{
+    const QString text = m_input->toPlainText();
+    if (!text.startsWith(QLatin1Char('/')) || text.contains(QLatin1Char(' ')) || text.contains(QLatin1Char('\n')) || !m_input->isEnabled() || m_busy) {
+        if (m_slash)
+            closeMentions();
+        return;
+    }
+    QStringList items;
+    for (const SlashCommand &c : kSlash)
+        if (QLatin1String(c.name).startsWith(text, Qt::CaseInsensitive))
+            items << QStringLiteral("%1   %2").arg(QLatin1String(c.name), QLatin1String(c.help));
+    if (items.isEmpty()) {
+        if (m_slash)
+            closeMentions();
+        return;
+    }
+    m_slash = true;
+    m_popup->setItems(items);
+    m_input->setMentionOpen(true);
+    m_popup->showAbove(m_inputBox);
+}
+
+// Handles /init, /compact, /undo, /redo. False for anything else, which is then an ordinary prompt.
+bool AgentPanel::runSlash(const QString &prompt)
+{
+    const QString cmd = prompt.section(QRegularExpression(QStringLiteral("\\s")), 0, 0).toLower();
+    const QString arg = prompt.mid(cmd.size()).trimmed().toLower();
+    if (cmd == QLatin1String("/init")) {
+        if (QFileInfo::exists(m_root + QStringLiteral("/AGENTS.md")))
+            addNote(tr("AGENTS.md already exists in this project, so /init left it alone. Ask the agent to update it if it is out of date."));
+        else
+            startRun(QStringLiteral("/init"), QString::fromLatin1(kInitPrompt), {});
+        return true;
+    }
+    if (cmd == QLatin1String("/compact")) {
+        compact();
+        return true;
+    }
+    if (cmd == QLatin1String("/undo")) {
+        const bool all = arg == QLatin1String("all");
+        undoFromUi(all ? int(Journal::All) : int(Journal::Last), all ? tr("all agent changes in this chat") : tr("the agent's last changes"));
+        return true;
+    }
+    if (cmd == QLatin1String("/redo")) {
+        redoFromUi();
+        return true;
+    }
+    return false;
+}
+
+void AgentPanel::addNote(const QString &text)
+{
+    Message m;
+    m.role = QStringLiteral("note");
+    m.text = text;
+    m.time = QDateTime::currentDateTime();
+    m_session.messages.append(m);
+    saveSession();
+    rebuild();
+}
+
+// --- compacting ---------------------------------------------------------------------------------------------------
+
+void AgentPanel::compact()
+{
+    if (m_busy)
+        return;
+    const QJsonArray history = m_session.history();
+    if (history.size() < 2) {
+        addNote(tr("There is nothing to compact yet."));
+        return;
+    }
+    QJsonArray contents = history;
+    contents.append(QJsonObject{{"role", "user"}, {"parts", QJsonArray{QJsonObject{{"text",
+        "Write the summary now, as instructed."}}}}});
+
+    GeminiClient::Request req;
+    req.apiKey = AiEnv::apiKey(m_root);
+    req.model = m_modelName;
+    req.systemInstruction = QStringLiteral(
+        "You compact a conversation between a user and a coding agent so the work can continue from the summary alone. Write the summary for the "
+        "agent itself, not for the user. Cover: the user's goals and requests; decisions, constraints and preferences they stated; facts learned about "
+        "the project (stack, layout, commands, conventions); every file created, changed, moved or deleted, and why; commands run and what they showed; "
+        "problems still open and the next steps. Be dense and factual, use short bullet lists, no filler, at most 700 words. Keep exact file paths, "
+        "names and commands.");
+    req.thinkingBudget = 512;
+
+    m_compacting = true;
+    m_status = tr("Compacting the conversation…");
+    setBusy(true);
+    const int gen = ++m_compactGen;
+    m_gemini->generate(req, [this, gen](const GeminiClient::Result &r) {
+        if (gen != m_compactGen)
+            return; // the chat was closed or switched meanwhile
+        m_compacting = false;
+        Message m;
+        m.time = QDateTime::currentDateTime();
+        if (r.ok) {
+            m.role = QStringLiteral("summary");
+            m.text = r.text.trimmed();
+            m.model = m_modelName;
+            m.promptTokens = r.promptTokens;
+        } else {
+            m.role = QStringLiteral("error");
+            m.text = r.error == QLatin1String("Cancelled") ? tr("Stopped.") : r.error;
+        }
+        m_session.messages.append(m);
+        setBusy(false);
+        saveSession();
+        rebuild();
+    });
+}
+
+// --- undo / redo --------------------------------------------------------------------------------------------------
+
+// Asks, then reverts. Files the user changed after the agent are listed and only overwritten on request.
+void AgentPanel::undoFromUi(int turn, const QString &what)
+{
+    if (m_busy)
+        return;
+    if (turn == Journal::Last && m_journal.lastTurn() < 0) {
+        addNote(tr("The agent has not changed anything in this chat (or it was already undone)."));
+        return;
+    }
+    const auto entries = m_journal.entries(turn);
+    if (entries.isEmpty()) {
+        addNote(tr("There is nothing to undo."));
+        return;
+    }
+    QStringList lines;
+    for (const auto &e : entries)
+        lines << QStringLiteral("%1 %2").arg(e.what, e.path);
+    if (lines.size() > 14)
+        lines = lines.mid(0, 14) + QStringList{tr("… and %1 more").arg(entries.size() - 14)};
+    QMessageBox box(this);
+    box.setIcon(QMessageBox::Question);
+    box.setWindowTitle(tr("Undo agent changes"));
+    box.setText(tr("Undo %1?").arg(what));
+    box.setInformativeText(lines.join(QLatin1Char('\n')));
+    QPushButton *yes = box.addButton(tr("Undo"), QMessageBox::AcceptRole);
+    box.addButton(tr("Cancel"), QMessageBox::RejectRole);
+    box.setDefaultButton(yes);
+    box.exec();
+    if (box.clickedButton() != yes)
+        return;
+
+    Journal::Scope scope;
+    scope.turn = turn;
+    Journal::Result r = m_journal.undo(scope);
+    QStringList leftover;
+    if (!r.conflicts.isEmpty()) {
+        QMessageBox ask(this);
+        ask.setIcon(QMessageBox::Warning);
+        ask.setWindowTitle(tr("Files changed since"));
+        ask.setText(tr("These files were changed after the agent left them. Overwrite them with their earlier version?"));
+        ask.setInformativeText(r.conflicts.join(QLatin1Char('\n')));
+        QPushButton *force = ask.addButton(tr("Overwrite"), QMessageBox::DestructiveRole);
+        ask.addButton(tr("Keep my changes"), QMessageBox::RejectRole);
+        ask.exec();
+        if (ask.clickedButton() == force) {
+            for (const QString &p : std::as_const(r.conflictPaths)) {
+                Journal::Scope one = scope;
+                one.path = p;
+                one.force = true;
+                const Journal::Result more = m_journal.undo(one);
+                r.done << more.done;
+                leftover << more.conflicts;
+            }
+        } else {
+            leftover = r.conflicts;
+        }
+    }
+    saveJournal();
+    scheduleProjectChanged();
+    QString note = r.done.isEmpty() ? tr("Nothing was undone.") : tr("Undid %1 change(s): %2.").arg(r.done.size()).arg(r.done.join(QStringLiteral(", ")));
+    if (!leftover.isEmpty())
+        note += tr(" Left alone: %1.").arg(leftover.join(QStringLiteral("; ")));
+    addNote(note);
+}
+
+void AgentPanel::redoFromUi()
+{
+    if (m_busy)
+        return;
+    if (!m_journal.canRedo()) {
+        addNote(tr("There is nothing to redo."));
+        return;
+    }
+    const Journal::Result r = m_journal.redo();
+    saveJournal();
+    scheduleProjectChanged();
+    QString note = r.done.isEmpty() ? tr("Nothing was redone.") : tr("Redid %1 change(s): %2.").arg(r.done.size()).arg(r.done.join(QStringLiteral(", ")));
+    if (!r.conflicts.isEmpty())
+        note += tr(" Not possible: %1.").arg(r.conflicts.join(QStringLiteral("; ")));
+    addNote(note);
+}
+
+// Replaces a file's whole text: through the editor tab when it is open (so Ctrl+Z still works), saved at once so that
+// the disk and the git status match; straight to disk otherwise.
+bool AgentPanel::writeText(const QString &abs, const QString &text)
+{
+    if (m_editors) {
+        if (Document *d = m_editors->documentForPath(abs)) {
+            CodeEditor *ed = m_editors->editorFor(d);
+            if (ed && !ed->isReadOnly()) {
+                LspTextEdit t;
+                t.startLine = 0;
+                t.startColumn = 0;
+                t.endLine = qMax(0, ed->document()->blockCount() - 1);
+                t.endColumn = 1 << 28; // past the end: the editor clamps it
+                t.text = text;
+                if (!ed->applyTextEdits({t}))
+                    return false;
+                m_editors->saveQuietly(d);
+                return true;
+            }
+        }
+    }
+    QDir().mkpath(QFileInfo(abs).absolutePath());
+    QSaveFile f(abs);
+    if (!f.open(QIODevice::WriteOnly))
+        return false;
+    f.write(text.toUtf8());
+    return f.commit();
+}
+
+void AgentPanel::scheduleProjectChanged()
+{
+    m_changedTimer->start();
+}
+
+// --- language server diagnostics -----------------------------------------------------------------------------------
+
+QString AgentPanel::collectDiagnostics(const QString &abs, QVector<Diag> *rows)
+{
+    if (!m_lsp || !m_editors)
+        return tr("language server integration is not available");
+    QStringList paths;
+    if (!abs.isEmpty()) {
+        if (!m_editors->documentForPath(abs))
+            m_editors->openFile(abs); // the server only analyses open files
+        paths << abs;
+    } else {
+        for (const QString &p : m_editors->openFilePaths())
+            if (p.startsWith(m_root + QLatin1Char('/')))
+                paths << p;
+    }
+    auto served = [&] {
+        for (const QString &p : std::as_const(paths))
+            if (Document *d = m_editors->documentForPath(p))
+                if (m_lsp->isServed(d))
+                    return true;
+        return false;
+    };
+    // A server that was just asked to start needs a moment.
+    QElapsedTimer clock;
+    clock.start();
+    while (!served() && clock.elapsed() < 4000 && !m_tools.cancelled()) {
+        QEventLoop wait;
+        QTimer::singleShot(150, &wait, &QEventLoop::quit);
+        wait.exec();
+    }
+    if (!served())
+        return tr("no language server is running for %1; use run_command to build or test instead").arg(abs.isEmpty() ? tr("the open files") : QFileInfo(abs).fileName());
+
+    // Give the server time to see the latest edits: wait until its diagnostics have been quiet for a moment.
+    QEventLoop loop;
+    QTimer quiet, limit, poll;
+    quiet.setSingleShot(true);
+    limit.setSingleShot(true);
+    connect(&quiet, &QTimer::timeout, &loop, &QEventLoop::quit);
+    connect(&limit, &QTimer::timeout, &loop, &QEventLoop::quit);
+    connect(&poll, &QTimer::timeout, &loop, [&] {
+        if (m_tools.cancelled())
+            loop.quit();
+    });
+    connect(m_lsp, &LspManager::diagnosticsChanged, &loop, [&] { quiet.start(700); });
+    quiet.start(1000);
+    limit.start(9000);
+    poll.start(100);
+    loop.exec();
+
+    for (const QString &p : std::as_const(paths))
+        for (const LspDiagnostic &d : m_lsp->diagnostics(p)) {
+            Diag x;
+            x.path = p;
+            x.line = d.startLine + 1;
+            x.column = d.startColumn + 1;
+            x.severity = d.severity;
+            x.message = d.message;
+            x.source = d.source;
+            x.code = d.code;
+            rows->append(x);
+        }
+    return {};
+}
+
 void AgentPanel::stop()
 {
-    if (m_run)
+    if (m_compacting)
+        m_gemini->cancel(); // reports "Cancelled" through the callback
+    else if (m_run)
         m_run->cancel(); // reports "Stopped." through failed()
 }
 
 // Drops a run without reporting it (the chat or project it belonged to is going away).
 void AgentPanel::abandonRun()
 {
+    if (m_compacting) {
+        ++m_compactGen; // its answer belongs to a chat that is gone
+        m_compacting = false;
+        m_gemini->cancel();
+    }
     if (!m_run)
         return;
     AgentRun *run = m_run;
@@ -691,6 +1158,8 @@ void AgentPanel::finishRun(const QString &error)
     }
     setBusy(false);
     saveSession();
+    saveJournal();
+    scheduleProjectChanged();
     rebuild();
     m_input->setFocus();
 }
@@ -772,6 +1241,7 @@ void AgentPanel::updateMentions(const QString &query)
 
 void AgentPanel::closeMentions()
 {
+    m_slash = false;
     m_input->setMentionOpen(false);
     if (m_popup->isVisible())
         m_popup->hide();
@@ -842,6 +1312,17 @@ void AgentPanel::rebuild()
             });
             connect(view, &AgentTurnView::linkClicked, this, &AgentPanel::followLink);
             add(view);
+            if (QWidget *footer = turnFooter(m))
+                add(footer);
+        } else if (m.role == QLatin1String("summary")) {
+            add(summaryCard(m));
+        } else if (m.role == QLatin1String("note")) {
+            auto *n = new QLabel(m.text);
+            n->setObjectName(QStringLiteral("aiHint"));
+            n->setWordWrap(true);
+            n->setContentsMargins(6, 0, 6, 0);
+            n->setTextInteractionFlags(Qt::TextSelectableByMouse);
+            add(n);
         } else {
             auto *e = new QLabel(m.text);
             e->setObjectName(QStringLiteral("aiError"));
@@ -852,6 +1333,102 @@ void AgentPanel::rebuild()
     }
     m_stick = true;
     QTimer::singleShot(0, this, [this] { m_scroll->verticalScrollBar()->setValue(m_scroll->verticalScrollBar()->maximum()); });
+}
+
+namespace {
+QString tokens(int n)
+{
+    return n >= 1000 ? QStringLiteral("%1k").arg(n / 1000.0, 0, 'f', n >= 10000 ? 0 : 1) : QString::number(n);
+}
+}
+
+// Under each assistant turn: what it changed (with Undo / Redo) and what it cost.
+QWidget *AgentPanel::turnFooter(const Message &m)
+{
+    const auto entries = m.turn >= 0 ? m_journal.entries(m.turn) : QVector<Journal::Entry>();
+    const bool canRedo = m.turn >= 0 && m_journal.canRedo(m.turn);
+    QStringList facts;
+    if (!entries.isEmpty()) {
+        QSet<QString> files;
+        int added = 0, removed = 0;
+        for (const auto &e : entries) {
+            files.insert(e.path);
+            added += e.added;
+            removed += e.removed;
+        }
+        facts << tr("%n file(s) changed", nullptr, int(files.size())) + QStringLiteral("  +%1 −%2").arg(added).arg(removed);
+    } else if (canRedo) {
+        facts << tr("Changes undone");
+    }
+    if (m.requests > 0) {
+        QString u = tr("%n request(s)", nullptr, m.requests) + QStringLiteral(" · ") + tr("%1 in").arg(tokens(m.promptTokens));
+        if (m.cachedTokens > 0)
+            u += tr(" (%1 cached)").arg(tokens(m.cachedTokens));
+        u += tr(" · %1 out").arg(tokens(m.outputTokens));
+        facts << u;
+    }
+    if (m.contextTokens > 100000)
+        facts << tr("context is large: /compact is advised");
+    if (facts.isEmpty())
+        return nullptr;
+
+    auto *row = new QWidget;
+    auto *l = new QHBoxLayout(row);
+    l->setContentsMargins(4, 0, 2, 0);
+    l->setSpacing(6);
+    auto *text = new QLabel(facts.join(QStringLiteral("   ·   ")), row);
+    text->setObjectName(QStringLiteral("agentFooter"));
+    text->setWordWrap(true);
+    l->addWidget(text, 1);
+    const int turn = m.turn;
+    if (!entries.isEmpty()) {
+        auto *undo = new QPushButton(tr("Undo"), row);
+        undo->setObjectName(QStringLiteral("agentFooterBtn"));
+        undo->setToolTip(tr("Undo everything the agent changed in this turn"));
+        connect(undo, &QPushButton::clicked, this, [this, turn] { undoFromUi(turn, tr("the changes of this turn")); });
+        l->addWidget(undo, 0, Qt::AlignTop);
+    }
+    if (canRedo) {
+        auto *redo = new QPushButton(tr("Redo"), row);
+        redo->setObjectName(QStringLiteral("agentFooterBtn"));
+        redo->setToolTip(tr("Bring back the changes that were undone"));
+        connect(redo, &QPushButton::clicked, this, &AgentPanel::redoFromUi);
+        l->addWidget(redo, 0, Qt::AlignTop);
+    }
+    return row;
+}
+
+QWidget *AgentPanel::summaryCard(const Message &m)
+{
+    auto *box = new QFrame;
+    box->setObjectName(QStringLiteral("aiUser"));
+    auto *l = new QVBoxLayout(box);
+    l->setContentsMargins(10, 8, 10, 8);
+    l->setSpacing(4);
+    auto *head = new QHBoxLayout;
+    auto *who = new QLabel(tr("CONVERSATION COMPACTED"), box);
+    who->setObjectName(QStringLiteral("aiWho"));
+    auto *toggle = new QPushButton(tr("Show summary"), box);
+    toggle->setObjectName(QStringLiteral("agentFooterBtn"));
+    head->addWidget(who, 1);
+    head->addWidget(toggle);
+    l->addLayout(head);
+    auto *hint = new QLabel(tr("The messages above are no longer sent to the model; it continues from this summary."), box);
+    hint->setObjectName(QStringLiteral("aiHint"));
+    hint->setWordWrap(true);
+    l->addWidget(hint);
+    auto *view = new MarkdownView(box);
+    view->document()->setDocumentMargin(2);
+    view->setStyleSheet(QStringLiteral("QTextBrowser { background: transparent; }"));
+    view->setAutoHeight(true);
+    view->showMarkdown(m.text);
+    view->setVisible(false);
+    l->addWidget(view);
+    connect(toggle, &QPushButton::clicked, this, [view, toggle, this] {
+        view->setVisible(!view->isVisible());
+        toggle->setText(view->isVisible() ? tr("Hide summary") : tr("Show summary"));
+    });
+    return box;
 }
 
 void AgentPanel::followLink(const QUrl &url)
@@ -888,7 +1465,10 @@ void AgentPanel::applyTheme()
                       "QLineEdit#aiCustomModel { background: %6; border: 1px solid %5; border-radius: 6px; padding: 5px 8px; min-width: 200px; }"
                       "QLineEdit#aiCustomModel:focus { border-color: %7; }"
                       "QToolButton#aiSend { background: %7; border: none; border-radius: 12px; padding: 4px; }"
-                      "QToolButton#aiSend:disabled { background: %4; }")
+                      "QToolButton#aiSend:disabled { background: %4; }"
+                      "QLabel#agentFooter { color: %2; font-size: 8pt; background: transparent; }"
+                      "QPushButton#agentFooterBtn { background: transparent; border: 1px solid %5; border-radius: 6px; padding: 2px 10px; font-size: 8pt; }"
+                      "QPushButton#agentFooterBtn:hover { border-color: %7; }")
                       .arg(t.window.name(), t.textMuted.name(), t.danger.name(), t.panel.name(), t.border.name(), t.editorBg.name(), t.accent.name()));
     const QString res = m_busy ? QStringLiteral(":/new-icons/square.svg") : QStringLiteral(":/new-icons/arrow-up.svg");
     m_modelArrow->setPixmap(Icons::pixmap(QStringLiteral(":/new-icons/chevron-down.svg"), t.textMuted, 14));

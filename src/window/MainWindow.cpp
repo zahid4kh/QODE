@@ -200,6 +200,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_rightStack->addWidget(m_ai);
     connect(m_ai, &AiHub::closeRequested, this, &MainWindow::hideMedia);
     connect(m_ai, &AiHub::openFileRequested, this, [this](const QString &path) { m_editors->openFile(path); });
+    connect(m_ai, &AiHub::projectChanged, this, [this] {
+        m_git->scheduleRefresh();
+        m_projectFiles->ensureFresh();
+    });
     connect(m_ai, &AiHub::gitInitRequested, this, [this] { m_gitInitAct->trigger(); });
     connect(m_projectFiles, &ProjectFiles::updated, this, [this] { m_ai->setProjectFiles(m_projectFiles->files()); });
     m_hsplit->addWidget(new Island(m_rightStack));
@@ -214,6 +218,7 @@ MainWindow::MainWindow(QWidget *parent)
     setCentralWidget(m_hsplit);
 
     m_lsp = new LspManager(this);
+    m_ai->setLsp(m_lsp);
     m_editors->setLspFormatter([this](Document *doc, CodeEditor *ed) {
         auto &cfg = SettingsManager::instance();
         QVector<LspTextEdit> edits;

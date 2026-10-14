@@ -172,20 +172,6 @@ QString commandDenied(const QString &command)
     return {};
 }
 
-bool copyTree(const QString &from, const QString &to)
-{
-    const QFileInfo fi(from);
-    if (fi.isSymLink() || fi.isFile())
-        return QFile::copy(from, to);
-    if (!QDir().mkpath(to))
-        return false;
-    const QDir dir(from);
-    for (const QFileInfo &e : dir.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden))
-        if (!copyTree(e.absoluteFilePath(), to + QLatin1Char('/') + e.fileName()))
-            return false;
-    return true;
-}
-
 } // namespace
 
 // --- setup ----------------------------------------------------------------------------------------------------------
@@ -354,7 +340,7 @@ QStringList AgentTools::indexedFiles() const
         bool gone = false;
         for (const QString &g : std::as_const(m_gone))
             gone = gone || f == g || f.startsWith(g + QLatin1Char('/'));
-        if (!gone)
+        if (!gone || QFileInfo::exists(f)) // a deletion that was undone brings the file back
             out << f;
     }
     for (const QString &c : m_created)
@@ -368,6 +354,24 @@ void AgentTools::flushEdits()
 {
     if (!m_touched.isEmpty() && m_hooks.saveFiles)
         m_hooks.saveFiles(m_touched.values());
+}
+
+bool AgentTools::snapshot(const QString &abs, Before *b) const
+{
+    b->existed = QFileInfo::exists(abs);
+    b->text.clear();
+    if (!b->existed)
+        return true;
+    return m_hooks.readFile && m_hooks.readFile(abs, &b->text);
+}
+
+void AgentTools::record(const QString &abs, const Before &b)
+{
+    if (!m_journal)
+        return;
+    QString after;
+    const bool has = QFileInfo::exists(abs) && m_hooks.readFile && m_hooks.readFile(abs, &after);
+    m_journal->recordText(m_turn, relative(abs), b.existed, b.text, has, after);
 }
 
 // --- reading --------------------------------------------------------------------------------------------------------
@@ -668,6 +672,11 @@ ToolResult AgentTools::applyOne(const AiEdits::Edit &edit, const QString &)
 {
     if (!m_hooks.apply)
         return fail(QStringLiteral("editing is not available"));
+    QString target;
+    AiEdits::resolveInside(m_root, edit.path, &target);
+    Before before;
+    if (!snapshot(target, &before))
+        return fail(QStringLiteral("'%1' is too large or not text; the agent does not edit it (the change could not be undone)").arg(edit.path));
     const QVector<AiEdits::Outcome> out = m_hooks.apply({edit});
     if (out.isEmpty() || !out.first().ok)
         return fail((out.isEmpty() ? QStringLiteral("the edit failed") : out.first().note)
@@ -676,6 +685,7 @@ ToolResult AgentTools::applyOne(const AiEdits::Edit &edit, const QString &)
     QString abs;
     AiEdits::resolveInside(m_root, edit.path, &abs);
     m_touched.insert(abs);
+    record(abs, before);
 
     ToolResult r;
     r.change.path = edit.path;
@@ -820,11 +830,15 @@ ToolResult AgentTools::replaceText(const QJsonObject &a)
     }
     if (!m_hooks.apply)
         return fail(QStringLiteral("editing is not available"));
+    Before before;
+    if (!snapshot(abs, &before))
+        return fail(QStringLiteral("'%1' is too large or not text; the agent does not edit it").arg(relative(abs)));
     const QVector<AiEdits::Outcome> out = m_hooks.apply(edits);
     for (const AiEdits::Outcome &o : out)
         if (!o.ok)
             return fail(o.note + QStringLiteral(" (re-read the file and try again)"));
     m_touched.insert(abs);
+    record(abs, before);
 
     ToolResult r;
     r.hasChange = true;
@@ -914,15 +928,19 @@ ToolResult AgentTools::movePath(const QJsonObject &a, bool copy)
     QDir().mkpath(QFileInfo(to).absolutePath());
     if (!copy) {
         flushEdits(); // the buffers follow the file, but the disk copy must hold the agent's edits
-        if (!QFile::rename(from, to))
+        if (!QDir().rename(from, to))
             return fail(QStringLiteral("could not move '%1'").arg(relative(from)));
         m_gone.insert(from);
         if (m_hooks.pathMoved)
             m_hooks.pathMoved(from, to);
+        if (m_journal)
+            m_journal->recordMove(m_turn, relative(from), relative(to));
     } else {
         flushEdits();
         if (!copyTree(from, to))
             return fail(QStringLiteral("could not copy '%1'").arg(relative(from)));
+        if (m_journal)
+            m_journal->recordCopy(m_turn, relative(from), relative(to));
     }
     if (QFileInfo(to).isDir()) {
         QDirIterator it(to, QDir::Files, QDirIterator::Subdirectories);
@@ -943,8 +961,12 @@ ToolResult AgentTools::deletePath(const QJsonObject &a)
         return fail(err);
     if (!QFileInfo::exists(abs) && !QFileInfo(abs).isSymLink())
         return fail(QStringLiteral("'%1' does not exist").arg(relative(abs)));
-    if (!QFile::moveToTrash(abs))
+    flushEdits(); // the trash copy must hold the agent's latest edits
+    QString inTrash;
+    if (!QFile::moveToTrash(abs, &inTrash))
         return fail(QStringLiteral("could not move '%1' to the trash").arg(relative(abs)));
+    if (m_journal)
+        m_journal->recordTrash(m_turn, relative(abs), inTrash);
     m_gone.insert(abs);
     m_touched.remove(abs);
     if (m_hooks.pathDeleted)
@@ -1027,6 +1049,137 @@ ToolResult AgentTools::runCommand(const QJsonObject &a)
     ToolResult res = success(r, timedOut ? QStringLiteral("timed out after %1 s").arg(timeoutSec) : QStringLiteral("exit code %1").arg(code));
     res.ok = code == 0 && !timedOut; // the model still gets the output; the transcript shows a failure
     return res;
+}
+
+// --- undo / redo / diagnostics ----------------------------------------------------------------------------------------
+
+namespace {
+QString entryText(const Journal::Entry &e)
+{
+    QString s = QStringLiteral("%1 %2").arg(e.what, e.path);
+    if (e.what == QLatin1String("edited") || e.what == QLatin1String("created"))
+        s += QStringLiteral(" (+%1 -%2)").arg(e.added).arg(e.removed);
+    return s;
+}
+
+QJsonObject resultJson(const Journal::Result &r)
+{
+    QJsonObject o;
+    if (!r.done.isEmpty())
+        o.insert("done", r.done.join(QLatin1Char('\n')));
+    if (!r.conflicts.isEmpty()) {
+        o.insert("not_done", r.conflicts.join(QLatin1Char('\n')));
+        o.insert("note", "Some files were changed after the agent left them (for example by the user), so they were left alone. Tell the user; do not retry.");
+    }
+    return o;
+}
+} // namespace
+
+ToolResult AgentTools::listChanges(const QJsonObject &)
+{
+    if (!m_journal)
+        return fail(QStringLiteral("no change history is available"));
+    const auto entries = m_journal->entries(Journal::All);
+    QStringList rows;
+    for (const auto &e : entries)
+        rows << QStringLiteral("turn %1: %2").arg(e.turn).arg(entryText(e));
+    QJsonObject r{{"changes", rows.isEmpty() ? QStringLiteral("(none: the agent has not changed anything in this chat, or it was undone)") : rows.join(QLatin1Char('\n'))},
+                  {"current_turn", m_turn}};
+    if (m_journal->canRedo())
+        r.insert("can_redo", QStringLiteral("there are undone changes that redo_changes can bring back"));
+    return success(r, plural(entries.size(), "change", "changes"));
+}
+
+ToolResult AgentTools::undoChanges(const QJsonObject &a)
+{
+    if (!m_journal)
+        return fail(QStringLiteral("no change history is available"));
+    Journal::Scope s;
+    const QString scope = str(a, "scope").trimmed().toLower();
+    s.turn = scope == QLatin1String("all") ? int(Journal::All) : int(Journal::Last);
+    if (!str(a, "path").trimmed().isEmpty()) {
+        QString abs, err;
+        if (!resolve(str(a, "path"), &abs, &err, true))
+            return fail(err);
+        s.path = relative(abs);
+    }
+    s.startLine = a.value("start_line").toInt();
+    s.endLine = a.contains("end_line") ? a.value("end_line").toInt() : s.startLine;
+    flushEdits();
+    const Journal::Result r = m_journal->undo(s);
+    if (!r.error.isEmpty())
+        return fail(r.error);
+    if (r.done.isEmpty())
+        return fail(r.conflicts.join(QStringLiteral("; ")) + QStringLiteral(" - tell the user"));
+    ToolResult out = success(resultJson(r), QStringLiteral("undid %1").arg(plural(r.done.size(), "change", "changes")));
+    out.ok = r.conflicts.isEmpty();
+    return out;
+}
+
+ToolResult AgentTools::redoChanges(const QJsonObject &a)
+{
+    if (!m_journal)
+        return fail(QStringLiteral("no change history is available"));
+    QString rel;
+    if (!str(a, "path").trimmed().isEmpty()) {
+        QString abs, err;
+        if (!resolve(str(a, "path"), &abs, &err, true))
+            return fail(err);
+        rel = relative(abs);
+    }
+    const Journal::Result r = m_journal->redo(rel);
+    if (!r.error.isEmpty())
+        return fail(r.error);
+    if (r.done.isEmpty())
+        return fail(r.conflicts.join(QStringLiteral("; ")) + QStringLiteral(" - tell the user"));
+    ToolResult out = success(resultJson(r), QStringLiteral("redid %1").arg(plural(r.done.size(), "change", "changes")));
+    out.ok = r.conflicts.isEmpty();
+    return out;
+}
+
+ToolResult AgentTools::diagnosticsTool(const QJsonObject &a)
+{
+    if (!m_hooks.diagnostics)
+        return fail(QStringLiteral("language server diagnostics are not available"));
+    QString abs;
+    if (!str(a, "path").trimmed().isEmpty()) {
+        QString err;
+        if (!resolve(str(a, "path"), &abs, &err))
+            return fail(err);
+        if (!QFileInfo(abs).isFile())
+            return fail(QStringLiteral("'%1' is not a file").arg(relative(abs)));
+    }
+    flushEdits();
+    QVector<Diag> rows;
+    const QString note = m_hooks.diagnostics(abs, &rows);
+    const QString level = str(a, "severity").trimmed().toLower();
+    const int maxSeverity = level == QLatin1String("error") ? 1 : level == QLatin1String("all") ? 4 : 2;
+    QStringList lines;
+    int errors = 0, warnings = 0, skipped = 0;
+    std::sort(rows.begin(), rows.end(), [](const Diag &x, const Diag &y) {
+        return x.severity != y.severity ? x.severity < y.severity : x.path != y.path ? x.path < y.path : x.line < y.line;
+    });
+    for (const Diag &d : std::as_const(rows)) {
+        if (d.severity > maxSeverity)
+            continue;
+        d.severity == 1 ? ++errors : (d.severity == 2 ? ++warnings : 0);
+        if (lines.size() >= 60) {
+            ++skipped;
+            continue;
+        }
+        static const char *names[] = {"", "error", "warning", "info", "hint"};
+        lines << QStringLiteral("%1:%2:%3 %4%5%6: %7")
+                     .arg(relative(d.path)).arg(d.line).arg(d.column).arg(QLatin1String(names[qBound(1, d.severity, 4)]))
+                     .arg(d.source.isEmpty() ? QString() : QStringLiteral(" [%1]").arg(d.source))
+                     .arg(d.code.isEmpty() ? QString() : QStringLiteral(" %1").arg(d.code))
+                     .arg(shorten(d.message, 300));
+    }
+    QJsonObject r{{"diagnostics", lines.isEmpty() ? QStringLiteral("(none)") : lines.join(QLatin1Char('\n'))}, {"errors", errors}, {"warnings", warnings}};
+    if (skipped)
+        r.insert("note", QStringLiteral("%1 more not shown; pass a path").arg(skipped));
+    if (!note.isEmpty())
+        r.insert("language_server", note);
+    return success(r, !note.isEmpty() && lines.isEmpty() ? note : QStringLiteral("%1, %2").arg(plural(errors, "error", "errors"), plural(warnings, "warning", "warnings")));
 }
 
 // --- the table ------------------------------------------------------------------------------------------------------
@@ -1115,7 +1268,7 @@ void AgentTools::registerAll()
     add({"create_directory", "Create a folder (and its parents).", makeSchema({{"path", "string", "Folder, relative to the project root."}}), Risk::Edit,
          [this](const QJsonObject &a) { return createDirectory(a); }, [](const QJsonObject &a) { return QStringLiteral("Create folder %1").arg(str(a, "path")); }, {}});
 
-    add({"move_path", "Move or rename a file or folder inside the project. Fails when the target exists. Open tabs follow the file. Imports and includes are NOT updated: search for references afterwards.",
+    add({"move_path", "Move or rename a file or folder inside the project. Fails when the target exists. Open tabs follow the file. Imports, includes and other references are NOT updated: search for them afterwards and fix them yourself.",
          makeSchema({{"from", "string", "Existing path."}, {"to", "string", "New path (the exact new name, not the folder to move into)."}}), Risk::Edit,
          [this](const QJsonObject &a) { return movePath(a, false); },
          [](const QJsonObject &a) { return QStringLiteral("Move %1 → %2").arg(str(a, "from"), str(a, "to")); }, {}});
@@ -1145,6 +1298,35 @@ void AgentTools::registerAll()
                  resolve(str(a, "cwd"), &cwd, &err);
              return QStringLiteral("Run in %1:\n\n%2").arg(cwd, str(a, "command"));
          }});
+
+    add({"list_changes", "List what the agent has changed in this chat (per turn), so you can tell what undo_changes would revert.", makeSchema({}), Risk::ReadOnly,
+         [this](const QJsonObject &a) { return listChanges(a); }, [](const QJsonObject &) { return QStringLiteral("List changes"); }, {}});
+
+    add({"undo_changes", "Undo changes the agent made in this chat. ALWAYS use this when the user asks to undo, revert, roll back or take back changes - never reconstruct old code by hand. "
+                         "scope \"last\" (default) reverts the most recent turn that changed something; \"all\" reverts every change of this chat. With path it only reverts that file; "
+                         "with path and start_line/end_line (lines of the file as it is now) it only reverts the changes touching those lines. Created files are removed, moved files go back, "
+                         "deleted files are restored from the trash. Files the user changed afterwards are left alone and reported.",
+         makeSchema({{"scope", "string", "\"last\" (default) or \"all\".", false}, {"path", "string", "Only this file, relative to the project root.", false},
+                     {"start_line", "integer", "With path: first line of the range to revert.", false}, {"end_line", "integer", "With path: last line of the range.", false}}),
+         Risk::Edit, [this](const QJsonObject &a) { return undoChanges(a); },
+         [](const QJsonObject &a) {
+             QString s = QStringLiteral("Undo %1").arg(str(a, "scope") == QLatin1String("all") ? QStringLiteral("all changes") : QStringLiteral("the last changes"));
+             if (!str(a, "path").isEmpty())
+                 s = QStringLiteral("Undo changes in %1").arg(str(a, "path")) + (a.contains("start_line") ? QStringLiteral(" lines %1-%2").arg(a.value("start_line").toInt()).arg(a.contains("end_line") ? a.value("end_line").toInt() : a.value("start_line").toInt()) : QString());
+             return s;
+         },
+         {}});
+
+    add({"redo_changes", "Bring back changes that undo_changes reverted (the most recent undo first). Use it when the user asks to redo or re-apply what was undone. With path only that file.",
+         makeSchema({{"path", "string", "Only this file, relative to the project root.", false}}), Risk::Edit,
+         [this](const QJsonObject &a) { return redoChanges(a); },
+         [](const QJsonObject &a) { return str(a, "path").isEmpty() ? QStringLiteral("Redo changes") : QStringLiteral("Redo changes in %1").arg(str(a, "path")); }, {}});
+
+    add({"get_diagnostics", "Errors and warnings the language server reports (compile errors, type errors, lint). Pass a path to check one file, or omit it for all open files. "
+                            "It waits briefly for the server to analyse your latest edits. Use it after editing to check your work, before or instead of a full build when a server is running.",
+         makeSchema({{"path", "string", "File to check. Omit for every open file.", false}, {"severity", "string", "\"error\", \"warning\" (default: errors and warnings) or \"all\".", false}}),
+         Risk::ReadOnly, [this](const QJsonObject &a) { return diagnosticsTool(a); },
+         [](const QJsonObject &a) { return str(a, "path").isEmpty() ? QStringLiteral("Check diagnostics") : QStringLiteral("Check diagnostics of %1").arg(str(a, "path")); }, {}});
 }
 
 } // namespace agent

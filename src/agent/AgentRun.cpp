@@ -2,6 +2,7 @@
 
 #include "ai/GeminiClient.h"
 
+#include <QFile>
 #include <QJsonDocument>
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
@@ -16,6 +17,10 @@ constexpr int kTimeoutMs = 120000; // without any data
 constexpr int kKeepRecentToolTurns = 3;
 constexpr int kPruneAboveChars = 1500;
 constexpr int kPreviewChars = 300;
+// Gemini caches the start of a request that repeats the previous one (implicit caching), so the history must not change
+// from one request to the next. Old tool results are therefore only shrunk when the context has grown large, and then
+// all at once, instead of one more result with every request.
+constexpr int kPruneWhenContextExceedsChars = 240000;
 
 } // namespace
 
@@ -31,6 +36,18 @@ AgentRun::AgentRun(AgentTools *tools, QObject *parent)
 
 QString AgentRun::systemPrompt(const QString &root)
 {
+    QString text = baseInstructions(root);
+    QFile f(root + QStringLiteral("/AGENTS.md"));
+    if (f.open(QIODevice::ReadOnly)) {
+        QString agents = QString::fromUtf8(f.read(16000));
+        if (!agents.trimmed().isEmpty())
+            text += QStringLiteral("\n\nProject instructions from AGENTS.md (written for agents like you; follow them):\n%1").arg(agents.trimmed());
+    }
+    return text;
+}
+
+QString AgentRun::baseInstructions(const QString &root)
+{
     return QStringLiteral(
                "You are the coding agent of QODE, a code editor, working inside the user's project on Linux. "
                "Project root: %1. You carry out the user's request yourself by calling tools: explore, edit, verify, then report.\n\n"
@@ -44,6 +61,11 @@ QString AgentRun::systemPrompt(const QString &root)
                "- Edits appear as unsaved, undoable changes in the user's editor tabs. run_command saves them first, so a build or test sees them.\n"
                "- After changing code, verify when a build or test command is obvious from the project (look at the build files first): run it, read the "
                "errors, fix them, run it again. Stop after a few failed attempts and report what is wrong.\n"
+               "- get_diagnostics returns the language server's errors and warnings: use it after editing to check your work (cheaper than a full "
+               "build). run_command is for builds and tests.\n"
+               "- After moving or renaming a file, search for references to it (imports, includes, paths in build files) and fix them yourself.\n"
+               "- When the user asks to undo, revert or redo changes (all of them, one file, or some lines), use undo_changes / redo_changes; "
+               "list_changes shows what can be undone. Never rewrite old code from memory to undo something.\n"
                "- Issue independent tool calls together in one turn instead of one by one. Every model round trip is a rate-limited request.\n"
                "- Never touch secrets (.env, keys, credentials). Do not commit, push, reset or otherwise rewrite git history unless the user asked. "
                "Commands and deletions are shown to the user for approval; if one is denied, accept it, say so and carry on without it.\n"
@@ -65,6 +87,7 @@ void AgentRun::start(const Config &config)
     m_running = true;
     m_cancelled = false;
     m_anyText = false;
+    m_usage = Usage();
     m_rounds = 0;
     m_attempt = 0;
     m_tools->resetCancel();
@@ -90,6 +113,7 @@ void AgentRun::finish(const QString &error)
     m_running = false;
     m_reply = nullptr;
     emit status(QString());
+    emit usage(m_usage);
     if (error.isEmpty())
         emit finished(m_rounds);
     else
@@ -124,6 +148,7 @@ void AgentRun::send()
     m_buffer.clear();
     m_raw.clear();
     m_inlineError.clear();
+    m_round = Usage();
     m_finishReason.clear();
     m_modelParts = QJsonArray();
     m_gotOutput = false;
@@ -165,6 +190,13 @@ void AgentRun::handleEvent(const QJsonObject &event)
     const QString block = event.value("promptFeedback").toObject().value("blockReason").toString();
     if (!block.isEmpty())
         m_inlineError = tr("The prompt was blocked (%1).").arg(block);
+
+    const QJsonObject meta = event.value("usageMetadata").toObject();
+    if (!meta.isEmpty()) { // cumulative within one response: the last one counts
+        m_round.prompt = meta.value("promptTokenCount").toInt();
+        m_round.cached = meta.value("cachedContentTokenCount").toInt();
+        m_round.output = meta.value("candidatesTokenCount").toInt() + meta.value("thoughtsTokenCount").toInt();
+    }
 
     const QJsonArray candidates = event.value("candidates").toArray();
     if (candidates.isEmpty())
@@ -272,6 +304,12 @@ void AgentRun::onReplyFinished()
     }
     m_attempt = 0;
     ++m_rounds;
+    ++m_usage.requests;
+    m_usage.prompt += m_round.prompt;
+    m_usage.cached += m_round.cached;
+    m_usage.output += m_round.output;
+    if (m_round.prompt > 0)
+        m_usage.context = m_round.prompt;
 
     // --- the model turn is complete -------------------------------------------------------------------------------
     bool hasCalls = false;
@@ -346,7 +384,8 @@ bool AgentRun::runTools()
     }
     m_contents.append(QJsonObject{{"role", "model"}, {"parts", m_modelParts}});
     m_contents.append(QJsonObject{{"role", "user"}, {"parts", responses}});
-    m_contents = pruneOldResults(m_contents);
+    if (QJsonDocument(m_contents).toJson(QJsonDocument::Compact).size() > kPruneWhenContextExceedsChars)
+        m_contents = pruneOldResults(m_contents);
     return true;
 }
 

@@ -66,6 +66,7 @@ SOURCES += \
     src/media/MarkdownPreview.cpp \
     src/media/MarkdownView.cpp \
     src/media/MarkdownHtml.cpp \
+    src/agent/AgentJournal.cpp \
     src/agent/AgentPanel.cpp \
     src/agent/AgentRun.cpp \
     src/agent/AgentSession.cpp \
@@ -192,6 +193,7 @@ HEADERS += \
     src/media/MarkdownPreview.h \
     src/media/MarkdownView.h \
     src/media/MarkdownHtml.h \
+    src/agent/AgentJournal.h \
     src/agent/AgentPanel.h \
     src/agent/AgentRun.h \
     src/agent/AgentSession.h \

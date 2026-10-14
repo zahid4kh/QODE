@@ -31,10 +31,19 @@ echo "deb [arch=amd64 signed-by=/usr/share/keyrings/zahid-archive-keyring.gpg] h
 
 # 3. Update the package list and install
 sudo apt update
-sudo apt install qode
+sudo apt install qode            # uses the system's Qt 6 packages
+# or
+sudo apt install qode-bundled    # ships its own Qt 6 in /opt/qode
 ```
 
-The first step downloads the key and stores it in the system keyring, the second tells APT where the packages live and which key signs them, and the third installs QODE with its Qt 6 dependencies. Later releases arrive through `sudo apt update && sudo apt upgrade`. The `.deb` is also attached to each [GitHub release](https://github.com/zahid4kh/QODE/releases) for `sudo apt install ./qode_<version>_amd64.deb`. To build from source instead, see below.
+The first step downloads the key and stores it in the system keyring, the second tells APT where the packages live and which key signs them, and the third installs QODE. Later releases arrive through `sudo apt update && sudo apt upgrade`.
+
+There are two packages, and only one can be installed at a time (installing one replaces the other):
+
+- **`qode`** depends on the distro's Qt 6 packages. It is small and shares Qt with other apps.
+- **`qode-bundled`** carries its own copy of Qt 6 in `/opt/qode`, so it needs no Qt packages and is not affected by the system's Qt version.
+
+Both `.deb` files are also attached to each [GitHub release](https://github.com/zahid4kh/QODE/releases): `sudo apt install ./qode_<version>_amd64.deb` or `sudo apt install ./qode-bundled_<version>_amd64.deb`. To build from source instead, see below.
 
 ## Build
 

@@ -112,6 +112,7 @@ private:
     void toggleSpringPanel();
     void addSpringStarters();
     void newSpringComponent(int kind, const QString &dir);
+    void newSpringCrud(const QString &dir);
     void updateSpringUi();
     bool springOwns(const QString &file) const; // F5 / Run for this file means the Spring Boot application
     void toggleGradlePanel();           // shows the Python Packages button only while the project has a virtual environment

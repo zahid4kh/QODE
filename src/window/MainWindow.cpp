@@ -87,6 +87,8 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QKeySequence>
+#include <QDialogButtonBox>
+#include <QFormLayout>
 #include <QLabel>
 #include <QMenuBar>
 #include <QInputDialog>
@@ -133,6 +135,8 @@ MainWindow::MainWindow(QWidget *parent)
             return;
         QMenu *sub = menu->addMenu(tr("New Spring Component"));
         using K = SpringScaffold::Kind;
+        sub->addAction(tr("CRUD Set…"), this, [this, dir] { newSpringCrud(dir); });
+        sub->addSeparator();
         for (K k : {K::Controller, K::Service, K::Entity, K::Repository, K::Configuration, K::ExceptionHandler})
             sub->addAction(SpringScaffold::title(k), this, [this, k, dir] { newSpringComponent(static_cast<int>(k), dir); });
     });
@@ -2509,6 +2513,66 @@ void MainWindow::newSpringComponent(int kindValue, const QString &dir)
     f.write(r.content.toUtf8());
     f.close();
     m_editors->openFile(r.path);
+}
+
+// Entity + repository + service + controller with list / get / create / update / delete in one go.
+void MainWindow::newSpringCrud(const QString &dir)
+{
+    const QStringList roots = m_springBar->project().sourceRoots();
+    if (SpringScaffold::packageOf(dir, roots).isEmpty())
+        return;
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("New CRUD Set"));
+    auto *form = new QFormLayout(&dlg);
+    auto *name = new QLineEdit(&dlg);
+    name->setPlaceholderText(tr("Product"));
+    auto *fields = new QLineEdit(&dlg);
+    fields->setPlaceholderText(tr("name:String, price:Double, stock:Int"));
+    auto *hint = new QLabel(tr("Creates the entity, repository, service and a controller with GET, POST, PUT and DELETE endpoints. "
+                               "Fields are optional; an id is added for you."), &dlg);
+    hint->setWordWrap(true);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    form->addRow(tr("Entity name:"), name);
+    form->addRow(tr("Fields:"), fields);
+    form->addRow(hint);
+    form->addRow(buttons);
+    dlg.setMinimumWidth(460);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    if (dlg.exec() != QDialog::Accepted || name->text().trimmed().isEmpty())
+        return;
+
+    QString error;
+    const auto parsed = SpringScaffold::parseFields(fields->text(), &error);
+    if (!error.isEmpty()) {
+        QMessageBox::warning(this, tr("New CRUD Set"), error);
+        return;
+    }
+    const auto files = SpringScaffold::generateCrud(name->text(), parsed, dir, roots);
+    if (files.isEmpty() || !files.first().ok()) {
+        QMessageBox::warning(this, tr("New CRUD Set"), files.isEmpty() ? tr("Nothing to create.") : files.first().error);
+        return;
+    }
+    QStringList taken;
+    for (const auto &f : files)
+        if (QFileInfo::exists(f.path))
+            taken << QFileInfo(f.path).fileName();
+    if (!taken.isEmpty()) {
+        QMessageBox::warning(this, tr("New CRUD Set"), tr("Already exists: %1. Nothing was written.").arg(taken.join(QStringLiteral(", "))));
+        return;
+    }
+    for (const auto &f : files) {
+        QFile out(f.path);
+        if (!out.open(QIODevice::WriteOnly)) {
+            QMessageBox::warning(this, tr("New CRUD Set"), tr("Could not create %1: %2").arg(f.path, out.errorString()));
+            return;
+        }
+        out.write(f.content.toUtf8());
+    }
+    for (const auto &f : files)
+        m_editors->openFile(f.path);
+    m_editors->openFile(files.last().path); // the controller ends up active
+    statusBar()->showMessage(tr("Created %1 files").arg(files.size()), 5000);
 }
 
 void MainWindow::toggleSpringPanel()

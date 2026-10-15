@@ -24,3 +24,4 @@ debs
 staging_qode_qt/
 build-deb-qt/
 build-deb-qt.sh
+whats-new

@@ -58,6 +58,8 @@ public:
         std::function<void(const QStringList &absolute)> saveFiles;
         std::function<void(const QString &absolute)> pathDeleted;
         std::function<void(const QString &from, const QString &to)> pathMoved;
+        // Git changed the working tree or index: refresh the Version Control panel.
+        std::function<void()> changed;
         // Diagnostics of one file (waits until the server has had time to analyse it), or of every open file when `abs` is
         // empty. Returns a note for the model when there is nothing to report because no server serves the file.
         std::function<QString(const QString &abs, QVector<Diag> *rows)> diagnostics;

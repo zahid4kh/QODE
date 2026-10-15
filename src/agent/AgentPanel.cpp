@@ -296,6 +296,7 @@ AgentPanel::AgentPanel(QWidget *parent)
         if (m_editors)
             m_editors->pathRenamed(from, to);
     };
+    hooks.changed = [this] { scheduleProjectChanged(); };
     hooks.approve = [this](const QString &tool, const QString &title, const QString &detail) { return approve(tool, title, detail); };
     hooks.diagnostics = [this](const QString &abs, QVector<Diag> *rows) { return collectDiagnostics(abs, rows); };
     m_tools.setHooks(hooks);
@@ -1181,7 +1182,7 @@ bool AgentPanel::approve(const QString &tool, const QString &title, const QStrin
     if (m_alwaysAllow.contains(tool))
         return true;
     QMessageBox box(this);
-    box.setIcon(tool == QLatin1String("run_command") ? QMessageBox::Warning : QMessageBox::Question);
+    box.setIcon(tool == QLatin1String("run_command") || tool == QLatin1String("delete_path") ? QMessageBox::Warning : QMessageBox::Question);
     box.setWindowTitle(tr("Agent request"));
     box.setText(tr("The agent wants to: <b>%1</b>").arg(title.toHtmlEscaped()));
     box.setInformativeText(detail.left(1500));

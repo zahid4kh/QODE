@@ -28,7 +28,7 @@ constexpr int kDefaultReadLines = 400;
 
 struct Param {
     const char *name;
-    const char *type; // string | integer | boolean
+    const char *type; // string | integer | boolean | array (of strings)
     const char *description;
     bool required = true;
 };
@@ -38,7 +38,10 @@ QJsonObject makeSchema(std::initializer_list<Param> params)
     QJsonObject props;
     QJsonArray required;
     for (const Param &p : params) {
-        props.insert(QString::fromLatin1(p.name), QJsonObject{{"type", QString::fromLatin1(p.type)}, {"description", QString::fromLatin1(p.description)}});
+        QJsonObject prop{{"type", QString::fromLatin1(p.type)}, {"description", QString::fromLatin1(p.description)}};
+        if (QLatin1String(p.type) == QLatin1String("array"))
+            prop.insert("items", QJsonObject{{"type", "string"}});
+        props.insert(QString::fromLatin1(p.name), prop);
         if (p.required)
             required.append(QString::fromLatin1(p.name));
     }
@@ -635,9 +638,21 @@ ToolResult AgentTools::gitTool(const QString &what, const QJsonObject &a)
 {
     flushEdits();
     QStringList args;
+    bool changes = false; // touches the working tree or the index
+    auto paths = [&](QStringList *out) -> QString {
+        for (const QJsonValue &v : a.value("paths").toArray()) {
+            QString abs, err;
+            if (!resolve(v.toString(), &abs, &err))
+                return err;
+            out->append(relative(abs));
+        }
+        return out->isEmpty() ? QStringLiteral("paths is empty; give files or folders (\".\" = everything)") : QString();
+    };
+    static const QRegularExpression branchName(QStringLiteral("^[A-Za-z0-9_][A-Za-z0-9_./-]*$"));
+
     if (what == QLatin1String("status")) {
         args = {"status", "--short", "--branch"};
-    } else {
+    } else if (what == QLatin1String("diff")) {
         args = {"diff", "--no-color"};
         if (a.value("staged").toBool())
             args << "--cached";
@@ -650,20 +665,82 @@ ToolResult AgentTools::gitTool(const QString &what, const QJsonObject &a)
                 return fail(err);
             args << "--" << relative(abs);
         }
+    } else if (what == QLatin1String("log")) {
+        args = {"log", "--no-color", "--format=%h %an, %ar: %s", "-n", QString::number(qBound(1, a.value("count").toInt(10), 50))};
+        const QString path = str(a, "path").trimmed();
+        if (!path.isEmpty()) {
+            QString abs, err;
+            if (!resolve(path, &abs, &err))
+                return fail(err);
+            args << "--" << relative(abs);
+        }
+    } else if (what == QLatin1String("add") || what == QLatin1String("unstage")) {
+        QStringList list;
+        const QString err = paths(&list);
+        if (!err.isEmpty())
+            return fail(err);
+        args = what == QLatin1String("add") ? QStringList{"add", "--"} : QStringList{"restore", "--staged", "--"};
+        args += list;
+        changes = true;
+    } else if (what == QLatin1String("commit")) {
+        const QString message = str(a, "message").trimmed();
+        if (message.isEmpty())
+            return fail(QStringLiteral("a commit message is required"));
+        args = {"commit", "-m", message};
+        if (a.value("all").toBool())
+            args << "-a";
+        changes = true;
+    } else if (what == QLatin1String("switch")) {
+        const QString branch = str(a, "branch").trimmed();
+        if (!branchName.match(branch).hasMatch())
+            return fail(QStringLiteral("invalid branch name"));
+        args = {"switch"};
+        if (a.value("create").toBool())
+            args << "-c";
+        args << branch;
+        changes = true;
+    } else if (what == QLatin1String("stash")) {
+        const QString action = str(a, "action").trimmed();
+        if (action == QLatin1String("list")) {
+            args = {"stash", "list"};
+        } else if (action == QLatin1String("pop")) {
+            args = {"stash", "pop"};
+            changes = true;
+        } else if (action == QLatin1String("push")) {
+            args = {"stash", "push"};
+            if (!str(a, "message").trimmed().isEmpty())
+                args << "-m" << str(a, "message").trimmed();
+            changes = true;
+        } else {
+            return fail(QStringLiteral("action must be push, pop or list"));
+        }
+    } else {
+        return fail(QStringLiteral("unknown git action"));
     }
+
     QProcess p;
     p.setWorkingDirectory(m_root);
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.insert(QStringLiteral("GIT_TERMINAL_PROMPT"), QStringLiteral("0"));
+    env.insert(QStringLiteral("GIT_EDITOR"), QStringLiteral("true"));
+    env.insert(QStringLiteral("LC_ALL"), QStringLiteral("C"));
+    p.setProcessEnvironment(env);
     p.start(QStringLiteral("git"), args);
-    if (!p.waitForFinished(10000))
+    if (!p.waitForFinished(30000)) {
+        p.kill();
         return fail(QStringLiteral("git did not finish"));
+    }
     QString out = QString::fromUtf8(p.readAllStandardOutput());
+    const QString errText = QString::fromUtf8(p.readAllStandardError()).trimmed();
+    if (changes && m_hooks.changed)
+        m_hooks.changed();
     if (p.exitCode() != 0)
-        return fail(QString::fromUtf8(p.readAllStandardError()).trimmed());
+        return fail(errText.isEmpty() ? out.trimmed() : errText);
     if (out.size() > 12000)
-        out = out.left(12000) + QStringLiteral("\n...(cut; pass a path to see one file)");
+        out = out.left(12000) + QStringLiteral("\n...(cut; pass a path to narrow it)");
     if (out.trimmed().isEmpty())
-        out = what == QLatin1String("status") ? QStringLiteral("(clean)") : QStringLiteral("(no changes)");
-    return success({{"output", out}}, what);
+        out = what == QLatin1String("status") ? QStringLiteral("(clean)") : what == QLatin1String("diff") ? QStringLiteral("(no changes)") : QStringLiteral("done");
+    return success({{"output", out.trimmed()}}, what);
 }
 
 // --- editing --------------------------------------------------------------------------------------------------------
@@ -1235,13 +1312,38 @@ void AgentTools::registerAll()
     add({"get_open_files", "The files currently open in editor tabs, marking those with unsaved changes.", makeSchema({}), Risk::ReadOnly,
          [this](const QJsonObject &a) { return openFilesTool(a); }, [](const QJsonObject &) { return QStringLiteral("List open tabs"); }, {}});
 
-    add({"git_status", "Short git status of the project (branch and changed files).", makeSchema({}), Risk::ReadOnly,
-         [this](const QJsonObject &a) { return gitTool(QStringLiteral("status"), a); }, [](const QJsonObject &) { return QStringLiteral("git status"); }, {}});
-
-    add({"git_diff", "Show the uncommitted changes: a summary of all files, or the full diff of one file when a path is given.",
-         makeSchema({{"path", "string", "File to diff. Omit for a summary of everything.", false}, {"staged", "boolean", "Show the staged changes instead. Default false.", false}}),
-         Risk::ReadOnly, [this](const QJsonObject &a) { return gitTool(QStringLiteral("diff"), a); },
-         [](const QJsonObject &a) { return str(a, "path").isEmpty() ? QStringLiteral("git diff") : QStringLiteral("git diff %1").arg(str(a, "path")); }, {}});
+    // Every git tool asks the user first (Allow once / Allow for this chat / Deny). Push, reset and discarding changes are not offered.
+    auto addGit = [this](const char *name, const char *desc, const QJsonObject &schema, const char *action, std::function<QString(const QJsonObject &)> label) {
+        add({QString::fromLatin1(name), QString::fromLatin1(desc), schema, Risk::Dangerous,
+             [this, action](const QJsonObject &a) { return gitTool(QString::fromLatin1(action), a); }, label, label});
+    };
+    auto joined = [](const QJsonObject &a) {
+        QStringList l;
+        for (const QJsonValue &v : a.value("paths").toArray())
+            l << v.toString();
+        return l.join(QLatin1Char(' '));
+    };
+    addGit("git_status", "Branch and changed files (git status --short).", makeSchema({}), "status",
+           [](const QJsonObject &) { return QStringLiteral("git status"); });
+    addGit("git_diff", "Uncommitted changes: a summary, or the full diff of one file when path is given.",
+           makeSchema({{"path", "string", "File to diff. Omit for a summary.", false}, {"staged", "boolean", "Staged changes instead. Default false.", false}}), "diff",
+           [](const QJsonObject &a) { return str(a, "path").isEmpty() ? QStringLiteral("git diff") : QStringLiteral("git diff %1").arg(str(a, "path")); });
+    addGit("git_log", "Recent commits, one per line.",
+           makeSchema({{"count", "integer", "How many, 1-50. Default 10.", false}, {"path", "string", "Only commits touching this path.", false}}), "log",
+           [](const QJsonObject &a) { return QStringLiteral("git log -n %1").arg(a.value("count").toInt(10)); });
+    addGit("git_add", "Stage files or folders (\".\" = everything).", makeSchema({{"paths", "array", "Paths relative to the project root."}}), "add",
+           [joined](const QJsonObject &a) { return QStringLiteral("git add %1").arg(joined(a)); });
+    addGit("git_unstage", "Unstage files or folders (keeps the working copy).", makeSchema({{"paths", "array", "Paths relative to the project root."}}), "unstage",
+           [joined](const QJsonObject &a) { return QStringLiteral("git restore --staged %1").arg(joined(a)); });
+    addGit("git_commit", "Commit the staged changes. Check git_status/git_diff first and write a short imperative message.",
+           makeSchema({{"message", "string", "Commit message."}, {"all", "boolean", "Also commit all modified tracked files (-a). Default false.", false}}), "commit",
+           [](const QJsonObject &a) { return QStringLiteral("git commit%1 -m \"%2\"").arg(a.value("all").toBool() ? QStringLiteral(" -a") : QString(), str(a, "message")); });
+    addGit("git_switch", "Switch to a branch, or create it first.",
+           makeSchema({{"branch", "string", "Branch name."}, {"create", "boolean", "Create it (-c). Default false.", false}}), "switch",
+           [](const QJsonObject &a) { return QStringLiteral("git switch%1 %2").arg(a.value("create").toBool() ? QStringLiteral(" -c") : QString(), str(a, "branch")); });
+    addGit("git_stash", "Stash or restore uncommitted changes.",
+           makeSchema({{"action", "string", "push, pop or list."}, {"message", "string", "Label for push.", false}}), "stash",
+           [](const QJsonObject &a) { return QStringLiteral("git stash %1").arg(str(a, "action")); });
 
     add({"edit_range", "Replace lines start_line..end_line (1-based, inclusive) of a file with new_text. An empty new_text deletes the lines. The edit lands in the editor tab as an unsaved, undoable change. Line numbers below the edit shift: after an edit use the numbers in the reply or re-read.",
          makeSchema({{"path", "string", "File, relative to the project root."}, {"start_line", "integer", "First line to replace."}, {"end_line", "integer", "Last line to replace."},

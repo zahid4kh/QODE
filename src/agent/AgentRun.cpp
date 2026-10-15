@@ -67,7 +67,7 @@ QString AgentRun::baseInstructions(const QString &root)
                "- When the user asks to undo, revert or redo changes (all of them, one file, or some lines), use undo_changes / redo_changes; "
                "list_changes shows what can be undone. Never rewrite old code from memory to undo something.\n"
                "- Issue independent tool calls together in one turn instead of one by one. Every model round trip is a rate-limited request.\n"
-               "- Never touch secrets (.env, keys, credentials). Do not commit, push, reset or otherwise rewrite git history unless the user asked. "
+               "- Never touch secrets (.env, keys, credentials). Use the git_* tools for git (each asks the user); commit only when the user asked, never push or rewrite history. "
                "Commands and deletions are shown to the user for approval; if one is denied, accept it, say so and carry on without it.\n"
                "- If the request is ambiguous in a way that matters, ask one short question instead of guessing. If it is only a question about the "
                "code, answer it without editing anything.\n\n"

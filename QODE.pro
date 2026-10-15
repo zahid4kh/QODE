@@ -84,6 +84,12 @@ SOURCES += \
     src/ai/AiWorkspace.cpp \
     src/ai/GeminiClient.cpp \
     src/gradle/GradlePanel.cpp \
+    src/spring/SpringProject.cpp \
+    src/spring/SpringServer.cpp \
+    src/spring/SpringLogView.cpp \
+    src/spring/SpringPanel.cpp \
+    src/spring/SpringBar.cpp \
+    src/spring/SpringConfigDialog.cpp \
     src/gradle/GradleTasks.cpp \
     src/media/MediaPanel.cpp \
     src/explorer/ProjectExplorer.cpp \
@@ -211,6 +217,12 @@ HEADERS += \
     src/ai/AiWorkspace.h \
     src/ai/GeminiClient.h \
     src/gradle/GradlePanel.h \
+    src/spring/SpringProject.h \
+    src/spring/SpringServer.h \
+    src/spring/SpringLogView.h \
+    src/spring/SpringPanel.h \
+    src/spring/SpringBar.h \
+    src/spring/SpringConfigDialog.h \
     src/gradle/GradleTasks.h \
     src/media/MediaPanel.h \
     src/explorer/ProjectExplorer.h \

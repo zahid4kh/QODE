@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QString>
 
 class QTimer;
@@ -34,17 +35,25 @@ signals:
     void stateChanged();
     void output(const QString &text);
 
+protected:
+    // Looks at one output line; while Starting it decides when the server counts as Running (and on which port).
+    virtual void scan(const QString &line);
+    // Last chance to change the environment the command runs in (subclasses).
+    virtual void adjustEnvironment(QProcessEnvironment &env);
+    void setState(State s);
+
+    State m_state = State::Stopped;
+    QString m_error;
+    int m_port = 0;
+
 private:
     void onOutput();
     void onFinished(int code, QProcess::ExitStatus status);
-    void scan(const QString &line);
-    void setState(State s);
     void signalGroup(int sig);
 
     QProcess *m_proc;
     QTimer *m_killTimer;
-    State m_state = State::Stopped;
-    QString m_command, m_workDir, m_error, m_log, m_pending;
-    int m_port = 0, m_wantedPort = 0;
+    QString m_command, m_workDir, m_log, m_pending;
+    int m_wantedPort = 0;
     bool m_stopping = false, m_restart = false;
 };

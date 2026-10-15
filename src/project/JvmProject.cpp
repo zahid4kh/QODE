@@ -117,7 +117,7 @@ void analyseGradle(Module &m)
     m.compose = has(t, R"(compose\.desktop|org\.jetbrains\.compose|jetbrainsCompose|composeMultiplatform|compose\.multiplatform|libs\.plugins\.compose)")
                 && has(t, R"(\bdesktop\b)");
     m.android = has(t, R"(com\.android\.application|android\.application|androidApplication)");
-    m.spring = has(t, R"(org\.springframework\.boot)");
+    m.spring = has(t, R"(org\.springframework\.boot|libs\.plugins\.spring[.]?boot|springBoot)");
     m.quarkus = has(t, R"(io\.quarkus)");
     m.micronaut = has(t, R"(io\.micronaut\.application)");
     m.ktor = has(t, R"(io\.ktor\.plugin)");

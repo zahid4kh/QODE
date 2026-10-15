@@ -597,6 +597,20 @@ void SettingsManager::setWebServer(const QJsonObject &config)
     saveProject();
 }
 
+QJsonObject SettingsManager::springServer() const
+{
+    return m_data.value(QStringLiteral("springServer")).toObject();
+}
+
+void SettingsManager::setSpringServer(const QJsonObject &config)
+{
+    if (config.isEmpty())
+        m_data.remove(QStringLiteral("springServer"));
+    else
+        m_data.insert(QStringLiteral("springServer"), config);
+    saveProject();
+}
+
 QStringList SettingsManager::recentCommands() const
 {
     return m_settings.value(QStringLiteral("session/recentCommands")).toStringList();

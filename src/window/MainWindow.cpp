@@ -38,6 +38,10 @@
 #include "dialogs/UnusedImportsDialog.h"
 #include "lsp/JarSource.h"
 #include "gradle/GradlePanel.h"
+#include "spring/SpringBar.h"
+#include "spring/SpringLogView.h"
+#include "spring/SpringPanel.h"
+#include "spring/SpringServer.h"
 #include "gradle/GradleTasks.h"
 #include "lsp/LspInstaller.h"
 #include "lsp/LspServers.h"
@@ -195,6 +199,20 @@ MainWindow::MainWindow(QWidget *parent)
         m_terminal->runCommand(QStringLiteral("(cd '%1' && %2)").arg(quoted, command));
         m_terminal->focusTerminal();
     });
+    m_spring = new SpringPanel(this);
+    m_rightStack->addWidget(m_spring);
+    connect(m_spring, &SpringPanel::closeRequested, this, &MainWindow::hideMedia);
+    connect(m_spring, &SpringPanel::locationRequested, this, [this](const QString &path, int line, int column) {
+        m_editors->openFileAt(path, line, qMax(1, column));
+    });
+    // A stack frame "com.example.demo.HelloController.index(HelloController.kt:12)" -> the project file that holds it.
+    m_spring->log()->setResolver([this](const QString &pkgPath, const QString &fileName) -> QString {
+        const QString suffix = QLatin1Char('/') + (pkgPath.isEmpty() ? fileName : pkgPath + QLatin1Char('/') + fileName);
+        for (const QString &f : m_projectFiles->files())
+            if (f.endsWith(suffix))
+                return f;
+        return {};
+    });
     m_ai = new AiHub(this);
     m_ai->setEditors(m_editors);
     m_rightStack->addWidget(m_ai);
@@ -205,7 +223,10 @@ MainWindow::MainWindow(QWidget *parent)
         m_projectFiles->ensureFresh();
     });
     connect(m_ai, &AiHub::gitInitRequested, this, [this] { m_gitInitAct->trigger(); });
-    connect(m_projectFiles, &ProjectFiles::updated, this, [this] { m_ai->setProjectFiles(m_projectFiles->files()); });
+    connect(m_projectFiles, &ProjectFiles::updated, this, [this] {
+        m_ai->setProjectFiles(m_projectFiles->files());
+        m_spring->log()->clearResolveCache();
+    });
     m_hsplit->addWidget(new Island(m_rightStack));
     m_previewTimer = new QTimer(this);
     m_previewTimer->setSingleShot(true);
@@ -515,6 +536,9 @@ void MainWindow::createActions()
     m_aiAct->setToolTip(tr("Ask Gemini to change the project: plan-and-edit chat, or an agent that works on its own (Ctrl+Alt+G)"));
     m_gradleAct = make(tr("Gradle Tasks"), {}, QStringLiteral(":/new-icons/gradle.svg"));
     m_gradleAct->setToolTip(tr("Show the Gradle tasks of this project (build, test, package, …) and run them"));
+    m_springAct = make(tr("Spring Boot"), {}, QStringLiteral(":/new-icons/springboot.svg"));
+    m_springAct->setToolTip(tr("Show the Spring Boot panel: application status and live log"));
+    m_springAct->setVisible(false); // only in Spring Boot projects (updateSpringUi)
     m_pythonPkgAct = make(tr("Python Packages…"), {}, QStringLiteral(":/new-icons/package.svg"));
     m_pythonPkgAct->setToolTip(tr("Install, upgrade and remove the packages of the project's virtual environment"));
     {
@@ -672,6 +696,7 @@ void MainWindow::createActions()
     connect(m_runConfigAct, &QAction::triggered, this, &MainWindow::configureRun);
     connect(m_pythonPkgAct, &QAction::triggered, this, &MainWindow::showPythonPackages);
     connect(m_gradleAct, &QAction::triggered, this, &MainWindow::toggleGradlePanel);
+    connect(m_springAct, &QAction::triggered, this, &MainWindow::toggleSpringPanel);
     connect(m_aiAct, &QAction::triggered, this, &MainWindow::toggleAiPanel);
     connect(m_fullscreenAct, &QAction::triggered, this, [this] { setWindowState(windowState() ^ Qt::WindowFullScreen); });
     connect(m_wordWrapAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setWordWrap(on); });
@@ -840,6 +865,7 @@ void MainWindow::createMenus()
     view->addAction(m_runConfigAct);
     view->addAction(m_pythonPkgAct);
     view->addAction(m_gradleAct);
+    view->addAction(m_springAct);
     view->addAction(m_aiAct);
     view->addSeparator();
     view->addAction(m_splitRightAct);
@@ -948,6 +974,21 @@ void MainWindow::createToolBar()
     connect(m_expoBar, &ExpoBar::appChanged, this, &MainWindow::pushExpoSchemas);
     connect(m_expoSchema, &ExpoSchema::ready, this, &MainWindow::pushExpoSchemas);
     connect(m_expoSchema, &ExpoSchema::failed, this, [this](const QString &, const QString &why) { statusBar()->showMessage(why, 8000); });
+    // A Spring Boot application: status, start / stop and the panel with its log.
+    m_springBar = new SpringBar(this);
+    m_springBarAct = tb->addWidget(m_springBar);
+    m_spring->attach(m_springBar);
+    connect(m_springBar, &SpringBar::availabilityChanged, this, [this] {
+        updateRunToolbar();
+        updateActions();
+        updateSpringUi();
+    });
+    connect(m_springBar, &SpringBar::stateChanged, this, &MainWindow::updateActions);
+    connect(m_springBar, &SpringBar::panelRequested, this, &MainWindow::toggleSpringPanel);
+    connect(m_springBar, &SpringBar::starting, this, [this] {
+        if (!m_rightStack->parentWidget()->isVisible())
+            toggleSpringPanel(); // show what the application prints, but never replace another open panel
+    });
     connect(m_serverBar, &DevServerBar::openFileRequested, this, [this](const QString &path) { m_editors->openFile(path); });
     connect(m_serverBar, &DevServerBar::nestedProjectsFound, this, [this](const QStringList &dirs) {
         // After the project finished opening, so the question does not hold up restoring the session.
@@ -989,13 +1030,16 @@ void MainWindow::updateRunToolbar()
 {
     const bool web = m_serverBar->isAvailable();
     const bool expo = m_expoBar && m_expoBar->isAvailable();
+    const bool spring = m_springBar && m_springBar->isAvailable();
     m_mainToolBar->removeAction(m_runAct);
     m_mainToolBar->removeAction(m_runConfigAct);
     m_mainToolBar->removeAction(m_pythonPkgAct);
     m_mainToolBar->removeAction(m_gradleAct);
     if (m_expoBarAct)
         m_expoBarAct->setVisible(expo);
-    if (!web && !expo) {
+    if (m_springBarAct)
+        m_springBarAct->setVisible(spring);
+    if (!web && !expo && !spring) {
         m_mainToolBar->insertAction(m_serverBarAct, m_runAct);
         m_mainToolBar->insertAction(m_serverBarAct, m_runConfigAct);
     }
@@ -2138,6 +2182,7 @@ void MainWindow::onProjectOpened(const Project &p)
     m_expoBar->setProjectRoot(p.root); // before the web-server bar: it must not offer `expo start` as a web server
     m_serverBar->setIgnoredDirs(m_expoBar->appDirs());
     m_serverBar->setProjectRoot(p.root);
+    m_springBar->setProjectRoot(p.root);
     onExpoChanged();
     m_bookmarks = SettingsManager::instance().bookmarks();
     m_tasks->setBookmarks(m_bookmarks);
@@ -2182,6 +2227,7 @@ void MainWindow::onProjectClosed()
     m_expoBar->setProjectRoot({});
     m_serverBar->setIgnoredDirs({});
     m_serverBar->setProjectRoot({});
+    m_springBar->setProjectRoot({});
     m_metroStarted = false;
     onExpoChanged();
     m_bookmarks.clear();
@@ -2246,7 +2292,7 @@ void MainWindow::updateActions()
     for (QAction *a : {m_foldAct, m_unfoldAct, m_foldAllAct, m_unfoldAllAct})
         a->setEnabled(hasDoc);
     m_replaceAct->setEnabled(hasDoc);
-    if ((m_serverBar && m_serverBar->isAvailable()) || (m_expoBar && m_expoBar->isAvailable())) {
+    if ((m_serverBar && m_serverBar->isAvailable()) || (m_expoBar && m_expoBar->isAvailable()) || (m_springBar && m_springBar->isAvailable())) {
         m_runAct->setEnabled(true);
         m_runConfigAct->setEnabled(true);
     } else {
@@ -2331,6 +2377,31 @@ void MainWindow::toggleAiPanel()
     m_projectFiles->ensureFresh();
     m_ai->setProjectFiles(m_projectFiles->files());
     m_ai->focusInput();
+}
+
+// The Spring Boot button / panel exist only in Spring Boot projects.
+void MainWindow::updateSpringUi()
+{
+    const bool spring = m_springBar && m_springBar->isAvailable();
+    m_springAct->setVisible(spring);
+    if (!spring && m_rightStack->currentWidget() == m_spring && m_rightStack->parentWidget()->isVisible())
+        hideMedia();
+}
+
+void MainWindow::toggleSpringPanel()
+{
+    if (m_rightStack->parentWidget()->isVisible() && m_rightStack->currentWidget() == m_spring) {
+        hideMedia();
+        return;
+    }
+    disconnect(m_previewConn);
+    m_previewDoc = nullptr;
+    m_previewTimer->stop();
+    m_media->clear();
+    m_md->clear();
+    m_rightStack->setCurrentWidget(m_spring);
+    openRightPanel();
+    m_projectFiles->ensureFresh(); // stack frames are matched against the project's files
 }
 
 void MainWindow::toggleGradlePanel()
@@ -2534,8 +2605,12 @@ static QString detectedRunCommand(const QString &root, QString *note, QList<QPai
 
 void MainWindow::configureRun()
 {
-    if (m_serverBar->isAvailable()) {
+    if (m_serverBar->isAvailable() && !springOwns(currentFilePath())) {
         m_serverBar->configure();
+        return;
+    }
+    if (m_springBar->isAvailable()) {
+        m_springBar->configure();
         return;
     }
     if (!m_projects->hasProject() && currentFilePath().isEmpty())
@@ -2597,8 +2672,29 @@ void MainWindow::runCurrentFile()
     runFile();
 }
 
+// In a Spring Boot project F5 starts (or restarts) the application, unless the file belongs to a web front end
+// that has its own dev server.
+bool MainWindow::springOwns(const QString &file) const
+{
+    if (!m_springBar || !m_springBar->isAvailable())
+        return false;
+    if (!m_serverBar->isAvailable() || file.isEmpty())
+        return true;
+    return file.startsWith(m_springBar->project().moduleDir + QLatin1Char('/'));
+}
+
 void MainWindow::runFile()
 {
+    // In a Spring Boot project F5 means the application, unless this file type has a command of its own.
+    if (springOwns(currentFilePath())) {
+        const QString file = currentFilePath();
+        if (file.isEmpty() || SettingsManager::instance().runCommand(RunConfigDialog::keyFor(file)).isEmpty()) {
+            if (!m_editors->saveAll())
+                return;
+            m_springBar->start(); // restarts when it is already running
+            return;
+        }
+    }
     // In a web project F5 means the dev server, unless this file type has a command of its own.
     if (m_serverBar->isAvailable()) {
         const QString file = currentFilePath();
@@ -3020,6 +3116,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
     s.setTerminalHeight(m_terminalHeight);
     m_terminal->stop();
     m_serverBar->shutdown();
+    m_springBar->shutdown();
     m_lsp->shutdown();
     event->accept();
 }

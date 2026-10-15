@@ -148,6 +148,9 @@ public:
     // Dev server of a web project: {manager, script, port, command}; missing keys mean automatic.
     QJsonObject webServer() const;
     void setWebServer(const QJsonObject &config);
+    // Spring Boot application of the project: {profiles, port, arguments, command}; missing keys mean automatic.
+    QJsonObject springServer() const;
+    void setSpringServer(const QJsonObject &config);
 
     // Language servers: executable override per server id ("" = look on PATH).
     QString lspServerPath(const QString &serverId) const;

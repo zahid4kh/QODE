@@ -90,10 +90,15 @@ void DevServer::start(const QString &command, const QString &workDir, int port)
     env.insert(QStringLiteral("BROWSER"), QStringLiteral("none")); // create-react-app would otherwise open a tab itself
     if (port > 0)
         env.insert(QStringLiteral("PORT"), QString::number(port));
+    adjustEnvironment(env);
     m_proc->setProcessEnvironment(env);
     m_proc->setWorkingDirectory(workDir);
     setState(State::Starting);
     m_proc->start(QStringLiteral("/bin/sh"), {QStringLiteral("-c"), command});
+}
+
+void DevServer::adjustEnvironment(QProcessEnvironment &)
+{
 }
 
 void DevServer::stop()
@@ -171,7 +176,8 @@ void DevServer::onFinished(int code, QProcess::ExitStatus status)
     if (m_stopping || (status == QProcess::NormalExit && code == 0)) {
         setState(State::Stopped);
     } else {
-        m_error = status == QProcess::CrashExit ? tr("The server was terminated") : tr("The server exited with code %1").arg(code);
+        if (m_error.isEmpty()) // a subclass may already know the reason (port in use, build failed ...)
+            m_error = status == QProcess::CrashExit ? tr("The server was terminated") : tr("The server exited with code %1").arg(code);
         setState(State::Failed);
     }
     m_stopping = false;

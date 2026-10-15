@@ -124,6 +124,10 @@ QIcon forFile(const QString &fileName)
         return make(n->icon, n->tint, c);
     // "README.md" style: the stem decides when the extension is generic.
     const QString ext = QFileInfo(lower).suffix();
+    // Spring Boot configuration: application.properties / application-dev.yml / bootstrap.yaml ...
+    if ((lower.startsWith(QLatin1String("application")) || lower.startsWith(QLatin1String("bootstrap")))
+        && (ext == QLatin1String("properties") || ext == QLatin1String("yml") || ext == QLatin1String("yaml")))
+        return make("spring", Tint::String, c);
     auto e = tables.byExtension.constFind(ext);
     if (e != tables.byExtension.constEnd())
         return make(e->icon, e->tint, c);

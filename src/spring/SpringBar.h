@@ -39,6 +39,7 @@ signals:
     void stateChanged();
     void panelRequested();
     void starting(); // a start was requested (the window may reveal the log)
+    void openFileRequested(const QString &path); // from the settings dialog
     void rootChanged(); // another project was opened (the log of the previous one is stale)
 
 private:

@@ -7,6 +7,7 @@ class QLabel;
 class QLineEdit;
 class QStackedWidget;
 class QTimer;
+class ActuatorView;
 class HttpClientView;
 class QToolButton;
 class SpringBar;
@@ -24,10 +25,12 @@ public:
 
     void attach(SpringBar *bar);
     SpringLogView *log() const { return m_log; }
+    void updateTabs(); // shows the Actuator tab when the build has spring-boot-starter-actuator
 
 signals:
     void closeRequested();
     void locationRequested(const QString &path, int line, int column);
+    void openFileRequested(const QString &path);
 
 private:
     void refresh();
@@ -48,7 +51,8 @@ private:
     SpringLogView *m_log;
     HttpClientView *m_http;
     QStackedWidget *m_stack;
-    QToolButton *m_tabLog, *m_tabRequests;
+    QToolButton *m_tabLog, *m_tabRequests, *m_tabActuator;
+    ActuatorView *m_actuator;
     bool m_endpointsStale = true;
     QTimer *m_uptime, *m_filterTimer;
 };

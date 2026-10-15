@@ -21,6 +21,10 @@
 #include "project/JvmProject.h"
 #include "project/ProjectTemplates.h"
 #include "project/VersionCatalog.h"
+#include "spring/AddStarterDialog.h"
+#include "spring/SpringProperties.h"
+#include "spring/SpringScaffold.h"
+#include "spring/SpringStarters.h"
 #include "project/QmakeProject.h"
 #include "media/MarkdownPreview.h"
 #include "ai/AiHub.h"
@@ -124,6 +128,14 @@ MainWindow::MainWindow(QWidget *parent)
     m_projectFiles = new ProjectFiles(this);
     m_git = new GitRepository(this);
     m_explorer = new ProjectExplorer(this);
+    m_explorer->setNewMenuHook([this](QMenu *menu, const QString &dir) {
+        if (!m_springBar || !m_springBar->isAvailable() || SpringScaffold::packageOf(dir, m_springBar->project().sourceRoots()).isEmpty())
+            return;
+        QMenu *sub = menu->addMenu(tr("New Spring Component"));
+        using K = SpringScaffold::Kind;
+        for (K k : {K::Controller, K::Service, K::Entity, K::Repository, K::Configuration, K::ExceptionHandler})
+            sub->addAction(SpringScaffold::title(k), this, [this, k, dir] { newSpringComponent(static_cast<int>(k), dir); });
+    });
     m_explorer->setGitRepository(m_git);
     m_gitPanel = new GitPanel(m_git, this);
     m_searchPanel = new SearchPanel(this);
@@ -202,6 +214,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_spring = new SpringPanel(this);
     m_rightStack->addWidget(m_spring);
     connect(m_spring, &SpringPanel::closeRequested, this, &MainWindow::hideMedia);
+    connect(m_spring, &SpringPanel::openFileRequested, this, [this](const QString &path) { m_editors->openFile(path); });
     connect(m_spring, &SpringPanel::locationRequested, this, [this](const QString &path, int line, int column) {
         m_editors->openFileAt(path, line, qMax(1, column));
     });
@@ -380,6 +393,32 @@ MainWindow::MainWindow(QWidget *parent)
                 }
                 return items;
             });
+        if (SpringProperties::isConfigFile(doc->filePath())) { // spring.* / server.* keys and their values
+            QPointer<CodeEditor> guard(ed);
+            const bool yaml = SpringProperties::isYaml(doc->filePath());
+            ed->setLocalCompletions([guard, yaml](const QString &beforeWord) {
+                QVector<LspCompletionItem> items;
+                QStringList parents;
+                if (yaml && guard) {
+                    QStringList above;
+                    const int row = guard->textCursor().blockNumber();
+                    for (QTextBlock b = guard->document()->firstBlock(); b.isValid() && b.blockNumber() < row; b = b.next())
+                        above << b.text();
+                    int indent = 0;
+                    while (indent < beforeWord.size() && beforeWord[indent] == QLatin1Char(' '))
+                        ++indent;
+                    parents = SpringProperties::yamlParents(above, indent);
+                }
+                for (const SpringProperties::Entry &e : SpringProperties::complete(beforeWord, yaml, parents)) {
+                    LspCompletionItem it;
+                    it.label = e.label;
+                    it.detail = e.detail;
+                    it.kind = e.group ? 9 : 10;
+                    items << it;
+                }
+                return items;
+            });
+        }
         if (JarSource::isLibraryPath(doc->filePath()))
             ed->setReadOnly(true); // library source unpacked by Go to Definition
         // Kotlin completions add their import (and insert the text) through a server command.
@@ -539,6 +578,9 @@ void MainWindow::createActions()
     m_springAct = make(tr("Spring Boot"), {}, QStringLiteral(":/new-icons/springboot.svg"));
     m_springAct->setToolTip(tr("Show the Spring Boot panel: application status and live log"));
     m_springAct->setVisible(false); // only in Spring Boot projects (updateSpringUi)
+    m_springStarterAct = make(tr("Add Spring Starters…"), {}, QStringLiteral(":/new-icons/package.svg"));
+    m_springStarterAct->setToolTip(tr("Add Web, JPA, Security, Validation, Actuator … dependencies to the build file"));
+    m_springStarterAct->setVisible(false);
     m_pythonPkgAct = make(tr("Python Packages…"), {}, QStringLiteral(":/new-icons/package.svg"));
     m_pythonPkgAct->setToolTip(tr("Install, upgrade and remove the packages of the project's virtual environment"));
     {
@@ -697,6 +739,7 @@ void MainWindow::createActions()
     connect(m_pythonPkgAct, &QAction::triggered, this, &MainWindow::showPythonPackages);
     connect(m_gradleAct, &QAction::triggered, this, &MainWindow::toggleGradlePanel);
     connect(m_springAct, &QAction::triggered, this, &MainWindow::toggleSpringPanel);
+    connect(m_springStarterAct, &QAction::triggered, this, &MainWindow::addSpringStarters);
     connect(m_aiAct, &QAction::triggered, this, &MainWindow::toggleAiPanel);
     connect(m_fullscreenAct, &QAction::triggered, this, [this] { setWindowState(windowState() ^ Qt::WindowFullScreen); });
     connect(m_wordWrapAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setWordWrap(on); });
@@ -866,6 +909,7 @@ void MainWindow::createMenus()
     view->addAction(m_pythonPkgAct);
     view->addAction(m_gradleAct);
     view->addAction(m_springAct);
+    view->addAction(m_springStarterAct);
     view->addAction(m_aiAct);
     view->addSeparator();
     view->addAction(m_splitRightAct);
@@ -985,6 +1029,7 @@ void MainWindow::createToolBar()
     });
     connect(m_springBar, &SpringBar::stateChanged, this, &MainWindow::updateActions);
     connect(m_springBar, &SpringBar::panelRequested, this, &MainWindow::toggleSpringPanel);
+    connect(m_springBar, &SpringBar::openFileRequested, this, [this](const QString &path) { m_editors->openFile(path); });
     connect(m_springBar, &SpringBar::starting, this, [this] {
         if (!m_rightStack->parentWidget()->isVisible())
             toggleSpringPanel(); // show what the application prints, but never replace another open panel
@@ -2384,8 +2429,86 @@ void MainWindow::updateSpringUi()
 {
     const bool spring = m_springBar && m_springBar->isAvailable();
     m_springAct->setVisible(spring);
+    m_springStarterAct->setVisible(spring);
     if (!spring && m_rightStack->currentWidget() == m_spring && m_rightStack->parentWidget()->isVisible())
         hideMedia();
+}
+
+void MainWindow::addSpringStarters()
+{
+    if (!m_springBar || !m_springBar->isAvailable())
+        return;
+    const SpringProject project = m_springBar->project();
+    if (Document *open = m_editors->documentForPath(project.buildFile()); open && open->isModified()) {
+        QMessageBox::information(this, tr("Add Spring Starters"), tr("%1 has unsaved changes. Save it first.").arg(QFileInfo(project.buildFile()).fileName()));
+        return;
+    }
+    AddStarterDialog dlg(project, this);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    const SpringStarters::Change change = SpringStarters::plan(project, dlg.selectedIds());
+    if (!change.ok) {
+        QMessageBox::warning(this, tr("Add Spring Starters"), change.error);
+        return;
+    }
+    QFile f(change.file);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        QMessageBox::warning(this, tr("Add Spring Starters"), tr("Could not write %1: %2").arg(change.file, f.errorString()));
+        return;
+    }
+    f.write(change.text.toUtf8());
+    f.close();
+    for (const auto &extra : change.extra) {
+        QFile x(extra.first);
+        if (x.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            x.write(extra.second.toUtf8());
+            x.close();
+        }
+    }
+    m_editors->openFile(change.file);
+    statusBar()->showMessage(tr("Added %1 to %2").arg(change.added.join(QStringLiteral(", ")), QFileInfo(change.file).fileName()), 6000);
+    if (!change.note.isEmpty())
+        QMessageBox::information(this, tr("Add Spring Starters"), change.note);
+    if (m_lsp->hasBuildFiles())
+        m_lsp->syncBuildFiles(true);
+    m_spring->updateTabs();
+    if (m_springBar->isActive())
+        statusBar()->showMessage(tr("Added %1 — restart the application to use it").arg(change.added.join(QStringLiteral(", "))), 8000);
+}
+
+// "New Spring Component" in the explorer's context menu: controller, service, entity …
+void MainWindow::newSpringComponent(int kindValue, const QString &dir)
+{
+    const auto kind = static_cast<SpringScaffold::Kind>(kindValue);
+    const QStringList roots = m_springBar->project().sourceRoots();
+    if (SpringScaffold::packageOf(dir, roots).isEmpty()) {
+        QMessageBox::information(this, tr("New Spring Component"), tr("Create it in a package folder below src/main/kotlin or src/main/java."));
+        return;
+    }
+    bool ok = false;
+    const QString kindName = SpringScaffold::title(kind);
+    const QString name = QInputDialog::getText(this, tr("New %1").arg(kindName),
+                                               kind == SpringScaffold::Kind::Repository ? tr("Entity the repository is for:") : tr("Name:"),
+                                               QLineEdit::Normal, {}, &ok);
+    if (!ok || name.trimmed().isEmpty())
+        return;
+    const SpringScaffold::Result r = SpringScaffold::generate(kind, name, dir, roots);
+    if (!r.ok()) {
+        QMessageBox::warning(this, tr("New %1").arg(kindName), r.error);
+        return;
+    }
+    if (QFileInfo::exists(r.path)) {
+        QMessageBox::warning(this, tr("New %1").arg(kindName), tr("%1 already exists.").arg(QFileInfo(r.path).fileName()));
+        return;
+    }
+    QFile f(r.path);
+    if (!f.open(QIODevice::WriteOnly)) {
+        QMessageBox::warning(this, tr("New %1").arg(kindName), tr("Could not create %1: %2").arg(r.path, f.errorString()));
+        return;
+    }
+    f.write(r.content.toUtf8());
+    f.close();
+    m_editors->openFile(r.path);
 }
 
 void MainWindow::toggleSpringPanel()

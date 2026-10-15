@@ -79,6 +79,8 @@ SpringProject::Options SpringBar::options() const
     o.port = cfg.value(QStringLiteral("port")).toInt();
     o.arguments = cfg.value(QStringLiteral("arguments")).toString();
     o.command = cfg.value(QStringLiteral("command")).toString();
+    o.jvmArgs = cfg.value(QStringLiteral("jvmArgs")).toString();
+    o.env = cfg.value(QStringLiteral("env")).toString();
     return o;
 }
 
@@ -130,6 +132,7 @@ void SpringBar::start()
     if (!m_server || !isAvailable())
         return;
     emit starting();
+    m_server->setExtraEnvironment(SpringProject::parseEnv(options().env));
     m_server->start(command(), m_project.workDir, 0);
 }
 
@@ -164,6 +167,10 @@ void SpringBar::configure()
     if (!m_project.valid)
         return;
     SpringConfigDialog dlg(m_project, options(), window());
+    connect(&dlg, &SpringConfigDialog::openFileRequested, this, [this, &dlg](const QString &p) {
+        emit openFileRequested(p);
+        dlg.reject();
+    });
     if (dlg.exec() != QDialog::Accepted)
         return;
     const SpringProject::Options o = dlg.options();
@@ -176,6 +183,10 @@ void SpringBar::configure()
         cfg.insert(QStringLiteral("arguments"), o.arguments);
     if (!o.command.isEmpty())
         cfg.insert(QStringLiteral("command"), o.command);
+    if (!o.jvmArgs.isEmpty())
+        cfg.insert(QStringLiteral("jvmArgs"), o.jvmArgs);
+    if (!o.env.isEmpty())
+        cfg.insert(QStringLiteral("env"), o.env);
     SettingsManager::instance().setSpringServer(cfg);
     refresh();
     if (isActive())

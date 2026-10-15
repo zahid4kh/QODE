@@ -110,6 +110,8 @@ private:
     void toggleAiPanel();
     void slideRightPanel(bool open);
     void toggleSpringPanel();
+    void addSpringStarters();
+    void newSpringComponent(int kind, const QString &dir);
     void updateSpringUi();
     bool springOwns(const QString &file) const; // F5 / Run for this file means the Spring Boot application
     void toggleGradlePanel();           // shows the Python Packages button only while the project has a virtual environment
@@ -251,6 +253,7 @@ private:
     SpringBar *m_springBar = nullptr;
     QAction *m_springBarAct = nullptr;
     QAction *m_springAct = nullptr;
+    QAction *m_springStarterAct = nullptr;
     QToolBar *m_mainToolBar = nullptr;
     QAction *m_autoSaveOffAct, *m_autoSaveDelayAct, *m_autoSaveFocusAct, *m_autoSaveDelayMsAct, *m_trimAct, *m_finalNewlineAct, *m_formatOnSaveAct, *m_formatAct;
     QAction *m_foldAct, *m_unfoldAct, *m_foldAllAct, *m_unfoldAllAct;

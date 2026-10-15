@@ -366,6 +366,8 @@ void ProjectExplorer::showContextMenu(const QPoint &pos)
     if (isRoot) {
         menu.addAction(tr("New File"), this, [this, dir] { createFileIn(dir); });
         menu.addAction(tr("New Folder"), this, [this, dir] { createFolderIn(dir); });
+        if (m_newMenuHook)
+            m_newMenuHook(&menu, dir);
         menu.addSeparator();
         addClipboardActions(&menu, path, dir);
         menu.addSeparator();
@@ -380,10 +382,14 @@ void ProjectExplorer::showContextMenu(const QPoint &pos)
             menu.addAction(expanded ? tr("Collapse") : tr("Open"), this, [this, idx, expanded] { m_tree->setExpanded(idx, !expanded); });
             menu.addAction(tr("New File"), this, [this, dir] { createFileIn(dir); });
             menu.addAction(tr("New Folder"), this, [this, dir] { createFolderIn(dir); });
+            if (m_newMenuHook)
+                m_newMenuHook(&menu, dir);
         } else {
             menu.addAction(tr("Open"), this, [this, path] { emit fileActivated(path); });
             menu.addAction(tr("Open in New Tab"), this, [this, path] { emit fileActivated(path); });
             menu.addAction(tr("New File"), this, [this, dir] { createFileIn(dir); });
+            if (m_newMenuHook)
+                m_newMenuHook(&menu, dir);
         }
         menu.addSeparator();
         addClipboardActions(&menu, path, dir);

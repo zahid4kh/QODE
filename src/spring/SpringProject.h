@@ -20,6 +20,8 @@ struct SpringProject
         int port = 0;      // 0 = whatever the application configures
         QString arguments; // extra application arguments
         QString command;   // complete replacement for the generated command
+        QString jvmArgs;   // e.g. "-Xmx512m -Dfoo=bar", given to the application's JVM
+        QString env;       // one KEY=VALUE per line, added to the environment of the run
     };
 
     static SpringProject detect(const QString &root);
@@ -27,4 +29,14 @@ struct SpringProject
     QString command(const Options &options) const;
     // Source folders that hold the application's classes (for resolving stack frames).
     QStringList sourceRoots() const;
+    // Folder holding application*.properties / yml.
+    QString resourcesDir() const;
+    // The module's build file (build.gradle.kts, build.gradle or pom.xml).
+    QString buildFile() const;
+    // True when spring-boot-starter-actuator is among the module's dependencies.
+    bool hasActuator() const;
+    // Profiles that have a file application-<profile>.properties|yml|yaml.
+    QStringList profiles() const;
+    // "KEY=VALUE" lines of Options::env parsed (blank lines and # comments skipped).
+    static QStringList parseEnv(const QString &text);
 };

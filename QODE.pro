@@ -86,6 +86,11 @@ SOURCES += \
     src/gradle/GradlePanel.cpp \
     src/spring/SpringProject.cpp \
     src/spring/SpringServer.cpp \
+    src/spring/ActuatorView.cpp \
+    src/spring/SpringProperties.cpp \
+    src/spring/SpringScaffold.cpp \
+    src/spring/SpringStarters.cpp \
+    src/spring/AddStarterDialog.cpp \
     src/spring/SpringLogView.cpp \
     src/spring/SpringPanel.cpp \
     src/spring/HttpClientView.cpp \
@@ -221,6 +226,11 @@ HEADERS += \
     src/gradle/GradlePanel.h \
     src/spring/SpringProject.h \
     src/spring/SpringServer.h \
+    src/spring/ActuatorView.h \
+    src/spring/SpringProperties.h \
+    src/spring/SpringScaffold.h \
+    src/spring/SpringStarters.h \
+    src/spring/AddStarterDialog.h \
     src/spring/SpringLogView.h \
     src/spring/SpringPanel.h \
     src/spring/HttpClientView.h \

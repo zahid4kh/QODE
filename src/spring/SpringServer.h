@@ -19,6 +19,8 @@ public:
     // "Building…" / "Starting…" while State::Starting.
     QString phaseText() const;
     // Seconds Spring reported for "Started XApplication in N seconds", 0 until then.
+    // KEY=VALUE entries added to the environment of the next start.
+    void setExtraEnvironment(const QStringList &entries) { m_extraEnv = entries; }
     double startupSeconds() const { return m_startup; }
     // Milliseconds since the application reported it was up; 0 when not running.
     qint64 uptimeMs() const;
@@ -30,6 +32,7 @@ protected:
 private:
     void setPhase(Phase p);
 
+    QStringList m_extraEnv;
     Phase m_phase = Phase::Idle;
     double m_startup = 0;
     QElapsedTimer m_up;

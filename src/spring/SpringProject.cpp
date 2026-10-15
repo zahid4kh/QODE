@@ -169,6 +169,7 @@ QString SpringProject::command(const Options &o) const
     if (!o.arguments.trimmed().isEmpty())
         args << o.arguments.trimmed();
     const QString joined = args.join(QLatin1Char(' '));
+    const QString jvm = o.jvmArgs.trimmed();
 
     if (maven) {
         QString cmd = tool;
@@ -177,12 +178,19 @@ QString SpringProject::command(const Options &o) const
         cmd += QStringLiteral(" spring-boot:run");
         if (!joined.isEmpty())
             cmd += QStringLiteral(" -Dspring-boot.run.arguments=") + shellQuote(joined);
+        if (!jvm.isEmpty())
+            cmd += QStringLiteral(" -Dspring-boot.run.jvmArguments=") + shellQuote(jvm);
         return cmd;
     }
     QString prefix;
     if (moduleDir != workDir)
         prefix = QLatin1Char(':') + QDir(workDir).relativeFilePath(moduleDir).replace(QLatin1Char('/'), QLatin1Char(':')) + QLatin1Char(':');
-    QString cmd = tool + QStringLiteral(" --console=plain ") + prefix + QStringLiteral("bootRun");
+    QString cmd;
+    // bootRun forks the application with the build's environment, so the JVM options travel in JAVA_TOOL_OPTIONS
+    // (the JVM prints a "Picked up" line for it).
+    if (!jvm.isEmpty())
+        cmd = QStringLiteral("JAVA_TOOL_OPTIONS=") + shellQuote(jvm) + QLatin1Char(' ');
+    cmd += tool + QStringLiteral(" --console=plain ") + prefix + QStringLiteral("bootRun");
     if (!joined.isEmpty())
         cmd += QStringLiteral(" --args=") + shellQuote(joined);
     return cmd;
@@ -197,6 +205,66 @@ QStringList SpringProject::sourceRoots() const
         const QString d = moduleDir + QLatin1Char('/') + QLatin1String(sub);
         if (QFileInfo(d).isDir())
             out << d;
+    }
+    return out;
+}
+
+QString SpringProject::resourcesDir() const
+{
+    return valid ? moduleDir + QStringLiteral("/src/main/resources") : QString();
+}
+
+QString SpringProject::buildFile() const
+{
+    if (!valid)
+        return {};
+    if (maven)
+        return moduleDir + QStringLiteral("/pom.xml");
+    return gradleFile(moduleDir);
+}
+
+bool SpringProject::hasActuator() const
+{
+    const QString f = buildFile();
+    if (f.isEmpty())
+        return false;
+    if (readText(f).contains(QStringLiteral("spring-boot-starter-actuator")))
+        return true;
+    // `libs.spring.boot.starter.actuator` through the version catalog.
+    static const QRegularExpression accessor(QStringLiteral(R"(libs\.[\w.]*actuator)"));
+    if (!accessor.match(readText(f)).hasMatch())
+        return false;
+    QDir d(moduleDir);
+    for (int i = 0; i < 3; ++i) {
+        const QString toml = d.filePath(QStringLiteral("gradle/libs.versions.toml"));
+        if (QFileInfo::exists(toml))
+            return readText(toml).contains(QStringLiteral("spring-boot-starter-actuator"));
+        if (!d.cdUp())
+            break;
+    }
+    return false;
+}
+
+QStringList SpringProject::profiles() const
+{
+    static const QRegularExpression re(QStringLiteral(R"(^application-(.+)\.(?:properties|ya?ml)$)"));
+    QStringList out;
+    for (const QString &name : QDir(resourcesDir()).entryList(QDir::Files, QDir::Name)) {
+        const QRegularExpressionMatch m = re.match(name);
+        if (m.hasMatch() && !out.contains(m.captured(1)))
+            out << m.captured(1);
+    }
+    return out;
+}
+
+QStringList SpringProject::parseEnv(const QString &text)
+{
+    QStringList out;
+    for (const QString &raw : text.split(QLatin1Char('\n'))) {
+        const QString line = raw.trimmed();
+        if (line.isEmpty() || line.startsWith(QLatin1Char('#')) || !line.contains(QLatin1Char('=')) || line.startsWith(QLatin1Char('=')))
+            continue;
+        out << line;
     }
     return out;
 }

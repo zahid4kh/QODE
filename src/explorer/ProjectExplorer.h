@@ -45,6 +45,9 @@ public:
     void notifyMoved(const QString &from, const QString &to); // after the files were moved on disk
     void revealPaths(const QStringList &paths);               // select and scroll to them as soon as the model knows them
     void createFileIn(const QString &dir);
+    // Lets other modules add entries to the "New" part of the context menu (folder it was opened on).
+    using NewMenuHook = std::function<void(QMenu *menu, const QString &dir)>;
+    void setNewMenuHook(NewMenuHook hook) { m_newMenuHook = std::move(hook); }
     void createFolderIn(const QString &dir);
     void copyToClipboard(const QStringList &paths); // as files, so they paste here and in file managers
     void pasteInto(const QString &dir);             // files or an image from the clipboard
@@ -86,6 +89,7 @@ private:
     void showError(const QString &title, const QString &text);
     void addGitActions(QMenu *menu, const QString &path);
 
+    NewMenuHook m_newMenuHook;
     QString m_root;
     QLabel *m_title;
     QLabel *m_placeholder;

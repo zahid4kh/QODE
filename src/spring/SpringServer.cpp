@@ -46,6 +46,10 @@ void SpringServer::adjustEnvironment(QProcessEnvironment &env)
     env.insert(QStringLiteral("SPRING_OUTPUT_ANSI_ENABLED"), QStringLiteral("never"));
     env.insert(QStringLiteral("TERM"), QStringLiteral("dumb"));
     env.remove(QStringLiteral("PORT")); // Spring does not read it; a leftover value would only mislead
+    for (const QString &e : std::as_const(m_extraEnv)) {
+        const int eq = e.indexOf(QLatin1Char('='));
+        env.insert(e.left(eq).trimmed(), e.mid(eq + 1).trimmed());
+    }
 }
 
 void SpringServer::scan(const QString &line)

@@ -3,6 +3,7 @@
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
+#include "spring/ActuatorView.h"
 #include "spring/HttpClientView.h"
 #include "spring/SpringBar.h"
 #include "spring/SpringEndpoints.h"
@@ -134,6 +135,7 @@ SpringPanel::SpringPanel(QWidget *parent) : QWidget(parent), m_uptime(new QTimer
     m_count->setStyleSheet(QStringLiteral("QLabel { border-top: 1px solid palette(shadow); }"));
 
     m_http = new HttpClientView(this);
+    m_actuator = new ActuatorView(this);
 
     // Log | Requests
     auto *tabs = new QWidget(this);
@@ -144,7 +146,10 @@ SpringPanel::SpringPanel(QWidget *parent) : QWidget(parent), m_uptime(new QTimer
     m_tabRequests = new QToolButton(tabs);
     m_tabLog->setText(tr("Log"));
     m_tabRequests->setText(tr("Requests"));
-    for (QToolButton *b : {m_tabLog, m_tabRequests}) {
+    m_tabActuator = new QToolButton(tabs);
+    m_tabActuator->setText(tr("Actuator"));
+    m_tabActuator->setVisible(false);
+    for (QToolButton *b : {m_tabLog, m_tabRequests, m_tabActuator}) {
         b->setCheckable(true);
         b->setAutoRaise(true);
         b->setAutoExclusive(true);
@@ -164,6 +169,7 @@ SpringPanel::SpringPanel(QWidget *parent) : QWidget(parent), m_uptime(new QTimer
     m_stack = new QStackedWidget(this);
     m_stack->addWidget(logPage);
     m_stack->addWidget(m_http);
+    m_stack->addWidget(m_actuator);
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -181,6 +187,12 @@ SpringPanel::SpringPanel(QWidget *parent) : QWidget(parent), m_uptime(new QTimer
 
     connect(m_tabLog, &QToolButton::clicked, this, [this] { showPage(0); });
     connect(m_tabRequests, &QToolButton::clicked, this, [this] { showPage(1); });
+    connect(m_tabActuator, &QToolButton::clicked, this, [this] { showPage(2); });
+    connect(m_actuator, &ActuatorView::openFileRequested, this, &SpringPanel::openFileRequested);
+    connect(m_actuator, &ActuatorView::startRequested, this, [this] {
+        if (m_bar)
+            m_bar->start();
+    });
     connect(m_http, &HttpClientView::locationRequested, this, &SpringPanel::locationRequested);
     connect(m_http, &HttpClientView::refreshRequested, this, &SpringPanel::scanEndpoints);
     connect(m_http, &HttpClientView::startRequested, this, [this] {
@@ -240,10 +252,11 @@ void SpringPanel::attach(SpringBar *bar)
         m_log->clearLog();
         m_lastState = -1;
         // The project's settings are loaded around the same time: read the saved requests once that is done.
-        QTimer::singleShot(0, this, [this] { loadRequests(); });
+        QTimer::singleShot(0, this, [this] { loadRequests(); updateTabs(); });
         refresh();
     });
     loadRequests();
+    updateTabs();
     refresh();
 }
 
@@ -259,9 +272,19 @@ void SpringPanel::loadRequests()
 void SpringPanel::showPage(int page)
 {
     m_stack->setCurrentIndex(page);
-    (page == 0 ? m_tabLog : m_tabRequests)->setChecked(true);
+    (page == 0 ? m_tabLog : page == 1 ? m_tabRequests : m_tabActuator)->setChecked(true);
+    if (page == 2)
+        m_actuator->refresh();
     if (page == 1)
         scanEndpoints(); // controllers may have changed since the last visit
+}
+
+void SpringPanel::updateTabs()
+{
+    const bool actuator = m_bar && m_bar->isAvailable() && m_bar->project().hasActuator();
+    m_tabActuator->setVisible(actuator);
+    if (!actuator && m_stack->currentIndex() == 2)
+        showPage(0);
 }
 
 void SpringPanel::scanEndpoints()
@@ -301,6 +324,7 @@ void SpringPanel::onStateChanged()
             break;
         }
         m_lastState = state;
+        updateTabs();
     }
     refresh();
 }
@@ -369,6 +393,7 @@ void SpringPanel::refresh()
         const int port = server && server->port() > 0 ? server->port() : m_bar->options().port > 0 ? m_bar->options().port : 8080;
         m_http->setBaseUrl(QStringLiteral("http://localhost:%1").arg(port));
         m_http->setServerRunning(server && server->state() == DevServer::State::Running);
+        m_actuator->setTarget(QStringLiteral("http://localhost:%1").arg(port), m_bar->project().resourcesDir(), server && server->state() == DevServer::State::Running);
     }
     m_dot->setStyleSheet(QStringLiteral("background:%1; border-radius:4px;").arg(colour.name()));
     m_status->setTextFormat(Qt::RichText);

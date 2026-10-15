@@ -119,6 +119,17 @@
         <file>templates/kotlin-console/files/src/main/kotlin/__packagePath__/Main.kt</file>
         <file>templates/kotlin-console/files/src/main/resources/dot_gitkeep</file>
         <file>templates/kotlin-console/files/src/test/kotlin/__packagePath__/MainTest.kt</file>
+        <file>templates/kotlin-spring-boot/template.json</file>
+        <file>templates/kotlin-spring-boot/files/README.md</file>
+        <file>templates/kotlin-spring-boot/files/build.gradle.kts</file>
+        <file>templates/kotlin-spring-boot/files/dot_gitignore</file>
+        <file>templates/kotlin-spring-boot/files/gradle.properties</file>
+        <file>templates/kotlin-spring-boot/files/settings.gradle.kts</file>
+        <file>templates/kotlin-spring-boot/files/gradle/libs.versions.toml</file>
+        <file>templates/kotlin-spring-boot/files/src/main/kotlin/__packagePath__/Application.kt</file>
+        <file>templates/kotlin-spring-boot/files/src/main/kotlin/__packagePath__/HelloController.kt</file>
+        <file>templates/kotlin-spring-boot/files/src/main/resources/application.properties</file>
+        <file>templates/kotlin-spring-boot/files/src/test/kotlin/__packagePath__/ApplicationTests.kt</file>
         <file>templates/cpp-console/template.json</file>
         <file>templates/cpp-console/files/CMakeLists.txt</file>
         <file>templates/cpp-console/files/README.md</file>

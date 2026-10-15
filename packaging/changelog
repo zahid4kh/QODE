@@ -1,3 +1,9 @@
+qode (1.1.0) unstable; urgency=low
+
+  * Agent tab with function calling, undo/redo, slash commands, git tools
+
+ -- zahid4kh <halilzahid@gmail.com>  Thu, 15 Oct 2026 13:18:52 +0200
+
 qode (1.0.0) unstable; urgency=low
 
   * First stable release: AI code-editing chat (Gemini).

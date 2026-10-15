@@ -149,6 +149,8 @@ public:
     QJsonObject webServer() const;
     void setWebServer(const QJsonObject &config);
     // Spring Boot application of the project: {profiles, port, arguments, command}; missing keys mean automatic.
+    QJsonObject springRequests() const; // HTTP client: history, saved requests, draft
+    void setSpringRequests(const QJsonObject &state);
     QJsonObject springServer() const;
     void setSpringServer(const QJsonObject &config);
 

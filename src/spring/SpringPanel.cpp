@@ -3,7 +3,9 @@
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
+#include "spring/HttpClientView.h"
 #include "spring/SpringBar.h"
+#include "spring/SpringEndpoints.h"
 #include "spring/SpringLogView.h"
 #include "spring/SpringServer.h"
 
@@ -15,6 +17,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QStackedWidget>
 #include <QTimer>
 #include <QToolButton>
 #include <QUrl>
@@ -130,6 +133,38 @@ SpringPanel::SpringPanel(QWidget *parent) : QWidget(parent), m_uptime(new QTimer
     m_count->setContentsMargins(10, 3, 10, 4);
     m_count->setStyleSheet(QStringLiteral("QLabel { border-top: 1px solid palette(shadow); }"));
 
+    m_http = new HttpClientView(this);
+
+    // Log | Requests
+    auto *tabs = new QWidget(this);
+    auto *tabsLayout = new QHBoxLayout(tabs);
+    tabsLayout->setContentsMargins(8, 0, 8, 0);
+    tabsLayout->setSpacing(0);
+    m_tabLog = new QToolButton(tabs);
+    m_tabRequests = new QToolButton(tabs);
+    m_tabLog->setText(tr("Log"));
+    m_tabRequests->setText(tr("Requests"));
+    for (QToolButton *b : {m_tabLog, m_tabRequests}) {
+        b->setCheckable(true);
+        b->setAutoRaise(true);
+        b->setAutoExclusive(true);
+        b->setObjectName(QStringLiteral("springTab"));
+        tabsLayout->addWidget(b);
+    }
+    m_tabLog->setChecked(true);
+    tabsLayout->addStretch(1);
+
+    auto *logPage = new QWidget(this);
+    auto *lp = new QVBoxLayout(logPage);
+    lp->setContentsMargins(0, 0, 0, 0);
+    lp->setSpacing(0);
+    lp->addWidget(tools);
+    lp->addWidget(m_log, 1);
+    lp->addWidget(m_count);
+    m_stack = new QStackedWidget(this);
+    m_stack->addWidget(logPage);
+    m_stack->addWidget(m_http);
+
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
@@ -141,9 +176,18 @@ SpringPanel::SpringPanel(QWidget *parent) : QWidget(parent), m_uptime(new QTimer
     dl->setContentsMargins(25, 0, 10, 6);
     dl->addWidget(m_detail);
     layout->addWidget(detailWrap);
-    layout->addWidget(tools);
-    layout->addWidget(m_log, 1);
-    layout->addWidget(m_count);
+    layout->addWidget(tabs);
+    layout->addWidget(m_stack, 1);
+
+    connect(m_tabLog, &QToolButton::clicked, this, [this] { showPage(0); });
+    connect(m_tabRequests, &QToolButton::clicked, this, [this] { showPage(1); });
+    connect(m_http, &HttpClientView::locationRequested, this, &SpringPanel::locationRequested);
+    connect(m_http, &HttpClientView::refreshRequested, this, &SpringPanel::scanEndpoints);
+    connect(m_http, &HttpClientView::startRequested, this, [this] {
+        if (m_bar)
+            m_bar->start();
+    });
+    connect(m_http, &HttpClientView::stateChanged, this, [this] { SettingsManager::instance().setSpringRequests(m_http->state()); });
 
     connect(m_level, &QComboBox::currentIndexChanged, this, [this] { m_log->setMinLevel(SpringLogView::Level(m_level->currentData().toInt())); });
     m_filterTimer->setSingleShot(true);
@@ -175,6 +219,10 @@ SpringPanel::SpringPanel(QWidget *parent) : QWidget(parent), m_uptime(new QTimer
 void SpringPanel::repaintIcons()
 {
     const Theme t = Theme::byName(SettingsManager::instance().theme());
+    setStyleSheet(QStringLiteral("QToolButton#springTab { background: transparent; border: none; border-bottom: 2px solid transparent; padding: 5px 12px; color: %1; }"
+                                 "QToolButton#springTab:checked { background: transparent; color: %2; border-bottom: 2px solid %2; }"
+                                 "QToolButton#springTab:hover:!checked { color: %3; }")
+                      .arg(t.textMuted.name(), t.accent.name(), t.editorFg.name()));
     m_logo->setPixmap(Icons::pixmap(QStringLiteral(":/new-icons/spring.svg"), t.success, 18));
     // Checked = paused: the button then offers to resume.
     m_pause->setIcon(Icons::tinted(m_pause->isChecked() ? QStringLiteral(":/new-icons/play.svg") : QStringLiteral(":/new-icons/pause.svg"), t.editorFg));
@@ -191,9 +239,39 @@ void SpringPanel::attach(SpringBar *bar)
     connect(bar, &SpringBar::rootChanged, this, [this] {
         m_log->clearLog();
         m_lastState = -1;
+        // The project's settings are loaded around the same time: read the saved requests once that is done.
+        QTimer::singleShot(0, this, [this] { loadRequests(); });
         refresh();
     });
+    loadRequests();
     refresh();
+}
+
+void SpringPanel::loadRequests()
+{
+    m_http->clearForNewProject();
+    m_http->setState(SettingsManager::instance().springRequests());
+    m_endpointsStale = true;
+    if (m_stack->currentIndex() == 1)
+        scanEndpoints();
+}
+
+void SpringPanel::showPage(int page)
+{
+    m_stack->setCurrentIndex(page);
+    (page == 0 ? m_tabLog : m_tabRequests)->setChecked(true);
+    if (page == 1)
+        scanEndpoints(); // controllers may have changed since the last visit
+}
+
+void SpringPanel::scanEndpoints()
+{
+    m_endpointsStale = false;
+    if (!m_bar || !m_bar->isAvailable()) {
+        m_http->setScan(SpringScan());
+        return;
+    }
+    m_http->setScan(SpringEndpoints::scan(m_bar->project().sourceRoots()));
 }
 
 void SpringPanel::onStateChanged()
@@ -206,6 +284,7 @@ void SpringPanel::onStateChanged()
         using S = DevServer::State;
         switch (S(state)) {
         case S::Starting:
+            m_endpointsStale = true;
             m_log->addMarker(tr("Starting · %1").arg(now));
             m_log->jumpToEnd(); // a new run: show it even when the old one was scrolled
             break;
@@ -217,6 +296,8 @@ void SpringPanel::onStateChanged()
             m_log->addMarker(tr("Failed · %1 · %2").arg(now, m_bar->server()->errorString()));
             break;
         case S::Running:
+            if (m_stack->currentIndex() == 1)
+                scanEndpoints();
             break;
         }
         m_lastState = state;
@@ -283,6 +364,11 @@ void SpringPanel::refresh()
             m_uptime->start();
         else if (server->state() != S::Running)
             m_uptime->stop();
+    }
+    if (m_bar) {
+        const int port = server && server->port() > 0 ? server->port() : m_bar->options().port > 0 ? m_bar->options().port : 8080;
+        m_http->setBaseUrl(QStringLiteral("http://localhost:%1").arg(port));
+        m_http->setServerRunning(server && server->state() == DevServer::State::Running);
     }
     m_dot->setStyleSheet(QStringLiteral("background:%1; border-radius:4px;").arg(colour.name()));
     m_status->setTextFormat(Qt::RichText);

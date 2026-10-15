@@ -88,6 +88,8 @@ SOURCES += \
     src/spring/SpringServer.cpp \
     src/spring/SpringLogView.cpp \
     src/spring/SpringPanel.cpp \
+    src/spring/HttpClientView.cpp \
+    src/spring/SpringEndpoints.cpp \
     src/spring/SpringBar.cpp \
     src/spring/SpringConfigDialog.cpp \
     src/gradle/GradleTasks.cpp \
@@ -221,6 +223,8 @@ HEADERS += \
     src/spring/SpringServer.h \
     src/spring/SpringLogView.h \
     src/spring/SpringPanel.h \
+    src/spring/HttpClientView.h \
+    src/spring/SpringEndpoints.h \
     src/spring/SpringBar.h \
     src/spring/SpringConfigDialog.h \
     src/gradle/GradleTasks.h \

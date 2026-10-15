@@ -597,6 +597,17 @@ void SettingsManager::setWebServer(const QJsonObject &config)
     saveProject();
 }
 
+QJsonObject SettingsManager::springRequests() const
+{
+    return m_data.value(QStringLiteral("springRequests")).toObject();
+}
+
+void SettingsManager::setSpringRequests(const QJsonObject &state)
+{
+    m_data.insert(QStringLiteral("springRequests"), state);
+    saveProject();
+}
+
 QJsonObject SettingsManager::springServer() const
 {
     return m_data.value(QStringLiteral("springServer")).toObject();

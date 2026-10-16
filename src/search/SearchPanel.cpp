@@ -46,7 +46,7 @@ public:
         refresh();
         connect(&SettingsManager::instance(), &SettingsManager::themeChanged, this, [this] { refresh(); });
     }
-    QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &) const override { return QSize(0, 24); }
+    QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &) const override { return QSize(0, SettingsManager::instance().scaled(24)); }
 
     void paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const override
     {

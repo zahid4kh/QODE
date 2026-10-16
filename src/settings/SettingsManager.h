@@ -15,8 +15,14 @@ class SettingsManager : public QObject
 public:
     static SettingsManager &instance();
 
-    QFont editorFont() const;
+    QFont editorFont() const; // already scaled by the UI zoom
+    int baseEditorFontSize() const;
     void setEditorFont(const QFont &font);
+
+    // Interface zoom (the whole app, editor included) in percent (50-400), kept per project while one is open (the global default otherwise).
+    int uiZoom() const;
+    void setUiZoom(int percent);
+    int scaled(int px) const { return qRound(px * uiZoom() / 100.0); } // a fixed pixel size at the current zoom
 
     int tabSize() const;
     void setTabSize(int size);

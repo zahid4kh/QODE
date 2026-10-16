@@ -432,7 +432,7 @@ GitPanel::GitPanel(GitRepository *repo, QWidget *parent)
     // Page 0: nothing to show / offer to initialise
     auto *msgPage = new QWidget(this);
     auto *msgLayout = new QVBoxLayout(msgPage);
-    msgLayout->setAlignment(Qt::AlignCenter);
+    msgLayout->addStretch(); // (not setAlignment: a centred layout ignores heightForWidth, which clipped the wrapped text when zoomed)
     m_messageLabel = new QLabel(msgPage);
     m_messageLabel->setObjectName(QStringLiteral("emptyText"));
     m_messageLabel->setAlignment(Qt::AlignCenter);
@@ -440,6 +440,7 @@ GitPanel::GitPanel(GitRepository *repo, QWidget *parent)
     m_initButton = new QPushButton(tr("Initialize Repository"), msgPage);
     msgLayout->addWidget(m_messageLabel);
     msgLayout->addWidget(m_initButton, 0, Qt::AlignCenter);
+    msgLayout->addStretch();
     connect(m_initButton, &QPushButton::clicked, m_repo, &GitRepository::init);
 
     // Page 1: repository

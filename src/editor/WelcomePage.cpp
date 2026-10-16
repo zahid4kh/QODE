@@ -40,12 +40,13 @@ public:
         refresh();
         connect(&SettingsManager::instance(), &SettingsManager::themeChanged, this, [this] { refresh(); });
     }
-    QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &) const override { return QSize(0, kRowHeight); }
+    QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &) const override { return QSize(0, SettingsManager::instance().scaled(kRowHeight)); }
 
     void paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const override
     {
         const QRect r = option.rect;
         const bool hover = option.state & QStyle::State_MouseOver;
+        auto z = [](int v) { return SettingsManager::instance().scaled(v); };
         p->save();
         p->setRenderHint(QPainter::Antialiasing);
         if (hover) {
@@ -53,26 +54,26 @@ public:
             p->setBrush(m_theme.currentLine);
             p->drawRoundedRect(r.adjusted(2, 2, -2, -2), 6, 6);
         }
-        p->drawPixmap(r.left() + 14, r.center().y() - 9, Icons::pixmap(QStringLiteral(":/new-icons/folder.svg"), m_theme.accent, 18));
-        const int left = r.left() + 44;
-        int right = r.right() - 14;
+        p->drawPixmap(r.left() + z(14), r.center().y() - z(9), Icons::pixmap(QStringLiteral(":/new-icons/folder.svg"), m_theme.accent, z(18)));
+        const int left = r.left() + z(44);
+        int right = r.right() - z(14);
         if (hover) {
-            right -= 22;
-            p->drawPixmap(r.right() - 30, r.center().y() - 7, Icons::pixmap(QStringLiteral(":/new-icons/x.svg"), m_theme.textMuted, 14));
+            right -= z(22);
+            p->drawPixmap(r.right() - z(30), r.center().y() - z(7), Icons::pixmap(QStringLiteral(":/new-icons/x.svg"), m_theme.textMuted, z(14)));
         }
         QFont nf = option.font;
         nf.setWeight(QFont::DemiBold);
         p->setFont(nf);
         p->setPen(m_theme.editorFg);
         const QFontMetrics nfm(nf);
-        p->drawText(QRect(left, r.top() + 5, right - left, 18), Qt::AlignVCenter | Qt::AlignLeft,
+        p->drawText(QRect(left, r.top() + z(5), right - left, z(18)), Qt::AlignVCenter | Qt::AlignLeft,
                     nfm.elidedText(index.data(RoleName).toString(), Qt::ElideRight, right - left));
         QFont pf = option.font;
         pf.setPointSizeF(qMax(7.5, pf.pointSizeF() - 1));
         p->setFont(pf);
         p->setPen(m_theme.textMuted);
         const QFontMetrics pfm(pf);
-        p->drawText(QRect(left, r.top() + 23, right - left, 16), Qt::AlignVCenter | Qt::AlignLeft,
+        p->drawText(QRect(left, r.top() + z(23), right - left, z(16)), Qt::AlignVCenter | Qt::AlignLeft,
                     pfm.elidedText(index.data(RoleShort).toString(), Qt::ElideMiddle, right - left));
         p->restore();
     }
@@ -215,7 +216,7 @@ void WelcomePage::setRecentProjects(const QStringList &paths)
         it->setSizeHint(QSize(0, kRowHeight));
         ++shown;
     }
-    m_recent->setFixedHeight(shown * kRowHeight + 4);
+    m_recent->setFixedHeight(SettingsManager::instance().scaled(shown * kRowHeight + 4));
     m_recent->setVisible(shown > 0);
     m_recentTitle->setVisible(shown > 0);
 }

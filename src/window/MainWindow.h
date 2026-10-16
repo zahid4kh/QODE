@@ -241,7 +241,7 @@ private:
     QAction *m_projNewFileAct, *m_projNewFolderAct, *m_openProjectFolderAct;
     QPointer<QDialog> m_themeEditor;
     void showThemeEditor();
-    QAction *m_explorerAct, *m_terminalAct, *m_runAct, *m_runConfigAct, *m_pythonPkgAct, *m_gradleAct, *m_venvAct, *m_fullscreenAct, *m_wordWrapAct;
+    QAction *m_explorerAct, *m_terminalAct, *m_runAct, *m_runConfigAct, *m_pythonPkgAct, *m_gradleAct, *m_venvAct, *m_fullscreenAct, *m_wordWrapAct, *m_zoomInAct, *m_zoomOutAct, *m_zoomResetAct;
     QAction *m_nextTabAct, *m_prevTabAct, *m_splitRightAct, *m_splitDownAct, *m_aboutAct, *m_paletteAct, *m_quickOpenAct, *m_gotoLineAct, *m_gotoSymbolAct, *m_gotoDefinitionAct, *m_renameAct, *m_findRefsAct, *m_searchAct, *m_matchBracketAct, *m_indentGuidesAct, *m_stickyAct, *m_blameInlineAct, *m_bookmarkToggleAct, *m_bookmarkNextAct, *m_bookmarkPrevAct, *m_showBookmarksAct, *m_showTodosAct, *m_previewAct, *m_newTerminalAct, *m_blameGutterAct, *m_minimapAct, *m_breadcrumbsAct, *m_hiddenFilesAct;
     QMenu *m_recentMenu;
     DevServerBar *m_serverBar = nullptr;
@@ -268,5 +268,7 @@ private:
     QString m_lastHead, m_lastRoot;
     QHash<QString, QPointer<DiffDialog>> m_diffs;
 
+    QToolButton *m_zoomButton = nullptr;
+    void updateZoomButton();
     QLabel *m_fileLabel, *m_langLabel, *m_encLabel, *m_eolLabel, *m_posLabel, *m_modeLabel;
 };

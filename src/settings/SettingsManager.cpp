@@ -27,15 +27,34 @@ QFont SettingsManager::editorFont() const
     QFont f(m_settings.value(QStringLiteral("editor/fontFamily"), QStringLiteral("JetBrains Mono")).toString());
     if (!QFontDatabase::families().contains(f.family()))
         f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-    f.setPointSize(m_settings.value(QStringLiteral("editor/fontSize"), 11).toInt());
+    f.setPointSizeF(baseEditorFontSize() * uiZoom() / 100.0);
     f.setStyleHint(QFont::Monospace);
     return f;
+}
+
+int SettingsManager::baseEditorFontSize() const
+{
+    return m_settings.value(QStringLiteral("editor/fontSize"), 11).toInt();
 }
 
 void SettingsManager::setEditorFont(const QFont &font)
 {
     m_settings.setValue(QStringLiteral("editor/fontFamily"), font.family());
     m_settings.setValue(QStringLiteral("editor/fontSize"), font.pointSize());
+    emit editorSettingsChanged();
+}
+
+int SettingsManager::uiZoom() const
+{
+    return qBound(50, projectValue(QStringLiteral("uiZoom"), m_settings.value(QStringLiteral("ui/zoom"), 100)).toInt(), 400);
+}
+
+void SettingsManager::setUiZoom(int percent)
+{
+    percent = qBound(50, percent, 400);
+    if (percent == uiZoom())
+        return;
+    setScopedValue(QStringLiteral("ui/zoom"), QStringLiteral("uiZoom"), percent);
     emit editorSettingsChanged();
 }
 

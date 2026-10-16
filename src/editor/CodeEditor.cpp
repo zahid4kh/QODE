@@ -9,6 +9,7 @@
 #include "Snippets.h"
 #include "settings/Icons.h"
 #include <QMenu>
+#include <QWheelEvent>
 #include <QContextMenuEvent>
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
@@ -237,6 +238,7 @@ CodeEditor::CodeEditor(QWidget *parent)
     applyTheme();
     applySettings();
     connect(&SettingsManager::instance(), &SettingsManager::editorSettingsChanged, this, &CodeEditor::applySettings);
+    connect(&SettingsManager::instance(), &SettingsManager::projectSettingsChanged, this, &CodeEditor::applySettings);
     connect(&SettingsManager::instance(), &SettingsManager::themeChanged, this, &CodeEditor::applyTheme);
     updateLineNumberAreaWidth();
     refreshSelections();
@@ -2108,6 +2110,20 @@ void CodeEditor::handleBackspaceInIndent(QKeyEvent *event)
         }
     }
     QPlainTextEdit::keyPressEvent(event);
+}
+
+void CodeEditor::wheelEvent(QWheelEvent *event)
+{
+    if (event->modifiers() & Qt::ControlModifier) {
+        const int dy = event->angleDelta().y();
+        if (dy != 0) {
+            auto &s = SettingsManager::instance();
+            s.setUiZoom(s.uiZoom() + (dy > 0 ? 10 : -10));
+        }
+        event->accept();
+        return;
+    }
+    QPlainTextEdit::wheelEvent(event);
 }
 
 void CodeEditor::keyPressEvent(QKeyEvent *event)

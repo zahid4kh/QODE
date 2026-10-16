@@ -31,6 +31,7 @@
 #include <QVariantAnimation>
 #include "tasks/TasksPanel.h"
 #include "git/BranchButton.h"
+#include "editor/ZoomPopup.h"
 #include "git/BranchPopup.h"
 #include "git/DiffDialog.h"
 #include "git/GitDiff.h"
@@ -598,6 +599,10 @@ void MainWindow::createActions()
     }
     m_fullscreenAct = make(tr("Toggle Fullscreen"), QKeySequence(K::Key_F11));
     m_wordWrapAct = make(tr("Word Wrap"), QKeySequence(A | K::Key_Z));
+    m_zoomInAct = make(tr("Zoom In"), QKeySequence(QKeySequence::ZoomIn));
+    m_zoomInAct->setShortcuts({QKeySequence(QStringLiteral("Ctrl+=")), QKeySequence(QStringLiteral("Ctrl++"))});
+    m_zoomOutAct = make(tr("Zoom Out"), QKeySequence(QStringLiteral("Ctrl+-")));
+    m_zoomResetAct = make(tr("Reset Zoom"), QKeySequence(QStringLiteral("Ctrl+0")));
     m_wordWrapAct->setCheckable(true);
     m_wordWrapAct->setChecked(SettingsManager::instance().wordWrap());
     m_breadcrumbsAct = make(tr("Breadcrumbs"));
@@ -746,6 +751,9 @@ void MainWindow::createActions()
     connect(m_springStarterAct, &QAction::triggered, this, &MainWindow::addSpringStarters);
     connect(m_aiAct, &QAction::triggered, this, &MainWindow::toggleAiPanel);
     connect(m_fullscreenAct, &QAction::triggered, this, [this] { setWindowState(windowState() ^ Qt::WindowFullScreen); });
+    connect(m_zoomInAct, &QAction::triggered, this, [] { auto &s = SettingsManager::instance(); s.setUiZoom(s.uiZoom() + 10); });
+    connect(m_zoomOutAct, &QAction::triggered, this, [] { auto &s = SettingsManager::instance(); s.setUiZoom(s.uiZoom() - 10); });
+    connect(m_zoomResetAct, &QAction::triggered, this, [] { SettingsManager::instance().setUiZoom(100); });
     connect(m_wordWrapAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setWordWrap(on); });
     connect(m_breadcrumbsAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setShowBreadcrumbs(on); });
     m_explorer->setShowHidden(m_hiddenFilesAct->isChecked());
@@ -920,6 +928,9 @@ void MainWindow::createMenus()
     view->addAction(m_splitDownAct);
     view->addSeparator();
     view->addAction(m_wordWrapAct);
+    view->addAction(m_zoomInAct);
+    view->addAction(m_zoomOutAct);
+    view->addAction(m_zoomResetAct);
     view->addAction(m_previewAct);
     view->addAction(m_showBookmarksAct);
     view->addAction(m_showTodosAct);
@@ -1334,6 +1345,18 @@ void MainWindow::createStatusBar()
     m_lspButton->setStyleSheet(QStringLiteral("QToolButton { padding: 1px 6px; } QToolButton::menu-indicator { image: none; }"));
     m_lspButton->setMenu(m_lspMenu); // the same menu as LSP in the menu bar (created first)
     statusBar()->addPermanentWidget(m_lspButton);
+    m_zoomButton = new QToolButton(this);
+    m_zoomButton->setAutoRaise(true);
+    m_zoomButton->setCursor(Qt::PointingHandCursor);
+    m_zoomButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_zoomButton->setIconSize(QSize(14, 14));
+    m_zoomButton->setStyleSheet(QStringLiteral("QToolButton { padding: 1px 6px; }"));
+    connect(m_zoomButton, &QToolButton::clicked, this, [this] { ZoomPopup::open(m_zoomButton); });
+    connect(&SettingsManager::instance(), &SettingsManager::editorSettingsChanged, this, [this] { updateZoomButton(); });
+    connect(&SettingsManager::instance(), &SettingsManager::themeChanged, this, [this] { updateZoomButton(); });
+    connect(&SettingsManager::instance(), &SettingsManager::projectSettingsChanged, this, [this] { updateZoomButton(); });
+    statusBar()->addPermanentWidget(m_zoomButton);
+    updateZoomButton();
     m_langLabel = mk(90);
     m_encLabel = mk(70);
     m_eolLabel = mk(40);
@@ -1346,6 +1369,15 @@ void MainWindow::createStatusBar()
         m_fileLabel->setVisible(idle);
         m_gitStatusWidget->setVisible(idle && m_git->isRepo());
     });
+}
+
+void MainWindow::updateZoomButton()
+{
+    const int z = SettingsManager::instance().uiZoom();
+    const Theme t = Theme::byName(SettingsManager::instance().theme());
+    m_zoomButton->setIcon(Icons::tinted(z < 100 ? QStringLiteral(":/new-icons/zoom-out.svg") : QStringLiteral(":/new-icons/zoom-in.svg"), t.textMuted));
+    m_zoomButton->setText(QStringLiteral("%1%").arg(z));
+    m_zoomButton->setToolTip(tr("Zoom — click to adjust (Ctrl+= / Ctrl+- / Ctrl+0, Ctrl+wheel)"));
 }
 
 void MainWindow::restoreSettings()

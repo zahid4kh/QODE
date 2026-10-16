@@ -107,6 +107,7 @@ SOURCES += \
     src/git/GitPanel.cpp \
     src/git/BranchButton.cpp \
     src/git/BranchPopup.cpp \
+    src/editor/ZoomPopup.cpp \
     src/git/DiffDialog.cpp \
     src/git/PatchDialog.cpp \
     src/dialogs/NewProjectDialog.cpp \
@@ -248,6 +249,7 @@ HEADERS += \
     src/git/GitPanel.h \
     src/git/BranchButton.h \
     src/git/BranchPopup.h \
+    src/editor/ZoomPopup.h \
     src/git/DiffDialog.h \
     src/git/PatchDialog.h \
     src/dialogs/NewProjectDialog.h \

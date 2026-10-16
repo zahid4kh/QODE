@@ -890,6 +890,7 @@ void AgentPanel::compact()
     GeminiClient::Request req;
     req.apiKey = AiEnv::apiKey(m_root);
     req.model = m_modelName;
+    req.contents = contents;
     req.systemInstruction = QStringLiteral(
         "You compact a conversation between a user and a coding agent so the work can continue from the summary alone. Write the summary for the "
         "agent itself, not for the user. Cover: the user's goals and requests; decisions, constraints and preferences they stated; facts learned about "

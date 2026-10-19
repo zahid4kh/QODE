@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Builds a self-contained Debian package that carries its own Qt 6: ./build-deb-qt.sh [--no-build]
-# (the regular ./build-deb.sh keeps depending on the distro's Qt packages)
+# Builds a self-contained Debian package that carries its own Qt 6: scripts/build-deb-qt.sh [--no-build]
+# (the regular scripts/build-deb.sh keeps depending on the distro's Qt packages)
 #   1. compiles QODE (qmake6, PREFIX=/usr) into ./build-deb-qt, unless --no-build
 #   2. assembles ./staging_qode_qt:  /opt/qode/{bin,lib,plugins}  (QODE + the Qt libraries and plugins it uses),
 #      /usr/bin/qode -> /opt/qode/bin/qode, plus the usual desktop entry, icons, man pages and DEBIAN/ scripts
@@ -11,7 +11,7 @@
 # libicu, libxcb, fontconfig, OpenSSL ... still come from the system and are listed in Depends.
 # Needs: qmake6 dpkg-dev fakeroot patchelf (sudo apt install patchelf).
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 
 APP=qode

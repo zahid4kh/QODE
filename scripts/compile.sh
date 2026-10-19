@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Configure (qmake6) and build QODE into ./build
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 mkdir -p build
 cd build

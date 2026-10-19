@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Builds the Debian package: ./build-deb.sh [--no-build]
+# Builds the Debian package: scripts/build-deb.sh [--no-build]
 #   1. compiles QODE (qmake6, PREFIX=/usr) into ./build-deb, unless --no-build
 #   2. assembles the staging tree ./staging_qode (DEBIAN/ scripts come from packaging/debian/)
 #   3. runs dpkg-deb  ->  ./qode_<version>_<arch>.deb
 # The staging folder and the .deb are generated files and are git-ignored.
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 
 APP=qode

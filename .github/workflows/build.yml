@@ -30,13 +30,13 @@ jobs:
           fi
 
       - name: Compile (compile.sh)
-        run: ./compile.sh
+        run: scripts/compile.sh
 
       - name: Debian package (system Qt)
-        run: ./build-deb.sh
+        run: scripts/build-deb.sh
 
       - name: Debian package (bundled Qt)
-        run: ./build-deb-qt.sh
+        run: scripts/build-deb-qt.sh
 
       - name: Inspect packages
         run: |

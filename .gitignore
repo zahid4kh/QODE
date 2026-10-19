@@ -8,9 +8,7 @@ debian-staging-script
 *.deb
 docs/node_modules
 docs/.next
-/compile.sh
 /run.sh
-/build-deb.sh
 
 # Planning notes
 plans/
@@ -23,5 +21,4 @@ debs
 # Self-contained (bundled Qt) package build
 staging_qode_qt/
 build-deb-qt/
-build-deb-qt.sh
 whats-new

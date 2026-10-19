@@ -1,3 +1,10 @@
+qode (1.2.1) unstable; urgency=low
+
+  * Markdown preview: readability, scroll sync, footnotes, task lists, coloured code
+  * GitHub Actions workflow builds both Debian packages
+
+ -- zahid4kh <halilzahid@gmail.com>  Mon, 19 Oct 2026 12:58:55 +0300
+
 qode (1.2.0) unstable; urgency=low
 
   * Version bump.

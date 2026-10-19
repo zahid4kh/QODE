@@ -117,6 +117,7 @@
 #include <QTextBlock>
 #include <QTextDocument>
 #include <QElapsedTimer>
+#include <QScrollBar>
 #include <QTimer>
 #include <algorithm>
 #include <QToolBar>
@@ -290,6 +291,14 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_editors, &EditorManager::mediaRequested, this, &MainWindow::showMedia);
     connect(m_media, &MediaPanel::closeRequested, this, &MainWindow::hideMedia);
     connect(m_md, &MarkdownPreview::closeRequested, this, &MainWindow::hideMedia);
+    connect(m_md, &MarkdownPreview::topLineChanged, this, [this](int line) {
+        CodeEditor *ed = m_previewDoc ? m_editors->editorFor(m_previewDoc) : nullptr;
+        if (!ed || m_scrollSync)
+            return;
+        m_scrollSync = true;
+        ed->scrollBlockToTop(line);
+        m_scrollSync = false;
+    });
     connect(m_md, &MarkdownPreview::openFileRequested, this, [this](const QString &path) { m_editors->openFile(path); });
     connect(m_editors, &EditorManager::previewRequested, this, &MainWindow::togglePreview);
     connect(m_editors, &EditorManager::currentChanged, this, &MainWindow::followPreview);
@@ -2751,6 +2760,7 @@ void MainWindow::togglePreview()
     m_previewDoc = doc;
     disconnect(m_previewConn);
     m_previewConn = connect(doc->textDocument(), &QTextDocument::contentsChanged, m_previewTimer, qOverload<>(&QTimer::start));
+    wirePreviewScroll();
     openRightPanel();
     updatePreview();
 }
@@ -2764,6 +2774,13 @@ void MainWindow::updatePreview()
     if (m_previewDoc->languageName() == QLatin1String("Markdown")) {
         m_rightStack->setCurrentWidget(m_md);
         m_md->setMarkdown(path, m_previewDoc->text());
+        if (CodeEditor *ed = m_editors->editorFor(m_previewDoc)) { // a new render starts at the top; put it where the editor is
+            int first = 0, last = 0;
+            ed->visibleBlockRange(&first, &last);
+            m_scrollSync = true;
+            m_md->scrollToSourceLine(first);
+            m_scrollSync = false;
+        }
     } else {
         m_rightStack->setCurrentWidget(m_media);
         m_media->previewSvg(path, m_previewDoc->text());
@@ -2783,7 +2800,26 @@ void MainWindow::followPreview()
     m_previewConn = connect(doc->textDocument(), &QTextDocument::contentsChanged, m_previewTimer, qOverload<>(&QTimer::start));
     m_media->clear();
     m_md->clear();
+    wirePreviewScroll();
     updatePreview();
+}
+
+// Keeps a Markdown preview and its editor scrolled to the same place, whichever one the user moves.
+void MainWindow::wirePreviewScroll()
+{
+    disconnect(m_previewScrollConn);
+    CodeEditor *ed = m_previewDoc ? m_editors->editorFor(m_previewDoc) : nullptr;
+    if (!ed || m_previewDoc->languageName() != QLatin1String("Markdown"))
+        return;
+    m_previewScrollConn = connect(ed->verticalScrollBar(), &QScrollBar::valueChanged, this, [this, ed] {
+        if (m_scrollSync || m_rightStack->currentWidget() != m_md)
+            return;
+        int first = 0, last = 0;
+        ed->visibleBlockRange(&first, &last);
+        m_scrollSync = true;
+        m_md->scrollToSourceLine(first);
+        m_scrollSync = false;
+    });
 }
 
 void MainWindow::showTerminal()

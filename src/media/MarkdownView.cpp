@@ -1,6 +1,7 @@
 #include "MarkdownView.h"
 
 #include "MarkdownHtml.h"
+#include "editor/HoverRender.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
 
@@ -19,6 +20,7 @@
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextFrame>
+#include <QTextList>
 #include <QTextTable>
 #include <QTimer>
 #include <QToolTip>
@@ -70,9 +72,34 @@ void MarkdownView::updateHeight()
     setFixedHeight(int(document()->size().height()) + 2 * frameWidth() + 2);
 }
 
+void MarkdownView::setReadingWidth(int px)
+{
+    m_readingWidth = px;
+    applyReadingWidth();
+}
+
+// The text column is the root frame's side margins (the viewport itself keeps its full width, so the background and
+// the scroll bar are untouched).
+void MarkdownView::applyReadingWidth()
+{
+    int extra = 0;
+    if (m_readingWidth > 0 && !m_autoHeight)
+        extra = qMax(0, (viewport()->width() - m_readingWidth) / 2);
+    const int side = int(document()->documentMargin()) + extra; // the root frame's margin is the document margin by default
+    QTextFrame *root = document()->rootFrame();
+    QTextFrameFormat ff = root->frameFormat();
+    m_sideMargin = extra;
+    if (int(ff.leftMargin()) == side && int(ff.rightMargin()) == side)
+        return;
+    ff.setLeftMargin(side);
+    ff.setRightMargin(side);
+    root->setFrameFormat(ff);
+}
+
 void MarkdownView::resizeEvent(QResizeEvent *e)
 {
     QTextBrowser::resizeEvent(e);
+    applyReadingWidth();
     m_resizeTimer->start();
     if (m_autoHeight && e->size().width() != e->oldSize().width())
         updateHeight();
@@ -95,7 +122,11 @@ void MarkdownView::applyTheme()
                        "small { color: %4; font-size: 11px; letter-spacing: 1px; }"
                        "blockquote { background-color: %5; margin-left: 12px; margin-right: 0px; }"
                        "h1, h2 { color: %3; } h1 { font-size: 26px; } h2 { font-size: 21px; } h3 { font-size: 17px; }"
-                       "p { margin-top: 4px; margin-bottom: 8px; } li { margin-bottom: 2px; } li ul, li ol { margin-top: 0px; margin-bottom: 0px; }")
+                       "h1 { margin-top: 18px; margin-bottom: 10px; } h2 { margin-top: 22px; margin-bottom: 8px; }"
+                       "h3, h4, h5, h6 { margin-top: 18px; margin-bottom: 6px; }"
+                       "p { margin-top: 6px; margin-bottom: 12px; line-height: 160%; }"
+                       "li { margin-top: 3px; margin-bottom: 5px; line-height: 160%; } li ul, li ol { margin-top: 2px; margin-bottom: 0px; }"
+                       "blockquote { line-height: 160%; }")
             .arg(t.accent.name(), SettingsManager::instance().editorFont().family(), t.editorFg.name(), t.textMuted.name(), t.border.lighter(115).name()));
     if (!m_markdown.isEmpty())
         showMarkdown(m_markdown);
@@ -106,7 +137,14 @@ void MarkdownView::showMarkdown(const QString &markdown)
     m_markdown = markdown;
     QScrollBar *sb = verticalScrollBar();
     const int pos = sb->value();
-    setHtml(MarkdownHtml::convert(markdown));
+    const Theme theme = Theme::byName(SettingsManager::instance().theme());
+    m_sideMargin = 0;
+    setHtml(MarkdownHtml::convert(markdown, [&theme](const QString &code, const QString &lang) {
+        if (HoverRender::extensionFor(lang.toLower()).isEmpty())
+            return QString();
+        return HoverRender::codeInline(code, lang.toLower(), theme);
+    }));
+    applyReadingWidth();
     polish();
     fitImages();
     updateHeight();
@@ -166,6 +204,29 @@ void MarkdownView::paintEvent(QPaintEvent *e)
             p.drawPath(path);
         }
         p.setPen(Qt::NoPen);
+        p.setBrush(palette().color(QPalette::Text));
+        for (const auto &bullet : m_bullets) {
+            const QTextBlock b = document()->findBlockByNumber(bullet.first);
+            if (!b.isValid() || !b.layout() || b.layout()->lineCount() == 0)
+                continue;
+            const QRectF br = lay->blockBoundingRect(b);
+            if (!br.intersects(visible))
+                continue;
+            const QTextLine line = b.layout()->lineAt(0);
+            const qreal cx = br.left() + line.cursorToX(0) - 15, cy = br.top() + line.y() + line.height() / 2;
+            const qreal rad = 2.6;
+            if (bullet.second == QTextListFormat::ListSquare) {
+                p.drawRect(QRectF(cx - rad, cy - rad, 2 * rad, 2 * rad));
+            } else if (bullet.second == QTextListFormat::ListCircle) {
+                p.setPen(QPen(palette().color(QPalette::Text), 1.2));
+                p.setBrush(Qt::NoBrush);
+                p.drawEllipse(QPointF(cx, cy), rad, rad);
+                p.setPen(Qt::NoPen);
+                p.setBrush(palette().color(QPalette::Text));
+            } else {
+                p.drawEllipse(QPointF(cx, cy), rad, rad);
+            }
+        }
         p.setBrush(m_pillBg);
         for (const auto &pill : m_pills) {
             const QTextBlock b = document()->findBlock(pill.first);
@@ -221,7 +282,7 @@ void MarkdownView::polish()
             } else if (table) {
                 QTextTableFormat tf = table->format();
                 tf.setWidth(QTextLength(QTextLength::PercentageLength, 100));
-                tf.setCellPadding(6);
+                tf.setCellPadding(9);
                 tf.setCellSpacing(0);
                 tf.setBorder(1);
                 tf.setBorderBrush(t.border);
@@ -242,19 +303,66 @@ void MarkdownView::polish()
     m_pillBg = dark ? QColor::fromHsl(t.editorBg.hslHue(), t.editorBg.hslSaturation(), qMin(255, t.editorBg.lightness() + 28))
                         : QColor::fromHsl(t.editorBg.hslHue(), t.editorBg.hslSaturation(), qMax(0, t.editorBg.lightness() - 20));
     m_pills.clear();
+    // Bullets: Qt draws them hard against the text, so the list drops its own marker and paintEvent draws one with a real gap.
+    m_bullets.clear();
+    QSet<QTextList *> seen;
+    for (QTextBlock b = doc->begin(); b.isValid(); b = b.next())
+        if (QTextList *l = b.textList()) {
+            const auto st = l->format().style();
+            if (st != QTextListFormat::ListDisc && st != QTextListFormat::ListCircle && st != QTextListFormat::ListSquare)
+                continue;
+            seen.insert(l);
+            if (b.text().startsWith(QChar(0x2610)) || b.text().startsWith(QChar(0x2611)))
+                continue; // task item: its check box is the marker
+            m_bullets.append({b.blockNumber(), int(st)}); // block numbers: the pill padding below shifts positions
+        }
+    for (QTextList *l : seen) {
+        QTextListFormat lf = l->format();
+        lf.setStyle(QTextListFormat::ListStyleUndefined);
+        l->setFormat(lf);
+    }
+    struct Code { int pos, len; bool pill; QTextCharFormat fmt; };
+    QVector<Code> codes;
     for (QTextBlock b = doc->begin(); b.isValid(); b = b.next())
         for (QTextBlock::iterator it = b.begin(); !it.atEnd(); ++it) {
             const QTextFragment f = it.fragment();
             if (f.charFormat().background().style() == Qt::NoBrush || f.charFormat().background().color() != kInlineCodeMark)
                 continue;
-            if (!isCodeBox(QTextCursor(b).currentTable()))
-                m_pills.append({f.position(), f.length()});
+            codes.append({f.position(), f.length(), !isCodeBox(QTextCursor(b).currentTable()), f.charFormat()});
+        }
+    // Back to front so earlier positions stay valid. A pill gets a no-break narrow space on each side as padding: it
+    // cannot wrap away from its brackets and punctuation, and the pill is painted around it in paintEvent.
+    const QChar pad(0x202F);
+    for (int k = int(codes.size()) - 1; k >= 0; --k) {
+        Code &cd = codes[k];
+        QTextCharFormat none = cd.fmt;
+        none.setBackground(Qt::NoBrush);
+        QTextCursor c(doc);
+        c.setPosition(cd.pos);
+        c.setPosition(cd.pos + cd.len, QTextCursor::KeepAnchor);
+        c.mergeCharFormat(none);
+        if (cd.pill) {
+            c.setPosition(cd.pos + cd.len);
+            c.insertText(pad, none);
+            c.setPosition(cd.pos);
+            c.insertText(pad, none);
+        }
+    }
+    int shift = 0;
+    for (const Code &cd : std::as_const(codes))
+        if (cd.pill) {
+            m_pills.append({cd.pos + shift, cd.len + 2});
+            shift += 2;
+        }
+    // Task list items: no bullet next to the check box, and a ticked box in the accent colour.
+    for (QTextBlock b = doc->begin(); b.isValid(); b = b.next())
+        if (b.textList() && b.text().startsWith(QChar(0x2611))) {
             QTextCursor c(doc);
-            c.setPosition(f.position());
-            c.setPosition(f.position() + f.length(), QTextCursor::KeepAnchor);
-            QTextCharFormat none;
-            none.setBackground(Qt::NoBrush);
-            c.mergeCharFormat(none);
+            c.setPosition(b.position());
+            c.setPosition(b.position() + 1, QTextCursor::KeepAnchor);
+            QTextCharFormat tick;
+            tick.setForeground(t.accent);
+            c.mergeCharFormat(tick);
         }
     doc->setUndoRedoEnabled(true);
 }
@@ -263,7 +371,7 @@ void MarkdownView::polish()
 void MarkdownView::fitImages()
 {
     QTextDocument *doc = document();
-    const int avail = qMax(60, viewport()->width() - int(2 * doc->documentMargin()) - 4);
+    const int avail = qMax(60, viewport()->width() - int(2 * doc->documentMargin()) - 2 * m_sideMargin - 4);
     doc->setUndoRedoEnabled(false);
     for (QTextBlock b = doc->begin(); b.isValid(); b = b.next())
         for (QTextBlock::iterator it = b.begin(); !it.atEnd(); ++it) {

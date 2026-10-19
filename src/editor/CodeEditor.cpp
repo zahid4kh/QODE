@@ -389,6 +389,14 @@ void CodeEditor::scrollBlockToCenter(int blockNumber)
     verticalScrollBar()->setValue(qMax(0, lines - perPage / 2));
 }
 
+void CodeEditor::scrollBlockToTop(int blockNumber)
+{
+    int lines = 0;
+    for (QTextBlock b = document()->begin(); b.isValid() && b.blockNumber() < blockNumber; b = b.next())
+        lines += b.isVisible() ? qMax(1, b.lineCount()) : 0;
+    verticalScrollBar()->setValue(lines);
+}
+
 void CodeEditor::lineNumberAreaPaintEvent(QPaintEvent *event)
 {
     QPainter painter(m_lineArea);

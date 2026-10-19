@@ -26,6 +26,9 @@ public:
     // A chat bubble: no scrollbars, the height follows the content.
     void setAutoHeight(bool on);
 
+    // Caps the text column at `px` (centred when the view is wider); 0 = use the full width.
+    void setReadingWidth(int px);
+
     // Handles the `qode-copy` links of code boxes (copies the box under the cursor). True when `url` was one.
     bool handleCopyLink(const QUrl &url);
 
@@ -38,10 +41,14 @@ private:
     void polish();
     void fitImages();
     void updateHeight();
+    void applyReadingWidth();
 
     QString m_markdown;
     QTimer *m_resizeTimer;
     bool m_autoHeight = false;
+    int m_readingWidth = 0;
+    int m_sideMargin = 0;
     QColor m_boxBg, m_headBg, m_edge, m_pillBg;
     QVector<QPair<int, int>> m_pills; // (position, length) of inline code
+    QVector<QPair<int, int>> m_bullets; // (block number, QTextListFormat::Style) of list items we draw ourselves
 };

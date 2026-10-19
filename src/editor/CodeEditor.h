@@ -166,6 +166,7 @@ public:
     // --- Minimap support ------------------------------------------------------
     void visibleBlockRange(int *first, int *last) const; // block numbers on screen
     void scrollBlockToCenter(int blockNumber);
+    void scrollBlockToTop(int blockNumber); // the block becomes the first visible one
     int minimapWidth() const;
 
     // --- Brackets -----------------------------------------------------------

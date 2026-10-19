@@ -1,6 +1,7 @@
 #include "MarkdownHtml.h"
 
 #include <QHash>
+#include <functional>
 #include <QRegularExpression>
 #include <QSet>
 #include <QStringList>
@@ -39,6 +40,9 @@ struct Ref {
 
 struct Ctx {
     QHash<QString, Ref> refs;
+    QHash<QString, QString> footnotes; // label -> definition source
+    QStringList footnoteOrder;         // labels in order of first reference
+    MarkdownHtml::Highlighter highlight;
     QStringList atoms; // finished HTML fragments, referenced from inline text by a placeholder
     QString placeholder(const QString &html)
     {
@@ -312,7 +316,7 @@ QString inlineHtml(Ctx &ctx, const QString &s)
                 QString code = s.mid(i + run, close - i - run).replace(QLatin1Char('\n'), QLatin1Char(' '));
                 if (code.size() > 2 && code.startsWith(QLatin1Char(' ')) && code.endsWith(QLatin1Char(' ')) && code.trimmed() == code.mid(1, code.size() - 2))
                     code = code.mid(1, code.size() - 2);
-                out += ctx.placeholder(QStringLiteral("<code>\u2009%1\u2009</code>").arg(esc(code)));
+                out += ctx.placeholder(QStringLiteral("<code>%1</code>").arg(esc(code)));
                 i = close + run;
                 continue;
             }
@@ -343,6 +347,23 @@ QString inlineHtml(Ctx &ctx, const QString &s)
             out += QStringLiteral("&lt;");
             ++i;
             continue;
+        }
+        if (c == QLatin1Char('[') && i + 1 < n && s[i + 1] == QLatin1Char('^') && !ctx.footnotes.isEmpty()) {
+            const int e = s.indexOf(QLatin1Char(']'), i + 2);
+            const QString label = e > 0 ? s.mid(i + 2, e - i - 2) : QString();
+            if (!label.isEmpty() && ctx.footnotes.contains(label)) {
+                int idx = ctx.footnoteOrder.indexOf(label);
+                const bool first = idx < 0;
+                if (first) {
+                    ctx.footnoteOrder << label;
+                    idx = ctx.footnoteOrder.size() - 1;
+                }
+                out += ctx.placeholder(QStringLiteral("%2<sup><a href=\"#fn-%1\">%1</a></sup>")
+                                           .arg(idx + 1)
+                                           .arg(first ? QStringLiteral("<a name=\"fnref-%1\"></a>").arg(idx + 1) : QString()));
+                i = e + 1;
+                continue;
+            }
         }
         const bool image = c == QLatin1Char('!') && i + 1 < n && s[i + 1] == QLatin1Char('[');
         if (c == QLatin1Char('[') || image) {
@@ -521,16 +542,27 @@ const QRegularExpression &htmlBlockRe()
     return r;
 }
 
+// The code as HTML: coloured by the caller's highlighter when it knows the language, else escaped.
+QString colouredCode(Ctx &ctx, const QString &code, const QString &lang)
+{
+    if (ctx.highlight && !lang.isEmpty()) {
+        const QString html = ctx.highlight(code, lang);
+        if (!html.isEmpty())
+            return html;
+    }
+    return esc(code);
+}
+
 // A code box: a borderless table (cellpadding 7 marks it for MarkdownPreview, which paints the rounded
 // background) with a header row holding the language and a Copy link, then the code itself.
-QString codeBlock(const QString &code, const QString &lang)
+QString codeBlock(Ctx &ctx, const QString &code, const QString &lang)
 {
     QString l = lang;
     l.remove(QRegularExpression(QStringLiteral("^[{.]|[}]$")));
     return QStringLiteral("<table border=\"0\" cellspacing=\"0\" cellpadding=\"7\" width=\"100%\"><tr><td><small>%1</small></td>"
                           "<td align=\"right\"><small><a href=\"qode-copy:\">Copy</a></small></td></tr>"
                           "<tr><td colspan=\"2\"><pre>%2</pre></td></tr></table>")
-        .arg(esc(l.toUpper()), esc(code));
+        .arg(esc(l.toUpper()), colouredCode(ctx, code, l));
 }
 
 QString blocks(Ctx &ctx, const QStringList &lines, bool tight);
@@ -724,7 +756,7 @@ QString blocks(Ctx &ctx, const QStringList &srcLines, bool tight)
                 code << lines[i].mid(qMin(indentOf(lines[i]), fin));
                 ++i;
             }
-            out += codeBlock(code.join(QLatin1Char('\n')), fm.captured(3).trimmed().split(QLatin1Char(' ')).value(0));
+            out += codeBlock(ctx, code.join(QLatin1Char('\n')), fm.captured(3).trimmed().split(QLatin1Char(' ')).value(0));
             continue;
         }
         // indented code
@@ -736,7 +768,7 @@ QString blocks(Ctx &ctx, const QStringList &srcLines, bool tight)
             }
             while (!code.isEmpty() && code.last().isEmpty())
                 code.removeLast();
-            out += codeBlock(code.join(QLatin1Char('\n')), QString());
+            out += codeBlock(ctx, code.join(QLatin1Char('\n')), QString());
             continue;
         }
         // headings
@@ -839,9 +871,10 @@ QString blocks(Ctx &ctx, const QStringList &srcLines, bool tight)
 
 } // namespace
 
-QString convert(const QString &markdown)
+QString convert(const QString &markdown, Highlighter highlight)
 {
     Ctx ctx;
+    ctx.highlight = std::move(highlight);
     QStringList lines = markdown.split(QLatin1Char('\n'));
     for (QString &l : lines)
         if (l.endsWith(QLatin1Char('\r')))
@@ -866,10 +899,25 @@ QString convert(const QString &markdown)
 
     // Reference definitions are collected first (outside code fences) and removed.
     static const QRegularExpression def(QStringLiteral("^ {0,3}\\[([^\\]]+)\\]:\\s*<?([^\\s>]+)>?(?:\\s+(?:\"(.*)\"|'(.*)'|\\((.*)\\)))?\\s*$"));
+    static const QRegularExpression fnDef(QStringLiteral("^ {0,3}\\[\\^([^\\]\\s]+)\\]:[ \\t]*(.*)$"));
     QStringList kept;
     QString fence;
+    QString fnOpen; // footnote whose indented continuation lines are being collected
     for (const QString &l : lines) {
         const auto fm = fenceRe().match(l);
+        if (fence.isEmpty() && !fm.hasMatch()) {
+            const auto fd = fnDef.match(l);
+            if (fd.hasMatch()) {
+                fnOpen = fd.captured(1);
+                ctx.footnotes.insert(fnOpen, fd.captured(2));
+                continue;
+            }
+            if (!fnOpen.isEmpty() && indentOf(l) >= 2 && !isBlank(l)) {
+                ctx.footnotes[fnOpen] += QLatin1Char(' ') + l.trimmed();
+                continue;
+            }
+            fnOpen.clear();
+        }
         if (fm.hasMatch()) {
             const QString f = fm.captured(2);
             if (fence.isEmpty())
@@ -892,7 +940,16 @@ QString convert(const QString &markdown)
         }
         kept << l;
     }
-    return blocks(ctx, kept, false);
+    QString html = blocks(ctx, kept, false);
+    if (!ctx.footnoteOrder.isEmpty()) {
+        html += QStringLiteral("<hr><p><b>Footnotes</b></p><ol>");
+        for (int k = 0; k < ctx.footnoteOrder.size(); ++k) // inline text of one footnote may cite another, so the list can grow
+            html += QStringLiteral("<li><a name=\"fn-%1\"></a>%2 <a href=\"#fnref-%1\">\u21a9</a></li>")
+                        .arg(k + 1)
+                        .arg(inlineHtml(ctx, ctx.footnotes.value(ctx.footnoteOrder[k])));
+        html += QStringLiteral("</ol>");
+    }
+    return html;
 }
 
 } // namespace MarkdownHtml

@@ -93,6 +93,7 @@ private:
     void showMedia(const QString &path);
     void togglePreview();
     void updatePreview();
+    void wirePreviewScroll();
     void followPreview();
     void openRightPanel();
     void hideMedia();
@@ -228,6 +229,8 @@ private:
     QStackedWidget *m_rightStack; // media panel | markdown preview | Gradle tasks | Spring Boot | AI chat
     QPointer<Document> m_previewDoc; // the Markdown / SVG file the right panel is previewing live
     QMetaObject::Connection m_previewConn;
+    QMetaObject::Connection m_previewScrollConn;
+    bool m_scrollSync = false; // a scroll we caused ourselves while keeping editor and preview aligned
     QTimer *m_previewTimer;
     int m_mediaWidth = 420;
     QVariantAnimation *m_slideAnim = nullptr;

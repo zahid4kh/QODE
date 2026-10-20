@@ -29,7 +29,6 @@ class MarkdownPreview;
 class GradlePanel;
 class SpringBar;
 class SpringPanel;
-class AiHub;
 class QVariantAnimation;
 class GitRepository;
 class LspManager;
@@ -108,8 +107,6 @@ private:
     void showExpoSchemaCache();
     void updatePythonUi();
     void updateGradleUi();
-    void toggleAiPanel();
-    void slideRightPanel(bool open);
     void toggleSpringPanel();
     void addSpringStarters();
     void newSpringComponent(int kind, const QString &dir);
@@ -224,8 +221,6 @@ private:
     MarkdownPreview *m_md;
     GradlePanel *m_gradle = nullptr;
     SpringPanel *m_spring = nullptr;
-    AiHub *m_ai = nullptr;
-    QAction *m_aiAct = nullptr;
     QStackedWidget *m_rightStack; // media panel | markdown preview | Gradle tasks | Spring Boot | AI chat
     QPointer<Document> m_previewDoc; // the Markdown / SVG file the right panel is previewing live
     QMetaObject::Connection m_previewConn;
@@ -233,7 +228,6 @@ private:
     bool m_scrollSync = false; // a scroll we caused ourselves while keeping editor and preview aligned
     QTimer *m_previewTimer;
     int m_mediaWidth = 420;
-    QVariantAnimation *m_slideAnim = nullptr;
     int m_sideWidth = 250;
     QSplitter *m_vsplit;
     int m_terminalHeight = 240;

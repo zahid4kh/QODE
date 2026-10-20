@@ -178,10 +178,6 @@ public:
     QString pythonVenv() const;
     void setPythonVenv(const QString &name);
 
-    // Gemini model used by the AI chat (global); any model name is accepted.
-    QString aiModel() const;
-    void setAiModel(const QString &model);
-
     QStringList recentCommands() const; // most recent first
     void setRecentCommands(const QStringList &commands);
 

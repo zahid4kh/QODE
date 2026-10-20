@@ -22,3 +22,4 @@ debs
 staging_qode_qt/
 build-deb-qt/
 whats-new
+/publish-apt.sh

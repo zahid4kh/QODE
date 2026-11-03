@@ -1,3 +1,14 @@
+qode (2.0.0) unstable; urgency=low
+
+  * QODE chat on Gemini or Claude: file, terminal, LSP, git and debugger tools, usage meter, codebase search, undo / redo, slash commands, MCP servers, Fix with QODE
+  * Inline edit (Ctrl+K) and the Claude Code view (front end for the claude CLI)
+  * Editor: multiple cursors, code lenses, Ctrl+click links, .editorconfig, local history, Copy as Image, C/C++ conveniences
+  * JVM: Maven panel, Ktor support, JDWP debugger, New Kotlin / Java class, dependency manager
+  * HTTP client for .http / .rest files, git diff pane, web / Expo preview
+  * Three packages: qode (system Qt), qode-bundled (Qt 6.11 + WebEngine), qode-bundled-noweb
+
+ -- zahid4kh <halilzahid@gmail.com>  Tue, 03 Nov 2026 21:59:30 +0100
+
 qode (1.2.1) unstable; urgency=low
 
   * Markdown preview: readability, scroll sync, footnotes, task lists, coloured code

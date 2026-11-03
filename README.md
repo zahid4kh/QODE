@@ -82,18 +82,6 @@ make -j$(nproc)
 sudo make install        # optional, PREFIX defaults to /usr/local
 ```
 
-The scripts in `scripts/` do the same and build the packages:
-
-| Script | Builds |
-|---|---|
-| `scripts/compile.sh [qmake args]` | `build/qode` with the newest Qt under `~/Qt`, or `$QODE_QMAKE`, or `qmake6` from `PATH` |
-| `scripts/build-deb.sh` | `qode_<version>_<arch>.deb` against the system Qt |
-| `scripts/build-deb-qt.sh` | `qode-bundled_<version>_<arch>.deb` with Qt (and Qt WebEngine) bundled; needs `patchelf` |
-| `scripts/build-deb-qt-noweb.sh` | `qode-bundled-noweb_<version>_<arch>.deb` without Qt WebEngine |
-| `scripts/build-all-debs.sh` | all three, collected in `debs/` |
-
-Each takes `--no-build` to repackage the last build.
-
 ## Language servers (LSP)
 
 QODE is an LSP client; it does not ship any language server (for Kotlin and the web languages it can download one for you on request). Install the server for your language and QODE finds it on `PATH` (or use **LSP > Set Server Path…**). With no server installed everything else works as before, and the status bar shows a hint when you open a file that has one available.

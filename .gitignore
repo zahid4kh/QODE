@@ -25,3 +25,5 @@ build-*/
 whats-new
 /publish-apt.sh
 dev-docs
+# Build and packaging scripts (kept local)
+scripts/

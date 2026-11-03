@@ -1,6 +1,32 @@
 #!/bin/bash
-# postinst: runs after the files of qode are unpacked and the package is configured.
+# postinst: runs after the files of @PACKAGE@ are unpacked and the package is configured.
+# The build (scripts/deb-common.sh) fills in the package, version, Qt flavour and whether the web preview is in it.
 set -e
+
+PKG="@PACKAGE@"
+VERSION="@VERSION@"
+FLAVOR="@FLAVOR@"
+WEB="@WEB@"
+SWITCH=/run/qode-package-switch # left by the prerm of another QODE package this one replaces
+
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+    B=$'\e[1m' D=$'\e[2m' A=$'\e[38;5;75m' G=$'\e[32m' Y=$'\e[33m' N=$'\e[0m'
+else
+    B='' D='' A='' G='' Y='' N=''
+fi
+bar() { echo "  ${A}│${N}${1:+ $1}"; }
+row() { printf "  ${A}│${N} ${D}%-12s${N} %s\n" "$1" "$2"; }
+
+# The notes of the newest changelog entry (this version), at most six.
+release_notes() {
+    local log="/usr/share/doc/$PKG/changelog.gz"
+    [ -r "$log" ] || return 0
+    zcat "$log" 2>/dev/null | awk 'NR > 1 && /^[^ ]/ { exit } /^  \* / { sub(/^  \* /, ""); print }' | head -n 6 |
+        while IFS= read -r note; do
+            [ "${#note}" -le 90 ] || note="${note:0:87}..."
+            echo "  ${A}│${N}   ${G}•${N} $note"
+        done
+}
 
 case "$1" in
     configure)
@@ -20,8 +46,47 @@ case "$1" in
         fi
         hash -r 2>/dev/null || true
 
-        echo "QODE installed. Start it from the applications menu or with: qode [project-folder | file ...]"
-        echo "Language servers are never bundled; see 'qode-remove-lsp --help' to list or remove ones you set up."
+        # What happened: a first install, an upgrade / downgrade / reinstall ($2 is the version configured before),
+        # or a switch from another QODE package (qode <-> qode-bundled <-> qode-bundled-noweb).
+        old="${2:-}"
+        if [ -f "$SWITCH" ]; then
+            what="${G}✔ Switched${N} from $(cat "$SWITCH" 2>/dev/null) to $PKG $VERSION"
+            rm -f "$SWITCH"
+        elif [ -z "$old" ]; then
+            what="${G}✔ Installed${N} QODE $VERSION"
+        elif [ "$old" = "$VERSION" ]; then
+            what="${G}✔ Reinstalled${N} QODE $VERSION"
+        elif dpkg --compare-versions "$old" lt "$VERSION"; then
+            what="${G}✔ Upgraded${N} QODE $old ${D}->${N} ${B}$VERSION${N}"
+        else
+            what="${Y}! Downgraded${N} QODE $old ${D}->${N} ${B}$VERSION${N}"
+        fi
+        if [ "$WEB" = 1 ]; then
+            preview="included (Qt WebEngine)"
+        else
+            preview="${Y}not in this build${N} (pages open in the browser; the qode-bundled package has it)"
+        fi
+
+        echo
+        echo "  ${A}╭─${N} ${B}QODE $VERSION${N} ${A}────────────────────────────────────────────${N}"
+        bar
+        bar "$what"
+        bar
+        row "Package" "$PKG"
+        row "Qt" "$FLAVOR"
+        row "Web preview" "$preview"
+        if [ -n "$(release_notes)" ]; then
+            bar
+            bar "${B}In this version${N}"
+            release_notes
+        fi
+        bar
+        row "Start" "qode [project-folder | file ...]  or from the applications menu"
+        row "Manual" "man qode"
+        row "LSP servers" "never bundled; qode-remove-lsp --list shows what is installed"
+        row "Data" "~/.config/QODE-AGENTIC, ~/.local/share/QODE-AGENTIC, ~/.cache/QODE-AGENTIC"
+        echo "  ${A}╰──────────────────────────────────────────────────────────${N}"
+        echo
         ;;
 
     abort-upgrade|abort-remove|abort-deconfigure)

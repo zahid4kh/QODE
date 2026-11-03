@@ -17,9 +17,10 @@ resources/templates/**/.gradle/
 bump-version.sh
 .env.local
 g-docs/
+claude-api-docs/
 debs
-# Self-contained (bundled Qt) package build
-staging_qode_qt/
-build-deb-qt/
+# Self-contained (bundled Qt) package builds, with and without Qt WebEngine
+staging_qode*/
+build-*/
 whats-new
 /publish-apt.sh

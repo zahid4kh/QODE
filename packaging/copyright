@@ -13,6 +13,13 @@ License: OFL-1.1 and ISC
  The embedded fonts are distributed under the SIL Open Font License 1.1
  (https://openfontlicense.org); the icons under the ISC license.
 
+Files: usr/bin/qode (resources/new-icons/kotlin.svg, embedded)
+Copyright: Copyright © 2026 JetBrains s.r.o. Kotlin and the Kotlin logo are trademarks of JetBrains s.r.o.
+ Copyright © 2026 JetBrains s.r.o. Ktor and the Ktor logo are trademarks of JetBrains s.r.o.
+License: other
+ The Kotlin and Ktor logos are used to mark Kotlin files and Ktor projects, following JetBrains'
+ brand guidelines. They are not covered by the MIT license of QODE.
+
 License: MIT
  Permission is hereby granted, free of charge, to any person obtaining a copy
  of this software and associated documentation files (the "Software"), to deal

@@ -1,16 +1,28 @@
 #!/bin/bash
-# postrm: runs after the files of qode are removed.
+# postrm: runs after the files of @PACKAGE@ are removed.
 #
 # Removing QODE removes EVERYTHING it created, for every user on the machine:
 #   /usr/local/bin/qode                      convenience link (if it is ours)
-#   ~/.config/QODE/                          QODE.conf and projects/*.json (open files, layout, terminal tabs, bookmarks)
-#   ~/.local/share/QODE/                     language servers QODE downloaded (Kotlin, about 1.2 GB)
-#   ~/.cache/QODE/                           language server caches, unpacked library sources
+#   ~/.config/QODE-AGENTIC/                  QODE.conf and projects/*.json (open files, layout, terminal tabs, bookmarks)
+#   ~/.local/share/QODE-AGENTIC/             language servers QODE downloaded (Kotlin, about 1.2 GB), local history
+#   ~/.cache/QODE-AGENTIC/                   language server caches, unpacked library sources
 #   ~/.local/bin/kotlin-lsp                  link to the downloaded Kotlin server (only if it points into QODE's folder)
 #   /tmp/qode-*                              leftover single-instance sockets
 # System language servers (clangd) are packages of their own and are never removed here; the commands for
 # them are printed at the end. Set QODE_KEEP_USER_DATA=1 to keep the per-user data.
+# Nothing is wiped when another QODE package (qode, qode-bundled, qode-bundled-noweb) replaces this one: prerm left
+# /run/qode-package-switch, or the other package's /usr/bin/qode is already in place.
 set -e
+
+PKG="@PACKAGE@"
+SWITCH=/run/qode-package-switch
+
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+    B=$'\e[1m' D=$'\e[2m' A=$'\e[38;5;75m' G=$'\e[32m' Y=$'\e[33m' N=$'\e[0m'
+else
+    B='' D='' A='' G='' Y='' N=''
+fi
+say() { echo "  ${A}│${N}${1:+ $1}"; }
 
 # Home folders of root and all regular users.
 user_homes() {
@@ -19,49 +31,52 @@ user_homes() {
 
 wipe_user_data() {
     if [ "${QODE_KEEP_USER_DATA:-}" = "1" ]; then
-        echo "qode: QODE_KEEP_USER_DATA=1, leaving ~/.config/QODE, ~/.local/share/QODE and ~/.cache/QODE in place."
+        say "${G}✔${N} QODE_KEEP_USER_DATA=1: kept ~/.config/QODE-AGENTIC, ~/.local/share/QODE-AGENTIC, ~/.cache/QODE-AGENTIC"
         return
     fi
-    user_homes | while IFS= read -r home; do
+    local removed=0
+    while IFS= read -r home; do
         [ -d "$home" ] || continue
-        for dir in "$home/.config/QODE" "$home/.local/share/QODE" "$home/.cache/QODE"; do
+        for dir in "$home/.config/QODE-AGENTIC" "$home/.local/share/QODE-AGENTIC" "$home/.cache/QODE-AGENTIC"; do
             if [ -e "$dir" ]; then
+                say "${D}removed${N} $dir ${D}($(du -sh "$dir" 2>/dev/null | cut -f1))${N}"
                 rm -rf -- "$dir"
-                echo "qode: removed $dir"
+                removed=1
             fi
         done
         for link in "$home/.local/bin/kotlin-lsp" "$home/.local/bin/kotlin-lsp.new"; do
-            if [ -L "$link" ] && readlink "$link" | grep -q "/QODE/lsp/"; then
+            if [ -L "$link" ] && readlink "$link" | grep -q "/QODE-AGENTIC/lsp/"; then
                 rm -f -- "$link"
-                echo "qode: removed $link"
+                say "${D}removed${N} $link"
             fi
         done
-    done
-    rm -f /tmp/qode-[0-9]*-[pf]-* 2>/dev/null || true
+    done < <(user_homes)
+    [ "$removed" = 1 ] || say "${D}no user data to remove${N}"
+    if ! pgrep -x qode >/dev/null 2>&1; then
+        rm -f /tmp/qode-[0-9]*-[pf]-* 2>/dev/null || true
+    fi
 }
 
 print_lsp_hints() {
-    local shown=0
     if command -v clangd >/dev/null 2>&1; then
-        shown=1
-        echo "qode: C/C++ language server 'clangd' is still installed. To remove it:"
-        echo "        sudo apt remove clangd && sudo apt autoremove"
-        echo "      (the package may be named clangd-NN: dpkg -S \$(command -v clangd))"
+        say "${Y}!${N} clangd (C/C++ language server) is still installed. To remove it:"
+        say "    sudo apt remove clangd && sudo apt autoremove"
+        say "    ${D}(the package may be named clangd-NN: dpkg -S \$(command -v clangd))${N}"
     fi
     if command -v kotlin-lsp >/dev/null 2>&1; then
-        shown=1
-        echo "qode: 'kotlin-lsp' is still on your PATH ($(command -v kotlin-lsp)); it was not installed by QODE. Remove it with:"
-        echo "        rm -f \"$(command -v kotlin-lsp)\"   # and delete the folder it points to"
+        say "${Y}!${N} kotlin-lsp is still on your PATH ($(command -v kotlin-lsp)); QODE did not install it."
+        say "    rm -f \"$(command -v kotlin-lsp)\"   ${D}# and delete the folder it points to${N}"
     fi
-    [ "$shown" = 1 ] || true
 }
 
 case "$1" in
     remove|purge)
+        if [ -f "$SWITCH" ] || [ -e /usr/bin/qode ]; then
+            exit 0 # another QODE package took over; its postinst says so
+        fi
         if [ -L /usr/local/bin/qode ] && [ "$(readlink /usr/local/bin/qode)" = "/usr/bin/qode" ]; then
             rm -f /usr/local/bin/qode
         fi
-        wipe_user_data
         if command -v update-desktop-database >/dev/null 2>&1; then
             update-desktop-database -q /usr/share/applications 2>/dev/null || true
         fi
@@ -69,7 +84,16 @@ case "$1" in
             gtk-update-icon-cache -q -f -t /usr/share/icons/hicolor 2>/dev/null || true
         fi
         hash -r 2>/dev/null || true
-        print_lsp_hints
+        if [ "$1" = remove ]; then
+            echo "  ${A}│${N}"
+            wipe_user_data
+            print_lsp_hints
+            echo "  ${A}│${N}"
+            echo "  ${A}╰─${N} ${G}✔${N} ${B}QODE removed${N} ${D}($PKG)${N}"
+            echo
+        else
+            wipe_user_data >/dev/null # purge after remove: normally nothing is left
+        fi
         ;;
 
     upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)

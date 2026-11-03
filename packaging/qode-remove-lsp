@@ -10,8 +10,8 @@ Usage: qode-remove-lsp [options]
 
   --list        show which language servers are installed (default when no option is given)
   --kotlin      remove the Kotlin language server QODE downloaded:
-                  ~/.local/share/QODE/lsp/kotlin, ~/.cache/QODE/lsp/kotlin (index cache),
-                  ~/.cache/QODE/lsp/library-sources, the ~/.local/bin/kotlin-lsp link
+                  ~/.local/share/QODE-AGENTIC/lsp/kotlin, ~/.cache/QODE-AGENTIC/lsp/kotlin (index cache),
+                  ~/.cache/QODE-AGENTIC/lsp/library-sources, the ~/.local/bin/kotlin-lsp link
   --cpp         remove the C/C++ language server (clangd) with: sudo apt remove <package> && sudo apt autoremove
   --all         both of the above
   -y, --yes     do not ask for confirmation
@@ -21,9 +21,9 @@ QODE has to be restarted afterwards.
 USAGE
 }
 
-DATA="${XDG_DATA_HOME:-$HOME/.local/share}/QODE/lsp"
-CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/QODE/lsp"
-CONF="${XDG_CONFIG_HOME:-$HOME/.config}/QODE/QODE.conf"
+DATA="${XDG_DATA_HOME:-$HOME/.local/share}/QODE-AGENTIC/lsp"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/QODE-AGENTIC/lsp"
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}/QODE-AGENTIC/QODE.conf"
 LINK="$HOME/.local/bin/kotlin-lsp"
 DO_LIST=0 DO_KOTLIN=0 DO_CPP=0 YES=0
 
@@ -72,12 +72,12 @@ remove_kotlin() {
     for p in "$DATA/kotlin" "$CACHE/kotlin" "$CACHE/library-sources"; do
         [ -e "$p" ] && echo "  rm -rf $p ($(size_of "$p"))"
     done
-    if [ -L "$LINK" ] && readlink "$LINK" | grep -q "/QODE/lsp/"; then
+    if [ -L "$LINK" ] && readlink "$LINK" | grep -q "/QODE-AGENTIC/lsp/"; then
         echo "  rm $LINK"
     fi
     confirm "Remove the Kotlin language server?" || { echo "Skipped."; return; }
     rm -rf -- "$DATA/kotlin" "$CACHE/kotlin" "$CACHE/library-sources"
-    if [ -L "$LINK" ] && readlink "$LINK" | grep -q "/QODE/lsp/"; then
+    if [ -L "$LINK" ] && readlink "$LINK" | grep -q "/QODE-AGENTIC/lsp/"; then
         rm -f -- "$LINK"
     fi
     rm -f -- "$LINK.new"

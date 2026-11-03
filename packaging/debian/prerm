@@ -1,12 +1,33 @@
 #!/bin/bash
-# prerm: runs before the files of qode are removed.
+# prerm: runs before the files of @PACKAGE@ are removed.
 set -e
 
+PKG="@PACKAGE@"
+VERSION="@VERSION@"
+SWITCH=/run/qode-package-switch # read by postrm (keep the user data) and by the new package's postinst
+
+if [ -t 2 ] && [ -z "${NO_COLOR:-}" ]; then
+    B=$'\e[1m' D=$'\e[2m' A=$'\e[38;5;75m' Y=$'\e[33m' N=$'\e[0m'
+else
+    B='' D='' A='' Y='' N=''
+fi
+say() { echo "  ${A}│${N}${1:+ $1}" >&2; }
+
 case "$1" in
-    remove|deconfigure)
+    remove)
+        # Replaced by another QODE package (qode <-> qode-bundled <-> qode-bundled-noweb): only the binary changes,
+        # so running windows and the user data stay.
+        if [ "${2:-}" = "in-favour" ] && [[ "${3:-}" =~ ^qode(-bundled|-bundled-noweb)?$ ]]; then
+            echo "$PKG $VERSION" > "$SWITCH"
+            exit 0
+        fi
+        rm -f "$SWITCH"
+
+        echo >&2
+        echo "  ${A}╭─${N} ${B}Removing QODE $VERSION${N} ${D}($PKG)${N} ${A}─────────────────────────────${N}" >&2
         # The data folders are deleted afterwards (see postrm), so a running editor must not write into them.
         if pgrep -x qode >/dev/null 2>&1; then
-            echo "qode: closing running QODE windows (save your work first next time)." >&2
+            say "${Y}!${N} closing running QODE windows (save your work first next time)"
             pkill -x qode || true
             sleep 1
         fi
@@ -16,13 +37,22 @@ case "$1" in
             rm -f /usr/local/bin/qode
         fi
 
-        # Tell the user, while the helper still exists, what language servers are around.
-        echo "qode: removing QODE will also delete, for every user, ~/.config/QODE (settings and per-project data)," >&2
-        echo "      ~/.local/share/QODE (downloaded Kotlin language server) and ~/.cache/QODE." >&2
-        echo "      Set QODE_KEEP_USER_DATA=1 in the environment of apt/dpkg to keep them." >&2
-        if command -v clangd >/dev/null 2>&1; then
-            echo "      clangd is installed system-wide; QODE leaves it alone. 'qode-remove-lsp --cpp' removes it first." >&2
+        if [ "${QODE_KEEP_USER_DATA:-}" = "1" ]; then
+            say "QODE_KEEP_USER_DATA=1: settings, projects and downloaded servers are kept"
+        else
+            say "This also deletes, for every user:"
+            say "  ${D}~/.config/QODE-AGENTIC${N}       settings and per-project data"
+            say "  ${D}~/.local/share/QODE-AGENTIC${N}  downloaded language servers, local history"
+            say "  ${D}~/.cache/QODE-AGENTIC${N}        caches"
+            say "${D}To keep them: sudo QODE_KEEP_USER_DATA=1 apt remove $PKG${N}"
         fi
+        if command -v clangd >/dev/null 2>&1; then
+            say "clangd is installed system-wide; QODE leaves it alone ('qode-remove-lsp --cpp' removes it)."
+        fi
+        echo "  ${A}╰──────────────────────────────────────────────────────────${N}" >&2
+        ;;
+
+    deconfigure)
         ;;
 
     upgrade)

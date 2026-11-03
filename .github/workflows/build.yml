@@ -18,7 +18,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential qt6-base-dev qt6-base-dev-tools qt6-multimedia-dev \
-            libqt6svg6-dev zlib1g-dev libgl1-mesa-dev dpkg-dev fakeroot patchelf file
+            qt6-webengine-dev qt6-webengine-dev-tools \
+            libqt6svg6-dev zlib1g-dev libgl1-mesa-dev dpkg-dev fakeroot patchelf file \
+            libnss3 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 \
+            libxcb-render-util0 libxcb-image0 libxcomposite1 libxdamage1 libxrandr2 \
+            libxtst6 libxshmfence1 libgbm1 libasound2t64
+
+      # The bundled packages use Qt 6.11 (with Qt WebEngine); qode uses the system Qt 6.4 above.
+      - name: Install Qt 6.11
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.*'
+          modules: 'qtwebengine qtwebchannel qtpositioning qtmultimedia'
+          dir: ${{ runner.temp }}
+          setup-python: false
 
       - name: Check the tag matches VERSION
         if: startsWith(github.ref, 'refs/tags/')
@@ -29,25 +42,21 @@ jobs:
             exit 1
           fi
 
-      - name: Compile (compile.sh)
-        run: scripts/compile.sh
-
-      - name: Debian package (system Qt)
-        run: scripts/build-deb.sh
-
-      - name: Debian package (bundled Qt)
-        run: scripts/build-deb-qt.sh
+      - name: Debian packages (qode, qode-bundled, qode-bundled-noweb)
+        env:
+          QODE_QMAKE: ${{ env.QT_ROOT_DIR }}/bin/qmake6
+        run: scripts/build-all-debs.sh
 
       - name: Inspect packages
         run: |
-          for f in *.deb; do
+          for f in debs/*.deb; do
             echo "== $f"; dpkg-deb -I "$f" | sed -n '/Package:/p;/Version:/p;/Depends:/p'
           done
 
       - uses: actions/upload-artifact@v4
         with:
           name: debs
-          path: "*.deb"
+          path: "debs/*.deb"
           if-no-files-found: error
 
   release:

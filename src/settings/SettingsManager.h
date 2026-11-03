@@ -62,6 +62,8 @@ public:
     void setSymbolHighlight(bool on);
     bool lightBulb() const;            // quick-fix bulb in the gutter
     void setLightBulb(bool on);
+    bool codeLenses() const;           // "▶ Run | Debug", "3 references" after declarations (on by default)
+    void setCodeLenses(bool on);
     bool semanticHighlighting() const; // identifiers coloured by what the language server says they are (on by default)
     void setSemanticHighlighting(bool on);
 
@@ -77,21 +79,35 @@ public:
     QHash<QString, QList<int>> bookmarks() const;
     void setBookmarks(const QHash<QString, QList<int>> &bookmarks);
     // Terminal tabs of the project: one entry per tab, the name the user gave it or "" for the automatic one.
+    // Debugger breakpoints: path -> 0-based lines (per project).
+    QHash<QString, QList<int>> breakpoints() const;
+    void setBreakpoints(const QHash<QString, QList<int>> &breakpoints);
+    // The JDK the project's terminals and runs use (its home folder; "" = the system default). Per project.
+    QString projectJdk() const;
+    void setProjectJdk(const QString &home);
+
     QStringList terminalTabs() const;
     void setTerminalTabs(const QStringList &names);
     bool importsFolded(const QString &path) const;
     void setImportsFolded(const QString &path, bool folded);
+    // Opening a file folds its license header (the comment above the first code) / its doc comments (/** … */).
+    bool foldLicenseHeaders() const;
+    void setFoldLicenseHeaders(bool on);
+    bool foldDocComments() const;
+    void setFoldDocComments(bool on);
     bool blameInline() const;
     void setBlameInline(bool on);
     bool blameGutter() const;
     void setBlameGutter(bool on);
     bool stickyScroll() const;
     void setStickyScroll(bool on);
+    bool editPredictions() const; // Tab applies the edit the last one implies elsewhere
+    void setEditPredictions(bool on);
     bool indentGuides() const;
     void setIndentGuides(bool on);
 
     // Per-project data (theme/tab size/spaces/format-on-save/venv overrides, run commands, open files, bookmarks) lives in
-    // ~/.config/QODE/projects/<name>-<hash>.json, created when a project is opened. With no
+    // ~/.config/QODE-AGENTIC/projects/<name>-<hash>.json, created when a project is opened. With no
     // project open these accessors work on a throwaway in-memory copy that is never saved.
     void setProject(const QString &root); // empty = no project
     QString projectFilePath() const;
@@ -149,7 +165,7 @@ public:
 
     QString runCommand(const QString &key) const; // per file type, see RunConfigDialog::keyFor
     void setRunCommand(const QString &key, const QString &command);
-    QJsonObject expo() const; // per-project Expo choices: {dir: relative app folder, last: run configuration id}
+    QJsonObject expo() const; // per-project Expo choices: {dir: relative app folder, last: run configuration id, preview: WebPreview target id}
     void setExpo(const QJsonObject &config);
     // Dev server of a web project: {manager, script, port, command}; missing keys mean automatic.
     QJsonObject webServer() const;
@@ -157,8 +173,19 @@ public:
     // Spring Boot application of the project: {profiles, port, arguments, command}; missing keys mean automatic.
     QJsonObject springRequests() const; // HTTP client: history, saved requests, draft
     void setSpringRequests(const QJsonObject &state);
+    // Maven panel: offline / skip tests / profiles / module of the open project.
+    QJsonObject mavenOptions() const;
+    void setMavenOptions(const QJsonObject &options);
     QJsonObject springServer() const;
     void setSpringServer(const QJsonObject &config);
+    // Ktor server of the project: {port, development, arguments, command, jvmArgs, env}; missing keys mean automatic.
+    QJsonObject ktorServer() const;
+    void setKtorServer(const QJsonObject &config);
+    QJsonObject ktorRequests() const; // HTTP client of the Ktor panel: history, saved requests, draft
+    void setKtorRequests(const QJsonObject &state);
+    // The environment .http files are sent with (per project; "" = none).
+    QString httpEnvironment() const;
+    void setHttpEnvironment(const QString &name);
 
     // Language servers: executable override per server id ("" = look on PATH).
     QString lspServerPath(const QString &serverId) const;
@@ -177,6 +204,29 @@ public:
     // The Python venv (root-relative folder name) this project works with; empty = detect automatically.
     QString pythonVenv() const;
     void setPythonVenv(const QString &name);
+
+    // Model used by the AI agent (global): a Gemini or Claude model id, any name is accepted.
+    QString aiModel() const;
+    void setAiModel(const QString &model);
+    // Claude effort (low | medium | high | xhigh | max), global.
+    // The model of the inline edit box (Ctrl+K, "/?"); Gemini until another one is picked there.
+    QString inlineModel() const;
+    void setInlineModel(const QString &model);
+    QString aiEffort() const;
+    void setAiEffort(const QString &effort);
+    // The codebase index also ranks by meaning with Gemini embeddings (sends code sections to Google), global; default on.
+    bool codeEmbeddings() const;
+    void setCodeEmbeddings(bool on);
+    // The Claude Code view (global): "model", "permissionMode", "auth" (account | apiKey); "" when unset.
+    QString claudeCode(const QString &key) const;
+    void setClaudeCode(const QString &key, const QString &value);
+    // Which page the chat area shows: "qode" or "claudeCode".
+    QString chatPage() const;
+    void setChatPage(const QString &page);
+
+    // How "Copy as Image" draws code (CodeImage::Style as JSON), global.
+    QJsonObject codeImage() const;
+    void setCodeImage(const QJsonObject &style);
 
     QStringList recentCommands() const; // most recent first
     void setRecentCommands(const QStringList &commands);

@@ -3,6 +3,7 @@
   "order": 30,
   "category": "C / C++",
   "name": "Qt 6 Widgets Application",
+  "icon": "monitor.svg",
   "description": "A Qt 6 desktop window written in code (no .ui files) with qmake or CMake, plus compile and run scripts. QODE reads the project for clangd, so completion works from the start.",
   "requires": ["qt6", "tool:cmake?buildSystem=CMake", "tool:make?buildSystem=qmake", "tool:g++"],
   "options": [

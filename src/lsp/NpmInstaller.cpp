@@ -7,36 +7,38 @@
 #include <QProcess>
 #include <QProcessEnvironment>
 
-QString NpmInstaller::installRoot()
+QString NpmInstaller::installRoot(const QString &managedId)
 {
-    return LspServers::managedDir(QStringLiteral("web"));
+    return LspServers::managedDir(managedId);
 }
 
-QStringList NpmInstaller::packages()
+QStringList NpmInstaller::packages(const QString &managedId)
 {
+    if (managedId == QLatin1String("bash"))
+        return {QStringLiteral("bash-language-server")};
     // typescript@6: version 7 is the native port, which has no tsserver.js for typescript-language-server to drive.
     return {QStringLiteral("typescript@6"), QStringLiteral("typescript-language-server"), QStringLiteral("vscode-langservers-extracted"),
             QStringLiteral("@tailwindcss/language-server")};
 }
 
-QString NpmInstaller::commandLine()
+QString NpmInstaller::commandLine(const QString &managedId)
 {
-    QString root = installRoot();
+    QString root = installRoot(managedId);
     const QString home = QDir::homePath();
     if (root.startsWith(home + QLatin1Char('/')))
         root = QStringLiteral("~") + root.mid(home.size());
-    return QStringLiteral("npm install --prefix %1 %2").arg(root, packages().join(QLatin1Char(' ')));
+    return QStringLiteral("npm install --prefix %1 %2").arg(root, packages(managedId).join(QLatin1Char(' ')));
 }
 
-bool NpmInstaller::isInstalled()
+bool NpmInstaller::isInstalled(const QString &managedId)
 {
     for (const LspServerSpec &s : LspServers::all())
-        if (s.installer == LspServerSpec::Installer::Npm && LspServers::managedExecutable(s).isEmpty())
+        if (s.installer == LspServerSpec::Installer::Npm && s.managedId == managedId && LspServers::managedExecutable(s).isEmpty())
             return false;
     return true;
 }
 
-NpmInstaller::NpmInstaller(QObject *parent) : QObject(parent) {}
+NpmInstaller::NpmInstaller(const QString &managedId, QObject *parent) : QObject(parent), m_id(managedId) {}
 
 NpmInstaller::~NpmInstaller()
 {
@@ -54,13 +56,13 @@ void NpmInstaller::start()
     const QString node = LspServers::nodeExecutable();
     const QString npm = LspServers::npmExecutable();
     if (node.isEmpty() || npm.isEmpty()) {
-        emit failed(tr("Node.js and npm were not found. The web language servers are Node.js programs, so install Node.js "
+        emit failed(tr("Node.js and npm were not found. These language servers are Node.js programs, so install Node.js "
                        "first (Debian / Ubuntu: sudo apt install nodejs npm; Fedora: sudo dnf install nodejs; "
                        "Arch: sudo pacman -S nodejs npm; or https://nodejs.org) and try again."));
         return;
     }
-    if (!QDir().mkpath(installRoot())) {
-        emit failed(tr("Could not create %1").arg(installRoot()));
+    if (!QDir().mkpath(installRoot(m_id))) {
+        emit failed(tr("Could not create %1").arg(installRoot(m_id)));
         return;
     }
     m_proc = new QProcess(this);
@@ -83,15 +85,15 @@ void NpmInstaller::start()
             return;
         }
         for (const LspServerSpec &s : LspServers::all())
-            if (s.installer == LspServerSpec::Installer::Npm && LspServers::managedExecutable(s).isEmpty()) {
-                emit failed(tr("npm finished, but %1 is missing from %2.").arg(s.managedBinary, installRoot()));
+            if (s.installer == LspServerSpec::Installer::Npm && s.managedId == m_id && LspServers::managedExecutable(s).isEmpty()) {
+                emit failed(tr("npm finished, but %1 is missing from %2.").arg(s.managedBinary, installRoot(m_id)));
                 return;
             }
         emit finished();
     });
-    QStringList args{QStringLiteral("install"), QStringLiteral("--prefix"), installRoot(), QStringLiteral("--no-audit"),
+    QStringList args{QStringLiteral("install"), QStringLiteral("--prefix"), installRoot(m_id), QStringLiteral("--no-audit"),
                      QStringLiteral("--no-fund"), QStringLiteral("--no-progress")};
-    args << packages();
+    args << packages(m_id);
     m_proc->start(npm, args);
 }
 

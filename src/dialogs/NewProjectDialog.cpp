@@ -18,12 +18,14 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMessageBox>
 #include <QPixmap>
 #include <QProcess>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScrollArea>
 #include <QStandardPaths>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 namespace {
@@ -58,7 +60,9 @@ NewProjectDialog::NewProjectDialog(const QString &defaultLocation, QWidget *pare
         f.setLetterSpacing(QFont::AbsoluteSpacing, 1.2);
         h->setFont(f);
     };
-    auto *empty = new QListWidgetItem(tr("Empty Project"), m_list);
+    const QColor iconColour = Theme::byName(SettingsManager::instance().theme()).textMuted;
+    auto icon = [&](const QString &file) { return Icons::tinted(QStringLiteral(":/new-icons/") + file, iconColour); };
+    auto *empty = new QListWidgetItem(icon(QStringLiteral("folder.svg")), tr("Empty Project"), m_list);
     empty->setData(kIdRole, QString());
     QString category;
     for (const ProjectTemplates::Template &t : ProjectTemplates::all()) {
@@ -66,7 +70,7 @@ NewProjectDialog::NewProjectDialog(const QString &defaultLocation, QWidget *pare
             category = t.category;
             addHeader(category);
         }
-        auto *item = new QListWidgetItem(t.name, m_list);
+        auto *item = new QListWidgetItem(t.icon.isEmpty() ? QIcon() : icon(t.icon), t.name, m_list);
         item->setData(kIdRole, t.id);
         item->setToolTip(t.description);
     }
@@ -77,6 +81,13 @@ NewProjectDialog::NewProjectDialog(const QString &defaultLocation, QWidget *pare
     tf.setBold(true);
     tf.setPointSizeF(tf.pointSizeF() + 3);
     m_title->setFont(tf);
+    // Templates built on someone else's product carry their copyright / trademark notice here.
+    m_info = new QToolButton(this);
+    m_info->setAutoRaise(true);
+    m_info->setIcon(icon(QStringLiteral("info.svg")));
+    m_info->setIconSize(QSize(16, 16));
+    m_info->setVisible(false);
+    connect(m_info, &QToolButton::clicked, this, [this] { QMessageBox::information(this, m_title->text(), m_info->toolTip()); });
     m_description = new QLabel(this);
     m_description->setWordWrap(true);
     m_description->setStyleSheet(mutedStyle());
@@ -110,7 +121,13 @@ NewProjectDialog::NewProjectDialog(const QString &defaultLocation, QWidget *pare
 
     auto *right = new QVBoxLayout;
     right->setSpacing(8);
-    right->addWidget(m_title);
+    auto *titleRow = new QHBoxLayout;
+    titleRow->setContentsMargins(0, 0, 0, 0);
+    titleRow->setSpacing(6);
+    titleRow->addWidget(m_title);
+    titleRow->addWidget(m_info);
+    titleRow->addStretch(1);
+    right->addLayout(titleRow);
     right->addWidget(m_description);
     right->addSpacing(8);
     // The options sit in a scroll area: long hints keep their height instead of being squeezed together.
@@ -339,9 +356,12 @@ void NewProjectDialog::rebuildOptions()
         m_title->setText(tr("Empty Project"));
         m_description->setText(tr("A new, empty folder. Add files and folders from the explorer."));
         m_requirement->setVisible(false);
+        m_info->setVisible(false);
         return;
     }
     m_title->setText(t->name);
+    m_info->setToolTip(t->attribution);
+    m_info->setVisible(!t->attribution.isEmpty());
     m_description->setText(t->description);
 
     m_updating = true;

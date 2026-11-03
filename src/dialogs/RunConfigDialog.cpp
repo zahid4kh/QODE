@@ -3,6 +3,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QFileInfo>
 #include <QFont>
 #include <QFormLayout>
@@ -49,6 +50,18 @@ QList<QPair<QString, QString>> RunConfigDialog::presets(const QString &filePath)
                 P(QStringLiteral("g++ C++23"), QStringLiteral("g++ -std=c++23 {file} -o {dir}/{name} && {dir}/{name}")),
                 P(QStringLiteral("g++ with warnings (-Wall -Wextra)"), QStringLiteral("g++ -std=c++17 -Wall -Wextra {file} -o {dir}/{name} && {dir}/{name}")),
                 P(QStringLiteral("Compile with clang++ and run"), QStringLiteral("clang++ -std=c++17 {file} -o {dir}/{name} && {dir}/{name}"))};
+    // Kotlin scripts run as they are; compiled Kotlin / Java goes to the cache, never next to the file.
+    const QString cache = shellQuote(QDir::homePath() + QStringLiteral("/.cache/QODE-AGENTIC/run"));
+    if (key == QLatin1String("kts"))
+        return {P(QStringLiteral("Run with kotlinc -script"), QStringLiteral("kotlinc -script {file}")),
+                P(QStringLiteral("Run with kotlin (Kotlin 2.x)"), QStringLiteral("kotlin {file}")),
+                P(QStringLiteral("Run directly (#!/usr/bin/env kotlin, executable)"), QStringLiteral("{file}"))};
+    if (key == QLatin1String("kt"))
+        return {P(QStringLiteral("Compile with kotlinc and run"),
+                  QStringLiteral("mkdir -p %1 && kotlinc {file} -include-runtime -d %1/{name}.jar && java -jar %1/{name}.jar").arg(cache))};
+    if (key == QLatin1String("java"))
+        return {P(QStringLiteral("Run with java"), QStringLiteral("java {file}")),
+                P(QStringLiteral("Compile with javac and run"), QStringLiteral("javac -g -d %1/java-{name} {file} && java -cp %1/java-{name} {name}").arg(cache))};
     static const QHash<QString, QList<P>> map = {
         {QStringLiteral("py"), one("Run with python3", "python3 {file}")},
         {QStringLiteral("js"), one("Run with node", "node {file}")},
@@ -61,7 +74,6 @@ QList<QPair<QString, QString>> RunConfigDialog::presets(const QString &filePath)
         {QStringLiteral("lua"), one("Run with lua", "lua {file}")},
         {QStringLiteral("go"), one("go run", "go run {file}")},
         {QStringLiteral("rs"), one("cargo run", "cargo run")},
-        {QStringLiteral("java"), one("Run with java", "java {file}")},
     };
     return map.value(key);
 }

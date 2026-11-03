@@ -61,6 +61,7 @@ const TerminalScreen::Line &TerminalScreen::lineAt(int i) const
 
 void TerminalScreen::clearScrollback()
 {
+    m_dropped += m_scrollback.size();
     m_scrollback.clear();
     emit changed();
 }
@@ -324,8 +325,10 @@ void TerminalScreen::scrollUp(int n)
         Line top = m_screen.takeAt(m_scrollTop);
         if (!m_alt && m_scrollTop == 0) {
             m_scrollback.append(top);
-            if (m_scrollback.size() > kMaxScrollback)
+            if (m_scrollback.size() > kMaxScrollback) {
                 m_scrollback.removeFirst();
+                ++m_dropped;
+            }
         }
         m_screen.insert(m_scrollBottom, blankLine());
     }
@@ -375,6 +378,7 @@ void TerminalScreen::eraseInDisplay(int mode)
         for (int r = 0; r < m_rows; ++r)
             m_screen[r] = blankLine();
     } else if (mode == 3) {
+        m_dropped += m_scrollback.size();
         m_scrollback.clear();
     }
 }
@@ -455,6 +459,8 @@ void TerminalScreen::handleOsc()
     if (code == 0 || code == 2) {
         m_title = m_oscBuf.mid(semi + 1);
         emit titleChanged(m_title);
+    } else if (code == 133 || code == 633) {
+        emit shellMark(m_oscBuf.mid(semi + 1));
     }
 }
 

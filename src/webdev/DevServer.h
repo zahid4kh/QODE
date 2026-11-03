@@ -30,10 +30,13 @@ public:
     QString command() const { return m_command; }
     QString errorString() const { return m_error; }
     QString log() const { return m_log; }
+    int starts() const { return m_starts; } // how many times the command was started (a restart counts)
 
 signals:
     void stateChanged();
     void output(const QString &text);
+    // The server runs but could not build the page (a bundler error); the preview shows it in its console.
+    void buildError(const QString &message);
 
 protected:
     // Looks at one output line; while Starting it decides when the server counts as Running (and on which port).
@@ -55,5 +58,6 @@ private:
     QTimer *m_killTimer;
     QString m_command, m_workDir, m_log, m_pending;
     int m_wantedPort = 0;
+    int m_starts = 0;
     bool m_stopping = false, m_restart = false;
 };

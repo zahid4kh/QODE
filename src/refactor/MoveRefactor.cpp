@@ -1,4 +1,5 @@
 #include "MoveRefactor.h"
+#include "history/LocalHistory.h"
 
 #include "RefactorCtx.h"
 
@@ -246,12 +247,13 @@ bool readText(const QString &path, QString *text, bool *bom)
 
 bool writeText(const QString &path, const QString &text, bool bom)
 {
-    QFile f(path);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        return false;
     QByteArray data = text.toUtf8();
     if (bom)
         data.prepend("\xEF\xBB\xBF");
+    LocalHistory::recordWrite(path, data, LocalHistory::Kind::Refactor);
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return false;
     return f.write(data) == data.size();
 }
 

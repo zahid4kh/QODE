@@ -10,10 +10,21 @@
         <file>icons/qode-512.png</file>
         <file>new-icons/cog.svg</file>
         <file>new-icons/gradle.svg</file>
+        <file>new-icons/apachemaven.svg</file>
         <file>new-icons/spring.svg</file>
         <file>new-icons/springboot.svg</file>
+        <file>new-icons/ktor.svg</file>
+        <file>new-icons/kotlin.svg</file>
+        <file>new-icons/bug.svg</file>
+        <file>new-icons/step-over.svg</file>
+        <file>new-icons/step-into.svg</file>
+        <file>new-icons/step-out.svg</file>
+        <file>new-icons/info.svg</file>
+        <file>new-icons/sparkles.svg</file>
+        <file>new-icons/tab.svg</file>
         <file>new-icons/package.svg</file>
         <file>new-icons/panel-left.svg</file>
+        <file>new-icons/panel-right.svg</file>
         <file>new-icons/file-code.svg</file>
         <file>new-icons/file-json.svg</file>
         <file>new-icons/file-text.svg</file>
@@ -21,6 +32,7 @@
         <file>new-icons/image.svg</file>
         <file>new-icons/undo-2.svg</file>
         <file>new-icons/terminal.svg</file>
+        <file>new-icons/text-quote.svg</file>
         <file>new-icons/save.svg</file>
         <file>new-icons/git-branch.svg</file>
         <file>new-icons/folder.svg</file>
@@ -36,13 +48,38 @@
         <file>new-icons/play.svg</file>
         <file>new-icons/square.svg</file>
         <file>new-icons/key.svg</file>
+        <file>new-icons/gemini.svg</file>
+        <file>new-icons/claude.svg</file>
+        <file>new-icons/claudecode.svg</file>
         <file>new-icons/scroll-text.svg</file>
         <file>new-icons/eye.svg</file>
+        <file>new-icons/globe.svg</file>
+        <file>new-icons/route.svg</file>
+        <file>new-icons/triangle-alert.svg</file>
+        <file>new-icons/arrow-left.svg</file>
+        <file>new-icons/arrow-right.svg</file>
+        <file>new-icons/external-link.svg</file>
+        <file>new-icons/smartphone.svg</file>
+        <file>new-icons/rotate-ccw.svg</file>
+        <file>phone-mockup/iphone-mockup.png</file>
+        <file>phone-mockup/pixel-9-pro-mockup.svg</file>
+        <file>expo/web-preview.cjs</file>
+        <file>new-icons/tablet.svg</file>
+        <file>new-icons/monitor.svg</file>
+        <file>new-icons/code-xml.svg</file>
         <file>new-icons/table.svg</file>
         <file>new-icons/pause.svg</file>
         <file>new-icons/volume-2.svg</file>
         <file>new-icons/volume-x.svg</file>
         <file>new-icons/x.svg</file>
+        <file>new-icons/arrow-left-right.svg</file>
+        <file>new-icons/fast-forward.svg</file>
+        <file>new-icons/history.svg</file>
+        <file>new-icons/cookie.svg</file>
+        <file>new-icons/server.svg</file>
+        <file>new-icons/wrap-text.svg</file>
+        <file>new-icons/download.svg</file>
+        <file>new-icons/variable.svg</file>
         <file>new-icons/x-light.svg</file>
         <file>new-icons/x-dark.svg</file>
         <file>new-icons/trash-2.svg</file>
@@ -50,6 +87,7 @@
         <file>new-icons/zoom-in.svg</file>
         <file>new-icons/zoom-out.svg</file>
         <file>new-icons/refresh-cw.svg</file>
+        <file>new-icons/zap.svg</file>
         <file>new-icons/plus.svg</file>
         <file>new-icons/pencil.svg</file>
         <file>new-icons/minus.svg</file>
@@ -62,6 +100,7 @@
         <file>new-icons/select-all.svg</file>
         <file>new-icons/undo.svg</file>
         <file>new-icons/arrow-up.svg</file>
+        <file>new-icons/ask-about-this.svg</file>
         <file>new-icons/arrow-down.svg</file>
         <file>fonts/JetBrainsMono-Bold.ttf</file>
         <file>fonts/JetBrainsMono-BoldItalic.ttf</file>
@@ -133,6 +172,19 @@
         <file>templates/kotlin-spring-boot/files/src/main/kotlin/__packagePath__/HelloController.kt</file>
         <file>templates/kotlin-spring-boot/files/src/main/resources/application.properties</file>
         <file>templates/kotlin-spring-boot/files/src/test/kotlin/__packagePath__/ApplicationTests.kt</file>
+        <file>templates/kotlin-ktor/template.json</file>
+        <file>templates/kotlin-ktor/files/README.md</file>
+        <file>templates/kotlin-ktor/files/build.gradle.kts</file>
+        <file>templates/kotlin-ktor/files/dot_gitignore</file>
+        <file>templates/kotlin-ktor/files/gradle.properties</file>
+        <file>templates/kotlin-ktor/files/gradle/libs.versions.toml</file>
+        <file>templates/kotlin-ktor/files/requests.http</file>
+        <file>templates/kotlin-ktor/files/settings.gradle.kts</file>
+        <file>templates/kotlin-ktor/files/src/main/kotlin/__packagePath__/Application.kt</file>
+        <file>templates/kotlin-ktor/files/src/main/kotlin/__packagePath__/Routing.kt</file>
+        <file>templates/kotlin-ktor/files/src/main/resources/application.yaml</file>
+        <file>templates/kotlin-ktor/files/src/main/resources/logback.xml</file>
+        <file>templates/kotlin-ktor/files/src/test/kotlin/__packagePath__/ApplicationTest.kt</file>
         <file>templates/cpp-console/template.json</file>
         <file>templates/cpp-console/files/CMakeLists.txt</file>
         <file>templates/cpp-console/files/README.md</file>

@@ -14,7 +14,6 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QFileInfo>
-#include <QFontDatabase>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLocale>
@@ -50,12 +49,12 @@ QString shown(const QString &path)
 // The server's own per-project indexes / workspace data (QODE/lsp/<id>/<hash of project>).
 QString serverCacheDir(const QString &id)
 {
-    return QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE/lsp/") + id;
+    return QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE-AGENTIC/lsp/") + id;
 }
 
 QString libraryCacheDir()
 {
-    return QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE/lsp/library-sources");
+    return QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE-AGENTIC/lsp/library-sources");
 }
 
 bool underHome(const QString &path)
@@ -82,7 +81,7 @@ LspRemoveDialog::LspRemoveDialog(const QString &serverId, QWidget *parent) : QDi
     m_view = new QPlainTextEdit(this);
     m_view->setReadOnly(true);
     m_view->setLineWrapMode(QPlainTextEdit::NoWrap);
-    m_view->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    m_view->setFont(SettingsManager::instance().editorFont());
     m_view->setMinimumHeight(190);
     layout->addWidget(m_view, 1);
 
@@ -296,7 +295,8 @@ void LspRemoveDialog::finish(bool ok)
     m_running = false;
     log(QString());
     const LspServerSpec *spec = LspServers::byId(m_id);
-    const QString removed = spec && spec->installer == LspServerSpec::Installer::Npm ? tr("web language servers")
+    const QString removed = spec && spec->managedId == QLatin1String("bash")                ? tr("Bash language server")
+                            : spec && spec->installer == LspServerSpec::Installer::Npm ? tr("web language servers")
                             : spec && spec->installer == LspServerSpec::Installer::Pip ? tr("Python language tools")
                             : m_id == QLatin1String("java")                          ? tr("Java language server")
                                                                                      : tr("Kotlin language server");
@@ -307,14 +307,20 @@ void LspRemoveDialog::finish(bool ok)
                   : tr("Restart QODE after checking the messages above?"));
 }
 
-// --- Servers installed with npm (TypeScript / JavaScript, HTML, CSS, JSON) -----------------------------
+// --- Servers installed with npm (TypeScript / JavaScript, HTML, CSS, JSON in one folder; Bash in another) -----
 
 void LspRemoveDialog::buildNpm()
 {
-    const QString root = NpmInstaller::installRoot();
-    m_intro->setText(tr("<b>Remove the web language servers</b> that QODE installed with npm: TypeScript / JavaScript, HTML, "
-                        "CSS and JSON share one folder, so all four go together. Nothing outside your home folder is touched "
-                        "and no administrator rights are needed. This is the exact command that will run:"));
+    const LspServerSpec *spec = LspServers::byId(m_id);
+    const QString root = NpmInstaller::installRoot(spec->managedId);
+    if (spec->managedId == QLatin1String("bash"))
+        m_intro->setText(tr("<b>Remove the Bash language server</b> that QODE installed with npm. ShellCheck and the web language "
+                            "servers are not touched, nothing outside your home folder is touched and no administrator rights "
+                            "are needed. This is the exact command that will run:"));
+    else
+        m_intro->setText(tr("<b>Remove the web language servers</b> that QODE installed with npm: TypeScript / JavaScript, HTML, "
+                            "CSS and JSON share one folder, so all four go together. Nothing outside your home folder is touched "
+                            "and no administrator rights are needed. This is the exact command that will run:"));
     m_steps.clear();
     m_steps.append({tr("Delete the installed servers (about %1)").arg(QLocale().formattedDataSize(dirSize(root))),
                     QStringLiteral("rm -rf %1").arg(shown(root)), root, false});

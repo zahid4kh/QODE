@@ -1,10 +1,10 @@
 #include "ServerDialogs.h"
 
 #include "DevServer.h"
+#include "settings/SettingsManager.h"
 
 #include <QComboBox>
 #include <QDialogButtonBox>
-#include <QFontDatabase>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -143,7 +143,7 @@ ServerLogDialog::ServerLogDialog(DevServer *server, QWidget *parent) : QDialog(p
     resize(760, 420);
     auto *layout = new QVBoxLayout(this);
     m_view->setReadOnly(true);
-    m_view->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    m_view->setFont(SettingsManager::instance().editorFont());
     m_view->setMaximumBlockCount(5000);
     m_view->setLineWrapMode(QPlainTextEdit::NoWrap);
     m_view->setPlainText(server->log());

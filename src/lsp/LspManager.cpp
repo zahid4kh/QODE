@@ -3,6 +3,7 @@
 #include "JarSource.h"
 #include "LspClient.h"
 #include "LspServers.h"
+#include "LspSync.h"
 #include "editor/Document.h"
 #include "project/PythonEnv.h"
 #include "project/QmakeProject.h"
@@ -10,6 +11,7 @@
 
 #include <QCryptographicHash>
 #include <QDir>
+#include <QDirIterator>
 #include <QEventLoop>
 #include <QFileInfo>
 #include <QFileSystemWatcher>
@@ -120,7 +122,12 @@ QJsonObject javaSettings()
 {
     return {{QStringLiteral("java"),
              QJsonObject{{QStringLiteral("import"), QJsonObject{{QStringLiteral("generatesMetadataFilesAtProjectRoot"), false}}},
-                         {QStringLiteral("configuration"), QJsonObject{{QStringLiteral("updateBuildConfiguration"), QStringLiteral("automatic")}}}}}};
+                         {QStringLiteral("configuration"), QJsonObject{{QStringLiteral("updateBuildConfiguration"), QStringLiteral("automatic")}}},
+                         // "N references" / "N implementations" over types and methods (code lenses; off in jdtls by default).
+                         // Older servers read implementationsCodeLens.enabled, newer ones implementationCodeLens.
+                         {QStringLiteral("referencesCodeLens"), QJsonObject{{QStringLiteral("enabled"), true}}},
+                         {QStringLiteral("implementationsCodeLens"), QJsonObject{{QStringLiteral("enabled"), true}}},
+                         {QStringLiteral("implementationCodeLens"), QStringLiteral("all")}}}};
 }
 
 // `File f = File(".");` -- jdtls says "The method File(String) is undefined for the type Main" and offers only "Create method".
@@ -219,6 +226,7 @@ void LspManager::stopServer(Server &s)
     if (!s.client)
         return;
     s.client->disconnect(this);
+    s.lastLog = s.client->logLines();
     s.client->shutdown();
     delete s.client;
     s.client = nullptr;
@@ -292,11 +300,14 @@ void LspManager::startServer(Server &s, const QString &rootPath)
                 break;
             }
     }
+    // kotlin-lsp only lists its "Run" / "Debug" lenses over main functions when the client says it runs them.
+    if (s.spec->id == QLatin1String("kotlin"))
+        options.insert(QStringLiteral("runMainCodeLens"), true);
     // {cache}: a folder per server and project for the server's own indexes (survives restarts, never in the project).
     QStringList args = s.spec->arguments;
     if (args.join(QLatin1Char(' ')).contains(QLatin1String("{cache}"))) {
         const QString key = QString::fromLatin1(QCryptographicHash::hash(rootPath.toUtf8(), QCryptographicHash::Md5).toHex().left(12));
-        const QString cache = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE/lsp/") +
+        const QString cache = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE-AGENTIC/lsp/") +
                               s.spec->id + QLatin1Char('/') + key;
         QDir().mkpath(cache);
         args.replaceInStrings(QStringLiteral("{cache}"), cache);
@@ -311,7 +322,7 @@ void LspManager::startServer(Server &s, const QString &rootPath)
     if (s.spec->id == QLatin1String("java")) {
         // jdtls: java -jar <launcher> ...; its configuration and workspace data live in the cache, one per project.
         const QString key = QString::fromLatin1(QCryptographicHash::hash(rootPath.toUtf8(), QCryptographicHash::Md5).toHex().left(12));
-        const QString workspace = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE/lsp/java/") + key;
+        const QString workspace = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE-AGENTIC/lsp/java/") + key;
         QDir().mkpath(workspace);
         QString error;
         if (!LspServers::jdtlsCommand(exe, workspace, &program, &args, &error)) {
@@ -325,7 +336,7 @@ void LspManager::startServer(Server &s, const QString &rootPath)
                        QJsonObject{{QStringLiteral("progressReportProvider"), true}, {QStringLiteral("classFileContentsSupport"), true}});
     }
     s.progress.clear();
-    s.state.progress.clear();
+    updateProgressState(s);
     s.client = new LspClient(program, args, rootPath, options, this);
     if (s.spec->wantsConfiguration) {
         const QString id = s.spec->id;
@@ -364,13 +375,17 @@ void LspManager::onServerStopped(const QString &id, bool crashed)
     Server &s = m_servers[id];
     const QString error = s.client ? s.client->errorString() : QString();
     if (s.client) {
+        s.lastLog = s.client->logLines();
         s.client->deleteLater();
         s.client = nullptr;
     }
     s.progress.clear();
-    s.state.progress.clear();
-    for (Tracked &t : m_tracked)
+    updateProgressState(s);
+    for (Tracked &t : m_tracked) {
         t.openOn.remove(id);
+        if (t.serverId == id)
+            t.reported = -1; // a new process reports afresh
+    }
     for (const Tracked &t : std::as_const(m_tracked))
         if (t.servers().contains(id))
             clearDiagnosticsFor(t.path, id);
@@ -485,7 +500,15 @@ QList<LspManager::ServerState> LspManager::servers(bool resolve) const
 QStringList LspManager::logOf(const QString &serverId) const
 {
     const auto it = m_servers.constFind(serverId);
-    return it != m_servers.constEnd() && it->client ? it->client->logLines() : QStringList();
+    if (it == m_servers.constEnd())
+        return {};
+    return it->client ? it->client->logLines() : it->lastLog;
+}
+
+QString LspManager::serverIdFor(Document *doc) const
+{
+    const auto it = m_tracked.constFind(doc);
+    return it == m_tracked.constEnd() ? QString() : it->serverId;
 }
 
 QStringList LspManager::detectedFlags(QString *source) const
@@ -571,7 +594,7 @@ QString LspManager::preparePatchedDatabase(const QString &root)
         return {};
     const QString key = QString::fromLatin1(QCryptographicHash::hash(root.toUtf8(), QCryptographicHash::Md5).toHex().left(12));
     const QString dir = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) +
-                        QStringLiteral("/QODE/lsp/clangd-db/") + key;
+                        QStringLiteral("/QODE-AGENTIC/lsp/clangd-db/") + key;
     QDir().mkpath(dir);
     m_patchSource = source;
     m_patchTarget = dir + QStringLiteral("/compile_commands.json");
@@ -681,8 +704,8 @@ void LspManager::documentOpened(Document *doc)
 void LspManager::track(Document *doc)
 {
     const LspServerSpec *spec = LspServers::forFile(doc->filePath());
-    if (!spec)
-        return;
+    if (!spec || doc->isLarge())
+        return; // a large file would be parsed again on every edit, and its tokens / symbols cross the pipe each time
     if (JarSource::isLibraryPath(doc->filePath()) && JarSource::uriForPath(doc->filePath()).isEmpty())
         return; // unpacked in an earlier session: the server cannot map it back to its jar
     Tracked t;
@@ -750,45 +773,75 @@ void LspManager::sendOpen(Document *doc, Tracked &t, const QString &serverId)
     Server &s = m_servers[serverId];
     if (!s.client || !s.client->isRunning())
         return;
+    // The servers already holding the document get the pending edits first: all of them then have the same text at the
+    // same version, which `sent` describes.
+    if (t.dirty && !t.openOn.isEmpty() && !t.openOn.contains(serverId))
+        flushDocument(doc, t, false);
     t.version = qMax(t.version, 1);
     t.openOn.insert(serverId);
     t.dirty = false;
+    t.sent = doc->text();
+    if (serverId == t.serverId) {
+        t.tokensResultId.clear(); // a new server process knows no earlier result
+        t.tokensData.clear();
+    }
     s.client->notify(QStringLiteral("textDocument/didOpen"),
                      QJsonObject{{QStringLiteral("textDocument"),
                                   QJsonObject{{QStringLiteral("uri"), t.uri},
                                               {QStringLiteral("languageId"), s.spec->languageId(t.path)},
                                               {QStringLiteral("version"), t.version},
-                                              {QStringLiteral("text"), doc->text()}}}});
+                                              {QStringLiteral("text"), t.sent}}}});
     pullDiagnostics(doc);
 }
 
 void LspManager::flushChanges(bool pull)
 {
-    for (auto it = m_tracked.begin(); it != m_tracked.end(); ++it) {
-        Tracked &t = it.value();
-        if (!t.openOn.isEmpty() && t.pullDue && pull) {
-            t.pullDue = false;
-            pullDiagnostics(it.key());
-        }
-        if (!t.dirty || t.openOn.isEmpty())
-            continue;
-        t.dirty = false;
-        ++t.version;
-        const QString text = it.key()->text();
-        for (const QString &id : t.servers()) {
-            Server &s = m_servers[id];
-            if (!t.openOn.contains(id) || !s.client || !s.client->isRunning())
-                continue;
-            s.client->notify(QStringLiteral("textDocument/didChange"),
-                             QJsonObject{{QStringLiteral("textDocument"),
-                                          QJsonObject{{QStringLiteral("uri"), t.uri}, {QStringLiteral("version"), t.version}}},
-                                         {QStringLiteral("contentChanges"), QJsonArray{QJsonObject{{QStringLiteral("text"), text}}}}});
-        }
-        if (pull)
-            pullDiagnostics(it.key());
-        else
-            t.pullDue = true; // sent early for a completion: the diagnostics follow with the debounced flush
+    for (auto it = m_tracked.begin(); it != m_tracked.end(); ++it)
+        flushDocument(it.key(), it.value(), pull);
+}
+
+// Servers that sync incrementally get only the edited range (what differs from the text they have), the others the whole
+// text. A server then works on a keystroke's worth of change instead of reading the whole file again.
+void LspManager::flushDocument(Document *doc, Tracked &t, bool pull)
+{
+    if (!t.openOn.isEmpty() && t.pullDue && pull) {
+        t.pullDue = false;
+        pullDiagnostics(doc);
     }
+    if (!t.dirty || t.openOn.isEmpty())
+        return;
+    t.dirty = false;
+    const QString text = doc->text();
+    QJsonObject ranged;
+    bool rangedDone = false;
+    for (const QString &id : t.servers()) {
+        Server &s = m_servers[id];
+        if (!t.openOn.contains(id) || !s.client || !s.client->isRunning())
+            continue;
+        if (!rangedDone && LspSync::wantsIncremental(s.client->serverCapabilities())) {
+            ranged = LspSync::contentChange(t.sent, text);
+            rangedDone = true;
+            if (ranged.isEmpty())
+                return; // typed and undone again: the servers already have this text
+        }
+    }
+    ++t.version;
+    for (const QString &id : t.servers()) {
+        Server &s = m_servers[id];
+        if (!t.openOn.contains(id) || !s.client || !s.client->isRunning())
+            continue;
+        const QJsonObject change = LspSync::wantsIncremental(s.client->serverCapabilities()) ? ranged
+                                                                                             : QJsonObject{{QStringLiteral("text"), text}};
+        s.client->notify(QStringLiteral("textDocument/didChange"),
+                         QJsonObject{{QStringLiteral("textDocument"),
+                                      QJsonObject{{QStringLiteral("uri"), t.uri}, {QStringLiteral("version"), t.version}}},
+                                     {QStringLiteral("contentChanges"), QJsonArray{change}}});
+    }
+    t.sent = text;
+    if (pull)
+        pullDiagnostics(doc);
+    else
+        t.pullDue = true; // sent early for a completion: the diagnostics follow with the debounced flush
 }
 
 void LspManager::documentSaved(Document *doc)
@@ -914,6 +967,26 @@ void LspManager::scheduleStatusChanged()
     });
 }
 
+// The operations a server runs, as the status bar and the LSP menu show them: the newest first.
+void LspManager::updateProgressState(Server &s)
+{
+    QList<const Server::Progress *> ops;
+    for (const Server::Progress &p : std::as_const(s.progress))
+        ops.append(&p);
+    std::sort(ops.begin(), ops.end(), [](const Server::Progress *a, const Server::Progress *b) { return a->order > b->order; });
+    s.state.operations.clear();
+    for (const Server::Progress *p : ops) {
+        QString text = p->title;
+        if (!p->text.isEmpty())
+            text += (text.isEmpty() ? QString() : QStringLiteral(" — ")) + p->text;
+        if (p->percent >= 0 && !text.contains(QLatin1Char('%'))) // jdtls' messages already say "0%"
+            text += QStringLiteral(" %1%").arg(p->percent);
+        s.state.operations.append(text.trimmed());
+    }
+    s.state.progress = s.state.operations.value(0);
+    s.state.percent = ops.isEmpty() ? -1 : ops.first()->percent;
+}
+
 // Progress of a server changed: a sync that was running is finished once every operation has ended for a moment.
 void LspManager::progressChanged(Server &s)
 {
@@ -953,6 +1026,50 @@ void LspManager::buildFileSaved(const QString &path)
 }
 
 // Save As / rename: the server knows the file under its old URI, so close it and open it again.
+void LspManager::filesMoved(const QList<QPair<QString, QString>> &moves, const QStringList &rewritten)
+{
+    // The watched-files events, the same for every server: a moved folder counts as its files (up to a limit).
+    constexpr int kMaxFiles = 5000;
+    QJsonArray changes;
+    auto add = [&changes](const QString &path, int type) { // 1 created, 2 changed, 3 deleted
+        changes.append(QJsonObject{{QStringLiteral("uri"), QUrl::fromLocalFile(path).toString()}, {QStringLiteral("type"), type}});
+    };
+    for (const auto &m : moves) {
+        if (!QFileInfo(m.second).isDir()) {
+            add(m.first, 3);
+            add(m.second, 1);
+            continue;
+        }
+        QDirIterator it(m.second, QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+        while (it.hasNext() && changes.size() < 2 * kMaxFiles) {
+            const QString now = it.next();
+            add(m.first + now.mid(m.second.size()), 3);
+            add(now, 1);
+        }
+    }
+    for (const QString &f : rewritten)
+        add(f, 2);
+
+    for (Server &s : m_servers) {
+        if (!s.client || !s.client->isRunning() || s.state.status != Status::Running)
+            continue;
+        const QJsonObject didRename = s.client->serverCapabilities()
+                                          .value(QStringLiteral("workspace")).toObject()
+                                          .value(QStringLiteral("fileOperations")).toObject()
+                                          .value(QStringLiteral("didRename")).toObject();
+        QJsonArray files;
+        if (!didRename.isEmpty())
+            for (const auto &m : moves)
+                if (LspSync::fileOperationMatches(didRename, m.second, QFileInfo(m.second).isDir()))
+                    files.append(QJsonObject{{QStringLiteral("oldUri"), QUrl::fromLocalFile(m.first).toString()},
+                                             {QStringLiteral("newUri"), QUrl::fromLocalFile(m.second).toString()}});
+        if (!files.isEmpty())
+            s.client->notify(QStringLiteral("workspace/didRenameFiles"), QJsonObject{{QStringLiteral("files"), files}});
+        if (!changes.isEmpty())
+            s.client->notify(QStringLiteral("workspace/didChangeWatchedFiles"), QJsonObject{{QStringLiteral("changes"), changes}});
+    }
+}
+
 void LspManager::documentPathChanged(Document *doc)
 {
     const auto it = m_tracked.constFind(doc);
@@ -1998,6 +2115,20 @@ bool LspManager::supportsNavigation(Document *doc, Navigate what) const
     return p.isObject() || p.toBool(false);
 }
 
+void LspManager::switchSourceHeader(Document *doc, std::function<void(const QString &)> done)
+{
+    QString uri;
+    LspClient *c = readyClientFor(doc, &uri);
+    if (!c || m_tracked.value(doc).serverId != QLatin1String("clangd")) {
+        done({});
+        return;
+    }
+    c->request(QStringLiteral("textDocument/switchSourceHeader"), QJsonObject{{QStringLiteral("uri"), uri}},
+               [done](const QJsonValue &result, const QJsonObject &error) {
+                   done(error.isEmpty() && result.isString() ? QUrl(result.toString()).toLocalFile() : QString());
+               });
+}
+
 void LspManager::definition(Document *doc, int line, int column, std::function<void(const QVector<LspLocation> &)> done, Navigate what)
 {
     QString uri;
@@ -2065,7 +2196,7 @@ void LspManager::definition(Document *doc, int line, int column, std::function<v
 void LspManager::onNotification(const QString &id, const QString &method, const QJsonValue &params)
 {
     if (method == QLatin1String("$/progress")) {
-        // Work-done progress: "begin" / "report" / "end" for a token. Show the newest running operation.
+        // Work-done progress: "begin" / "report" / "end" for a token. The newest running operation is shown.
         Server &s = m_servers[id];
         const QJsonObject o = params.toObject();
         const QString token = o.value(QStringLiteral("token")).toVariant().toString();
@@ -2074,22 +2205,18 @@ void LspManager::onNotification(const QString &id, const QString &method, const 
         if (kind == QLatin1String("end")) {
             s.progress.remove(token);
         } else {
-            QString title = v.value(QStringLiteral("title")).toString();
-            if (title.isEmpty())
-                title = s.progress.value(token).value(0); // "report" messages omit it
-            QString text = title;
-            const QString message = v.value(QStringLiteral("message")).toString();
-            if (!message.isEmpty())
-                text += QStringLiteral(" — ") + message;
+            Server::Progress &p = s.progress[token];
+            const QString title = v.value(QStringLiteral("title")).toString();
+            if (!title.isEmpty())
+                p.title = title; // "report" messages omit it
+            // A report without a message keeps the last one; one without a percentage too.
+            if (v.contains(QStringLiteral("message")) || kind == QLatin1String("begin"))
+                p.text = v.value(QStringLiteral("message")).toString();
             if (v.contains(QStringLiteral("percentage")))
-                text += QStringLiteral(" %1%").arg(v.value(QStringLiteral("percentage")).toInt());
-            s.progress.insert(token, {title, text});
-            s.state.progress = text;
+                p.percent = qBound(0, v.value(QStringLiteral("percentage")).toInt(), 100);
+            p.order = ++m_progressOrder;
         }
-        if (s.progress.isEmpty())
-            s.state.progress.clear();
-        else if (kind == QLatin1String("end"))
-            s.state.progress = s.progress.constBegin()->value(1);
+        updateProgressState(s);
         progressChanged(s);
         scheduleStatusChanged();
         return;
@@ -2103,20 +2230,29 @@ void LspManager::onNotification(const QString &id, const QString &method, const 
             s.progress.remove(token);
         } else {
             const QString task = o.value(QStringLiteral("task")).toString();
-            QString text;
+            Server::Progress &p = s.progress[token];
             if (task.contains(QStringLiteral("Gradle")) || task.contains(QStringLiteral("Maven")) || task.contains(QStringLiteral("mport"))
                 || task.contains(QStringLiteral("ynchroni")))
-                text = task.contains(QStringLiteral("Maven")) ? tr("Syncing Maven project") : tr("Syncing Gradle project");
+                p.title = task.contains(QStringLiteral("Maven")) ? tr("Syncing Maven project") : tr("Syncing Gradle project");
             else if (task.startsWith(QLatin1String("Search")))
-                text = tr("Indexing");
+                p.title = tr("Indexing");
             else
-                text = QString(task).remove(QStringLiteral("...")).trimmed();
+                p.title = QString(task).remove(QStringLiteral("...")).trimmed();
+            // subTask / status name the step ("Synchronizing projects", "Building workspace"): shown after the title.
+            QString step = o.value(QStringLiteral("subTask")).toString().trimmed();
+            if (step.isEmpty())
+                step = o.value(QStringLiteral("status")).toString().trimmed();
+            step.remove(QStringLiteral("..."));
+            static const QRegularExpression barePercent(QStringLiteral(R"(^\d+\s*%$)"));
+            if (barePercent.match(step).hasMatch())
+                step.clear(); // "0%": the percentage comes from workDone / totalWork (and is left out for indexing)
+            p.text = step == task || step == p.title ? QString() : step.left(80);
             const int total = o.value(QStringLiteral("totalWork")).toInt();
-            if (total > 0 && text != tr("Indexing"))
-                text += QStringLiteral(" %1%").arg(qBound(0, o.value(QStringLiteral("workDone")).toInt() * 100 / total, 100));
-            s.progress.insert(token, {task, text});
+            // The search index reports a total that keeps growing: no percentage for it.
+            p.percent = total > 0 && p.title != tr("Indexing") ? qBound(0, o.value(QStringLiteral("workDone")).toInt() * 100 / total, 100) : -1;
+            p.order = ++m_progressOrder;
         }
-        s.state.progress = s.progress.isEmpty() ? QString() : s.progress.constBegin()->value(1);
+        updateProgressState(s);
         progressChanged(s);
         scheduleStatusChanged();
         return;
@@ -2138,8 +2274,9 @@ void LspManager::onNotification(const QString &id, const QString &method, const 
         emit inlayHintsRefresh();
         return;
     }
-    if (method == QLatin1String("workspace/semanticTokens/refresh") || method == QLatin1String("workspace/foldingRange/refresh")) {
-        emit semanticTokensRefresh();
+    if (method == QLatin1String("workspace/semanticTokens/refresh") || method == QLatin1String("workspace/foldingRange/refresh") ||
+        method == QLatin1String("workspace/codeLens/refresh")) {
+        emit serverDataRefresh();
         return;
     }
     if (method == QLatin1String("_typescript.rename")) {
@@ -2152,7 +2289,42 @@ void LspManager::onNotification(const QString &id, const QString &method, const 
     if (method != QLatin1String("textDocument/publishDiagnostics"))
         return;
     const QJsonObject o = params.toObject();
-    setDiagnosticsFor(QUrl(o.value(QStringLiteral("uri")).toString()).toLocalFile(), o.value(QStringLiteral("diagnostics")).toArray(), id);
+    const QString path = QUrl(o.value(QStringLiteral("uri")).toString()).toLocalFile();
+    setDiagnosticsFor(path, o.value(QStringLiteral("diagnostics")).toArray(), id);
+    noteReported(path, id, o.value(QStringLiteral("version")).toInt(-1));
+}
+
+// A report without a version (optional in publishDiagnostics) is taken as one for the text the server has now.
+void LspManager::noteReported(const QString &path, const QString &serverId, int version)
+{
+    for (auto it = m_tracked.begin(); it != m_tracked.end(); ++it) {
+        if (it->path != path || it->serverId != serverId)
+            continue;
+        it->reported = qMax(it->reported, version < 0 ? it->version : version);
+        emit diagnosticsReported(path);
+        return;
+    }
+}
+
+int LspManager::syncNow(Document *doc)
+{
+    auto it = m_tracked.find(doc);
+    if (it == m_tracked.end() || !it->opened())
+        return -1;
+    m_changeTimer->stop();
+    flushChanges();
+    it = m_tracked.find(doc);
+    if (it == m_tracked.end())
+        return -1;
+    if (it->reported < it->version)
+        pullDiagnostics(doc); // a pull server's answer to an earlier request may have been an error: ask again
+    return it->version;
+}
+
+int LspManager::diagnosticsVersion(Document *doc) const
+{
+    const auto it = m_tracked.constFind(doc);
+    return it == m_tracked.constEnd() ? -1 : it->reported;
 }
 
 void LspManager::setDiagnosticsFor(const QString &path, const QJsonArray &items, const QString &serverId)
@@ -2235,15 +2407,21 @@ void LspManager::pullDiagnostics(Document *doc)
         if (!client || !client->isRunning() || !client->serverCapabilities().contains(QStringLiteral("diagnosticProvider")))
             continue;
         const QString path = it->path;
+        const int version = it->version; // the answer describes the text the server had when asked
         QPointer<LspClient> guard(client);
         client->request(QStringLiteral("textDocument/diagnostic"),
                         QJsonObject{{QStringLiteral("textDocument"), QJsonObject{{QStringLiteral("uri"), it->uri}}}},
-                        [this, path, guard, id](const QJsonValue &result, const QJsonObject &error) {
+                        [this, path, guard, id, version](const QJsonValue &result, const QJsonObject &error) {
                             if (!guard || !error.isEmpty())
                                 return;
                             const QJsonObject r = result.toObject();
                             if (r.value(QStringLiteral("kind")).toString() == QLatin1String("full"))
                                 setDiagnosticsFor(path, r.value(QStringLiteral("items")).toArray(), id);
+                            // A pull is answered at once, also while the server is still importing the project (Kotlin
+                            // then returns nothing and asks for a refresh later): only an answer from an idle server
+                            // counts as its verdict on this version.
+                            if (m_servers.value(id).progress.isEmpty())
+                                noteReported(path, id, version);
                         });
     }
 }
@@ -2264,6 +2442,47 @@ void LspManager::clearDiagnosticsFor(const QString &path, const QString &serverI
 }
 
 // --- Colours, rename, references -----------------------------------------------------------------
+
+void LspManager::documentLinks(Document *doc, std::function<void(const QVector<LspDocumentLink> &)> done)
+{
+    QString uri;
+    QList<LspClient *> clients;
+    for (LspClient *c : readyClientsFor(doc, &uri))
+        if (c->serverCapabilities().value(QStringLiteral("documentLinkProvider")).isObject())
+            clients << c;
+    if (clients.isEmpty()) {
+        done({});
+        return;
+    }
+    struct Gather {
+        int pending = 0;
+        QVector<LspDocumentLink> links;
+    };
+    auto gather = std::make_shared<Gather>();
+    gather->pending = int(clients.size());
+    for (LspClient *c : clients)
+        c->request(QStringLiteral("textDocument/documentLink"), QJsonObject{{QStringLiteral("textDocument"), QJsonObject{{QStringLiteral("uri"), uri}}}},
+                   [gather, done](const QJsonValue &result, const QJsonObject &error) {
+                       if (error.isEmpty())
+                           for (const QJsonValue &v : result.toArray()) {
+                               const QJsonObject o = v.toObject();
+                               const QString target = o.value(QStringLiteral("target")).toString();
+                               if (target.isEmpty())
+                                   continue;
+                               const QJsonObject r = o.value(QStringLiteral("range")).toObject();
+                               const QJsonObject a = r.value(QStringLiteral("start")).toObject(), b = r.value(QStringLiteral("end")).toObject();
+                               LspDocumentLink l;
+                               l.startLine = a.value(QStringLiteral("line")).toInt();
+                               l.startColumn = a.value(QStringLiteral("character")).toInt();
+                               l.endLine = b.value(QStringLiteral("line")).toInt();
+                               l.endColumn = b.value(QStringLiteral("character")).toInt();
+                               l.target = target;
+                               gather->links.append(l);
+                           }
+                       if (--gather->pending == 0)
+                           done(gather->links);
+                   });
+}
 
 void LspManager::documentColors(Document *doc, std::function<void(const QVector<LspColor> &)> done)
 {
@@ -2529,6 +2748,37 @@ bool LspManager::supportsSemanticTokens(Document *doc) const
     return !p.isEmpty() && (full.isObject() || full.toBool(false));
 }
 
+namespace {
+// Five numbers per token: line delta, column delta (relative to the previous token when on the same line), length, type
+// index, modifier bits.
+void decodeSemanticTokens(const QVector<quint32> &data, LspSemanticTokens &out)
+{
+    int line = 0, column = 0;
+    for (qsizetype i = 0; i + 4 < data.size(); i += 5) {
+        const int dLine = int(data.at(i)), dStart = int(data.at(i + 1));
+        if (dLine > 0) {
+            line += dLine;
+            column = dStart;
+        } else {
+            column += dStart;
+        }
+        LspSemanticToken t;
+        t.column = column;
+        t.length = int(data.at(i + 2));
+        t.type = int(data.at(i + 3));
+        t.modifiers = data.at(i + 4);
+        if (t.length <= 0 || line > 5000000)
+            continue;
+        if (out.lines.size() <= line)
+            out.lines.resize(line + 1);
+        out.lines[line].append(t);
+    }
+    out.ok = true;
+}
+} // namespace
+
+// Servers that offer deltas (semanticTokens/full/delta) are asked for the changes since their last answer, which is kept
+// with the document: after an edit they send a few numbers instead of every token of the file again.
 void LspManager::semanticTokens(Document *doc, std::function<void(const LspSemanticTokens &)> done)
 {
     QString uri;
@@ -2537,44 +2787,62 @@ void LspManager::semanticTokens(Document *doc, std::function<void(const LspSeman
         done({});
         return;
     }
-    const QJsonObject legend = c->serverCapabilities().value(QStringLiteral("semanticTokensProvider")).toObject().value(QStringLiteral("legend")).toObject();
+    const QJsonObject provider = c->serverCapabilities().value(QStringLiteral("semanticTokensProvider")).toObject();
+    const QJsonObject legend = provider.value(QStringLiteral("legend")).toObject();
     LspSemanticTokens out;
     for (const QJsonValue &v : legend.value(QStringLiteral("tokenTypes")).toArray())
         out.types << v.toString();
     for (const QJsonValue &v : legend.value(QStringLiteral("tokenModifiers")).toArray())
         out.modifiers << v.toString();
-    c->request(QStringLiteral("textDocument/semanticTokens/full"), QJsonObject{{QStringLiteral("textDocument"), QJsonObject{{QStringLiteral("uri"), uri}}}},
-               [done, out](const QJsonValue &result, const QJsonObject &error) mutable {
-                   if (!error.isEmpty() || !result.isObject()) {
-                       done(out); // ok stays false: the editor keeps what it shows
-                       return;
-                   }
-                   // Five numbers per token: line delta, column delta (relative to the previous token when on the same line),
-                   // length, type index, modifier bits.
-                   const QJsonArray data = result.toObject().value(QStringLiteral("data")).toArray();
-                   int line = 0, column = 0;
-                   for (qsizetype i = 0; i + 4 < data.size(); i += 5) {
-                       const int dLine = data.at(i).toInt(), dStart = data.at(i + 1).toInt();
-                       if (dLine > 0) {
-                           line += dLine;
-                           column = dStart;
-                       } else {
-                           column += dStart;
-                       }
-                       LspSemanticToken t;
-                       t.column = column;
-                       t.length = data.at(i + 2).toInt();
-                       t.type = data.at(i + 3).toInt();
-                       t.modifiers = quint32(data.at(i + 4).toDouble());
-                       if (t.length <= 0 || line > 5000000)
-                           continue;
-                       if (out.lines.size() <= line)
-                           out.lines.resize(line + 1);
-                       out.lines[line].append(t);
-                   }
-                   out.ok = true;
-                   done(out);
-               });
+    const QJsonValue full = provider.value(QStringLiteral("full"));
+    const bool deltas = full.isObject() && full.toObject().value(QStringLiteral("delta")).toBool();
+    const auto tracked = m_tracked.constFind(doc);
+    const QString previous = deltas && tracked != m_tracked.constEnd() ? tracked->tokensResultId : QString();
+    QJsonObject params{{QStringLiteral("textDocument"), QJsonObject{{QStringLiteral("uri"), uri}}}};
+    if (!previous.isEmpty())
+        params.insert(QStringLiteral("previousResultId"), previous);
+    const QString method = previous.isEmpty() ? QStringLiteral("textDocument/semanticTokens/full") : QStringLiteral("textDocument/semanticTokens/full/delta");
+    QPointer<Document> guard(doc);
+    c->request(method, params, [this, guard, done, out, deltas, previous](const QJsonValue &result, const QJsonObject &error) mutable {
+        auto it = guard ? m_tracked.find(guard) : m_tracked.end();
+        Tracked *t = it != m_tracked.end() ? &it.value() : nullptr;
+        auto forget = [t] {
+            if (t) {
+                t->tokensResultId.clear();
+                t->tokensData.clear();
+            }
+        };
+        if (!error.isEmpty() || !result.isObject()) {
+            // Held back and replaced by a newer request before it was sent: the server's last answer still stands.
+            if (error.value(QStringLiteral("message")).toString() != QLatin1String("superseded"))
+                forget();
+            done(out); // ok stays false: the editor keeps what it shows
+            return;
+        }
+        const QJsonObject r = result.toObject();
+        QVector<quint32> data;
+        if (r.contains(QStringLiteral("edits"))) {
+            // A delta applies to the answer it was asked against; another answer has replaced it meanwhile (two requests
+            // in flight) or it does not fit: ask for everything again.
+            if (!t || t->tokensResultId != previous || !LspSync::applyTokenEdits(t->tokensData, r.value(QStringLiteral("edits")).toArray())) {
+                forget();
+                if (guard)
+                    semanticTokens(guard, done);
+                else
+                    done(out);
+                return;
+            }
+            data = t->tokensData;
+        } else {
+            data = LspSync::tokenData(r.value(QStringLiteral("data")).toArray());
+        }
+        if (t && deltas) {
+            t->tokensResultId = r.value(QStringLiteral("resultId")).toString();
+            t->tokensData = t->tokensResultId.isEmpty() ? QVector<quint32>() : data;
+        }
+        decodeSemanticTokens(data, out);
+        done(out);
+    });
 }
 
 bool LspManager::supportsFoldingRanges(Document *doc) const
@@ -2706,6 +2974,160 @@ void LspManager::callHierarchyCalls(const LspCallItem &item, bool incoming, std:
                    }
                    done(out, true);
                });
+}
+
+bool LspManager::supportsTypeHierarchy(Document *doc) const
+{
+    const auto it = m_tracked.constFind(doc);
+    if (it == m_tracked.constEnd() || !it->opened())
+        return false;
+    const LspClient *c = m_servers.value(it->serverId).client;
+    return c && c->isRunning() && provides(c->serverCapabilities(), "typeHierarchyProvider");
+}
+
+void LspManager::prepareTypeHierarchy(Document *doc, int line, int column, std::function<void(const QVector<LspCallItem> &)> done)
+{
+    QString uri;
+    LspClient *c = supportsTypeHierarchy(doc) ? readyClientFor(doc, &uri) : nullptr;
+    if (!c) {
+        done({});
+        return;
+    }
+    const QString server = m_tracked.value(doc).serverId;
+    c->request(QStringLiteral("textDocument/prepareTypeHierarchy"), positionParams(uri, line, column),
+               [done, server](const QJsonValue &result, const QJsonObject &error) {
+                   QVector<LspCallItem> out;
+                   if (error.isEmpty())
+                       for (const QJsonValue &v : result.toArray())
+                           out << parseCallItem(v.toObject(), server);
+                   done(out);
+               });
+}
+
+void LspManager::typeHierarchy(const LspCallItem &item, bool supertypes, std::function<void(const QVector<LspCallItem> &, bool)> done)
+{
+    LspClient *c = m_servers.value(item.server).client;
+    if (!c || !c->isRunning()) {
+        done({}, false);
+        return;
+    }
+    const QString server = item.server;
+    c->request(supertypes ? QStringLiteral("typeHierarchy/supertypes") : QStringLiteral("typeHierarchy/subtypes"),
+               QJsonObject{{QStringLiteral("item"), item.raw}}, [done, server](const QJsonValue &result, const QJsonObject &error) {
+                   QVector<LspCallItem> out;
+                   if (!error.isEmpty()) {
+                       done(out, false);
+                       return;
+                   }
+                   for (const QJsonValue &v : result.toArray())
+                       out << parseCallItem(v.toObject(), server);
+                   done(out, true);
+               });
+}
+
+namespace {
+LspCodeLens parseCodeLens(const QJsonObject &o, const QString &server)
+{
+    LspCodeLens lens;
+    const QPair<int, int> at = startOf(o.value(QStringLiteral("range")).toObject());
+    lens.line = at.first;
+    lens.column = at.second;
+    const QJsonObject cmd = o.value(QStringLiteral("command")).toObject();
+    lens.title = cmd.value(QStringLiteral("title")).toString();
+    lens.command = cmd.value(QStringLiteral("command")).toString();
+    lens.arguments = cmd.value(QStringLiteral("arguments")).toArray();
+    lens.raw = o;
+    lens.server = server;
+    return lens;
+}
+} // namespace
+
+bool LspManager::supportsCodeLens(Document *doc) const
+{
+    const auto it = m_tracked.constFind(doc);
+    if (it == m_tracked.constEnd() || !it->opened())
+        return false;
+    const LspClient *c = m_servers.value(it->serverId).client;
+    return c && c->isRunning() && provides(c->serverCapabilities(), "codeLensProvider");
+}
+
+void LspManager::codeLenses(Document *doc, std::function<void(const QVector<LspCodeLens> &, bool)> done)
+{
+    QString uri;
+    LspClient *c = supportsCodeLens(doc) ? readyClientFor(doc, &uri) : nullptr;
+    if (!c) {
+        done({}, false);
+        return;
+    }
+    const QString server = m_tracked.value(doc).serverId;
+    c->request(QStringLiteral("textDocument/codeLens"), QJsonObject{{QStringLiteral("textDocument"), QJsonObject{{QStringLiteral("uri"), uri}}}},
+               [done, server](const QJsonValue &result, const QJsonObject &error) {
+                   QVector<LspCodeLens> out;
+                   if (!error.isEmpty()) {
+                       done(out, false);
+                       return;
+                   }
+                   for (const QJsonValue &v : result.toArray())
+                       out << parseCodeLens(v.toObject(), server);
+                   done(out, true);
+               });
+}
+
+void LspManager::resolveCodeLens(const LspCodeLens &lens, std::function<void(const LspCodeLens &)> done)
+{
+    LspClient *c = m_servers.value(lens.server).client;
+    const QJsonObject caps = c && c->isRunning() ? c->serverCapabilities().value(QStringLiteral("codeLensProvider")).toObject() : QJsonObject();
+    if (!caps.value(QStringLiteral("resolveProvider")).toBool()) {
+        done(lens);
+        return;
+    }
+    c->request(QStringLiteral("codeLens/resolve"), lens.raw, [done, lens](const QJsonValue &result, const QJsonObject &error) {
+        if (!error.isEmpty() || !result.isObject()) {
+            done(lens);
+            return;
+        }
+        LspCodeLens out = parseCodeLens(result.toObject(), lens.server);
+        out.line = lens.line; // the editor placed it already; a server may answer with the range it computed meanwhile
+        out.column = lens.column;
+        done(out);
+    });
+}
+
+bool LspManager::hasCommand(const QString &serverId, const QString &command) const
+{
+    const LspClient *c = m_servers.value(serverId).client;
+    if (!c || !c->isRunning() || command.isEmpty())
+        return false;
+    return c->serverCapabilities().value(QStringLiteral("executeCommandProvider")).toObject().value(QStringLiteral("commands")).toArray().contains(command);
+}
+
+void LspManager::executeCommand(const QString &serverId, const QString &command, const QJsonArray &arguments,
+                                std::function<void(bool, const QString &)> done)
+{
+    LspClient *c = m_servers.value(serverId).client;
+    if (!c || !c->isRunning()) {
+        done(false, tr("The language server is not running"));
+        return;
+    }
+    QJsonObject params{{QStringLiteral("command"), command}};
+    if (!arguments.isEmpty())
+        params.insert(QStringLiteral("arguments"), arguments);
+    c->request(QStringLiteral("workspace/executeCommand"), params, [done](const QJsonValue &, const QJsonObject &error) {
+        done(error.isEmpty(), error.value(QStringLiteral("message")).toString());
+    });
+}
+
+QVector<LspLocation> LspManager::locationsOf(const QJsonValue &value)
+{
+    QVector<LspLocation> out;
+    if (value.isArray()) {
+        for (const QJsonValue &v : value.toArray())
+            if (v.isObject())
+                addLocation(out, v.toObject());
+    } else if (value.isObject()) {
+        addLocation(out, value.toObject());
+    }
+    return out;
 }
 
 bool LspManager::supportsWorkspaceSymbols(Document *doc) const

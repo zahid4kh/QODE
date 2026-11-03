@@ -158,6 +158,16 @@ int TerminalPanel::sessionCount() const
     return m_stack->count();
 }
 
+QVector<TerminalPanel::Pane> TerminalPanel::panes() const
+{
+    QVector<Pane> out;
+    Terminal *cur = current();
+    for (int i = 0; i < m_stack->count(); ++i)
+        for (Terminal *t : panesOf(pageAt(i)))
+            out.append({m_tabs->tabText(i), t, t == cur});
+    return out;
+}
+
 Terminal *TerminalPanel::createPane()
 {
     auto *t = new Terminal(this);
@@ -165,6 +175,10 @@ Terminal *TerminalPanel::createPane()
     t->setWorkingDirectory(m_cwd);
     if (m_startupProvider)
         t->setStartupCommandProvider(m_startupProvider);
+    connect(t, &Terminal::openFileRequested, this, &TerminalPanel::openFileRequested);
+    connect(t, &Terminal::problemsFound, this, [this, t](const QList<BuildProblem> &problems) { emit problemsFound(t, problems); });
+    connect(t, &Terminal::problemsCleared, this, [this, t] { emit problemsCleared(t); });
+    connect(t, &Terminal::fixRequested, this, &TerminalPanel::fixRequested);
     connect(t, &Terminal::focused, this, [this, t] {
         if (QSplitter *page = pageOf(t))
             m_active.insert(page, t);
@@ -249,6 +263,7 @@ void TerminalPanel::closePane(Terminal *t)
     t->hide();
     t->setParent(nullptr);
     t->deleteLater();
+    emit problemsCleared(t);
     // A nested splitter left with one child is replaced by that child.
     if (parent != page && parent->count() == 1) {
         auto *grand = qobject_cast<QSplitter *>(parent->parentWidget());
@@ -273,8 +288,10 @@ void TerminalPanel::closeSession(int index)
     QSplitter *page = pageAt(index);
     if (!page)
         return;
-    for (Terminal *t : panesOf(page))
+    for (Terminal *t : panesOf(page)) {
         t->stop();
+        emit problemsCleared(t);
+    }
     m_active.remove(page);
     m_stack->removeWidget(page);
     page->deleteLater();

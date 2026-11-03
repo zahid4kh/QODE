@@ -1,5 +1,6 @@
 #include "DevServer.h"
 
+#include "app/ChildReaper.h"
 #include "lsp/LspServers.h"
 
 #include <QDir>
@@ -25,7 +26,7 @@ DevServer::DevServer(QObject *parent) : QObject(parent), m_proc(new QProcess(thi
 {
     m_proc->setProcessChannelMode(QProcess::MergedChannels);
     // Own process group (and session): the whole tree can be signalled, and Ctrl+C in a terminal does not reach it.
-    m_proc->setChildProcessModifier([] { ::setsid(); });
+    ChildReaper::track(m_proc); // own process group, stopped by the watchdog if QODE ends abruptly
     connect(m_proc, &QProcess::readyRead, this, &DevServer::onOutput);
     connect(m_proc, &QProcess::finished, this, &DevServer::onFinished);
     connect(m_proc, &QProcess::errorOccurred, this, [this](QProcess::ProcessError e) {
@@ -88,11 +89,14 @@ void DevServer::start(const QString &command, const QString &workDir, int port)
     env.insert(QStringLiteral("NO_COLOR"), QStringLiteral("1"));
     env.remove(QStringLiteral("FORCE_COLOR"));
     env.insert(QStringLiteral("BROWSER"), QStringLiteral("none")); // create-react-app would otherwise open a tab itself
+    // Python block-buffers stdout into a pipe: `python3 -m http.server` would never show the line with its port.
+    env.insert(QStringLiteral("PYTHONUNBUFFERED"), QStringLiteral("1"));
     if (port > 0)
         env.insert(QStringLiteral("PORT"), QString::number(port));
     adjustEnvironment(env);
     m_proc->setProcessEnvironment(env);
     m_proc->setWorkingDirectory(workDir);
+    ++m_starts;
     setState(State::Starting);
     m_proc->start(QStringLiteral("/bin/sh"), {QStringLiteral("-c"), command});
 }

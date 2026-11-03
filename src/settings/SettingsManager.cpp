@@ -12,7 +12,7 @@
 #include <QSaveFile>
 
 SettingsManager::SettingsManager()
-    : m_settings(QStringLiteral("QODE"), QStringLiteral("QODE"))
+    : m_settings(QStringLiteral("QODE-AGENTIC"), QStringLiteral("QODE")) // ~/.config/QODE-AGENTIC/QODE.conf
 {
 }
 
@@ -214,6 +214,13 @@ void SettingsManager::setLightBulb(bool on)
     emit editorSettingsChanged();
 }
 
+bool SettingsManager::codeLenses() const { return m_settings.value(QStringLiteral("editor/codeLenses"), true).toBool(); }
+void SettingsManager::setCodeLenses(bool on)
+{
+    m_settings.setValue(QStringLiteral("editor/codeLenses"), on);
+    emit editorSettingsChanged();
+}
+
 bool SettingsManager::showBreadcrumbs() const
 {
     return m_settings.value(QStringLiteral("editor/breadcrumbs"), true).toBool();
@@ -234,6 +241,14 @@ void SettingsManager::setShowHiddenFiles(bool on)
 {
     m_settings.setValue(QStringLiteral("explorer/showHidden"), on);
 }
+
+bool SettingsManager::foldLicenseHeaders() const { return m_settings.value(QStringLiteral("editor/foldLicenseHeaders"), true).toBool(); }
+
+void SettingsManager::setFoldLicenseHeaders(bool on) { m_settings.setValue(QStringLiteral("editor/foldLicenseHeaders"), on); }
+
+bool SettingsManager::foldDocComments() const { return m_settings.value(QStringLiteral("editor/foldDocComments"), true).toBool(); }
+
+void SettingsManager::setFoldDocComments(bool on) { m_settings.setValue(QStringLiteral("editor/foldDocComments"), on); }
 
 bool SettingsManager::showMinimap() const
 {
@@ -271,6 +286,51 @@ void SettingsManager::setBookmarks(const QHash<QString, QList<int>> &bookmarks)
             o.insert(it.key(), a);
     }
     m_data.insert(QStringLiteral("bookmarks"), o);
+    saveProject();
+}
+
+QHash<QString, QList<int>> SettingsManager::breakpoints() const
+{
+    QHash<QString, QList<int>> out;
+    const QJsonObject o = m_data.value(QStringLiteral("breakpoints")).toObject();
+    for (auto it = o.begin(); it != o.end(); ++it) {
+        QList<int> lines;
+        for (const QJsonValue &v : it.value().toArray())
+            lines.append(v.toInt());
+        if (!lines.isEmpty())
+            out.insert(it.key(), lines);
+    }
+    return out;
+}
+
+void SettingsManager::setBreakpoints(const QHash<QString, QList<int>> &breakpoints)
+{
+    QJsonObject o;
+    for (auto it = breakpoints.begin(); it != breakpoints.end(); ++it) {
+        QJsonArray a;
+        for (int l : it.value())
+            a.append(l);
+        if (!a.isEmpty())
+            o.insert(it.key(), a);
+    }
+    if (o.isEmpty())
+        m_data.remove(QStringLiteral("breakpoints"));
+    else
+        m_data.insert(QStringLiteral("breakpoints"), o);
+    saveProject();
+}
+
+QString SettingsManager::projectJdk() const
+{
+    return m_data.value(QStringLiteral("jdk")).toString();
+}
+
+void SettingsManager::setProjectJdk(const QString &home)
+{
+    if (home.isEmpty())
+        m_data.remove(QStringLiteral("jdk"));
+    else
+        m_data.insert(QStringLiteral("jdk"), home);
     saveProject();
 }
 
@@ -339,6 +399,17 @@ bool SettingsManager::stickyScroll() const
 void SettingsManager::setStickyScroll(bool on)
 {
     m_settings.setValue(QStringLiteral("editor/stickyScroll"), on);
+    emit editorSettingsChanged();
+}
+
+bool SettingsManager::editPredictions() const
+{
+    return m_settings.value(QStringLiteral("editor/editPredictions"), true).toBool();
+}
+
+void SettingsManager::setEditPredictions(bool on)
+{
+    m_settings.setValue(QStringLiteral("editor/editPredictions"), on);
     emit editorSettingsChanged();
 }
 
@@ -627,6 +698,34 @@ void SettingsManager::setSpringRequests(const QJsonObject &state)
     saveProject();
 }
 
+QString SettingsManager::httpEnvironment() const
+{
+    return m_data.value(QStringLiteral("httpEnvironment")).toString();
+}
+
+void SettingsManager::setHttpEnvironment(const QString &name)
+{
+    if (name.isEmpty())
+        m_data.remove(QStringLiteral("httpEnvironment"));
+    else
+        m_data.insert(QStringLiteral("httpEnvironment"), name);
+    saveProject();
+}
+
+QJsonObject SettingsManager::mavenOptions() const
+{
+    return m_data.value(QStringLiteral("maven")).toObject();
+}
+
+void SettingsManager::setMavenOptions(const QJsonObject &options)
+{
+    if (options.isEmpty())
+        m_data.remove(QStringLiteral("maven"));
+    else
+        m_data.insert(QStringLiteral("maven"), options);
+    saveProject();
+}
+
 QJsonObject SettingsManager::springServer() const
 {
     return m_data.value(QStringLiteral("springServer")).toObject();
@@ -638,6 +737,31 @@ void SettingsManager::setSpringServer(const QJsonObject &config)
         m_data.remove(QStringLiteral("springServer"));
     else
         m_data.insert(QStringLiteral("springServer"), config);
+    saveProject();
+}
+
+QJsonObject SettingsManager::ktorServer() const
+{
+    return m_data.value(QStringLiteral("ktorServer")).toObject();
+}
+
+void SettingsManager::setKtorServer(const QJsonObject &config)
+{
+    if (config.isEmpty())
+        m_data.remove(QStringLiteral("ktorServer"));
+    else
+        m_data.insert(QStringLiteral("ktorServer"), config);
+    saveProject();
+}
+
+QJsonObject SettingsManager::ktorRequests() const
+{
+    return m_data.value(QStringLiteral("ktorRequests")).toObject();
+}
+
+void SettingsManager::setKtorRequests(const QJsonObject &state)
+{
+    m_data.insert(QStringLiteral("ktorRequests"), state);
     saveProject();
 }
 
@@ -720,6 +844,79 @@ QString SettingsManager::projectDataDir() const
         return {};
     file.chop(5); // ".json"
     return file;
+}
+
+QString SettingsManager::aiModel() const
+{
+    const QString m = m_settings.value(QStringLiteral("ai/model")).toString().trimmed();
+    return m.isEmpty() ? QStringLiteral("gemini-3.5-flash-lite") : m;
+}
+
+void SettingsManager::setAiModel(const QString &model)
+{
+    m_settings.setValue(QStringLiteral("ai/model"), model.trimmed());
+}
+
+QString SettingsManager::inlineModel() const
+{
+    const QString m = m_settings.value(QStringLiteral("ai/inlineModel")).toString().trimmed();
+    return m.isEmpty() ? QStringLiteral("gemini-3.5-flash") : m;
+}
+
+void SettingsManager::setInlineModel(const QString &model)
+{
+    m_settings.setValue(QStringLiteral("ai/inlineModel"), model.trimmed());
+}
+
+QString SettingsManager::aiEffort() const
+{
+    const QString e = m_settings.value(QStringLiteral("ai/effort")).toString().trimmed();
+    return e.isEmpty() ? QStringLiteral("medium") : e;
+}
+
+void SettingsManager::setAiEffort(const QString &effort)
+{
+    m_settings.setValue(QStringLiteral("ai/effort"), effort.trimmed());
+}
+
+bool SettingsManager::codeEmbeddings() const
+{
+    return m_settings.value(QStringLiteral("ai/codeEmbeddings"), true).toBool();
+}
+
+void SettingsManager::setCodeEmbeddings(bool on)
+{
+    m_settings.setValue(QStringLiteral("ai/codeEmbeddings"), on);
+}
+
+QString SettingsManager::claudeCode(const QString &key) const
+{
+    return m_settings.value(QStringLiteral("claudeCode/") + key).toString();
+}
+
+void SettingsManager::setClaudeCode(const QString &key, const QString &value)
+{
+    m_settings.setValue(QStringLiteral("claudeCode/") + key, value);
+}
+
+QJsonObject SettingsManager::codeImage() const
+{
+    return QJsonDocument::fromJson(m_settings.value(QStringLiteral("codeImage/style")).toByteArray()).object();
+}
+
+void SettingsManager::setCodeImage(const QJsonObject &style)
+{
+    m_settings.setValue(QStringLiteral("codeImage/style"), QJsonDocument(style).toJson(QJsonDocument::Compact));
+}
+
+QString SettingsManager::chatPage() const
+{
+    return m_settings.value(QStringLiteral("ai/page"), QStringLiteral("qode")).toString();
+}
+
+void SettingsManager::setChatPage(const QString &page)
+{
+    m_settings.setValue(QStringLiteral("ai/page"), page);
 }
 
 void SettingsManager::setProject(const QString &root)

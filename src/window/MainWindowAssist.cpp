@@ -57,6 +57,7 @@ void MainWindow::createAssistActions()
     m_quickInfoAct = make(tr("Quick Definition"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_I));
     m_typeDefAct = make(tr("Go to Type Definition"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F12));
     m_callHierarchyAct = make(tr("Call Hierarchy…"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_H));
+    m_typeHierarchyAct = make(tr("Type Hierarchy…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_H));
     m_implAct = make(tr("Go to Implementation"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_F12));
     m_workspaceSymbolAct = make(tr("Go to Symbol in Workspace…"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_R));
     connect(m_implAct, &QAction::triggered, this, [this] {
@@ -69,6 +70,7 @@ void MainWindow::createAssistActions()
             goToDefinition(e, e->textCursor().blockNumber(), e->textCursor().positionInBlock(), LspManager::Navigate::TypeDefinition);
     });
     connect(m_callHierarchyAct, &QAction::triggered, this, &MainWindow::showCallHierarchy);
+    connect(m_typeHierarchyAct, &QAction::triggered, this, &MainWindow::showTypeHierarchy);
     connect(m_organizeImportsAct, &QAction::triggered, this, [this] { runSourceAction(kOrganize, tr("Organize Imports")); });
     connect(m_removeUnusedAct, &QAction::triggered, this, [this] { runSourceAction(kRemoveUnused, tr("Remove Unused Imports")); });
     connect(m_addMissingAct, &QAction::triggered, this, [this] { runSourceAction(kAddMissing, tr("Add Missing Imports")); });
@@ -104,6 +106,10 @@ void MainWindow::createAssistActions()
     connect(m_semanticAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setSemanticHighlighting(on); });
     m_symbolHighlightAct = toggle(tr("Highlight Symbol Under Caret"), cfg.symbolHighlight());
     m_lightBulbAct = toggle(tr("Quick Fix Light Bulb"), cfg.lightBulb());
+    m_codeLensAct = toggle(tr("Code Lenses (Run, References)"), cfg.codeLenses());
+    m_codeLensAct->setToolTip(tr("Clickable labels after declarations: ▶ Run | Debug over tests and main functions, "
+                                 "reference and implementation counts"));
+    connect(m_codeLensAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setCodeLenses(on); });
     connect(m_hintParamsAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setInlayParameterHints(on); });
     connect(m_hintTypesAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setInlayTypeHints(on); });
     connect(m_symbolHighlightAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setSymbolHighlight(on); });
@@ -122,7 +128,7 @@ void MainWindow::createAssistActions()
             m_lsp->applySourceActionsBlocking(doc, kinds, 3000);
     });
 
-    // Semantic tokens, folding ranges and symbols are asked again whenever a server starts or asks for a refresh.
+    // Semantic tokens, folding ranges, symbols and code lenses are asked again whenever a server starts or asks for a refresh.
     auto *serverRetry = new QTimer(this);
     serverRetry->setSingleShot(true);
     serverRetry->setInterval(700);
@@ -132,7 +138,7 @@ void MainWindow::createAssistActions()
                 ed->requestServerDataSoon();
     });
     connect(m_lsp, &LspManager::statusChanged, serverRetry, qOverload<>(&QTimer::start));
-    connect(m_lsp, &LspManager::semanticTokensRefresh, serverRetry, qOverload<>(&QTimer::start));
+    connect(m_lsp, &LspManager::serverDataRefresh, serverRetry, qOverload<>(&QTimer::start));
 
     // A server that just finished starting, or asks for fresh hints: ask every editor again.
     auto *hintRetry = new QTimer(this);
@@ -171,6 +177,8 @@ void MainWindow::applyAssistSettings()
             ed->setLightBulbEnabled(s.lightBulb());
             if (!s.semanticHighlighting())
                 ed->clearSemanticTokens();
+            if (!s.codeLenses())
+                ed->clearCodeLenses();
             ed->requestServerDataSoon();
             if (!s.symbolHighlight())
                 ed->clearSymbolHighlights();
@@ -191,6 +199,7 @@ void MainWindow::wireAssists(Document *doc, CodeEditor *ed)
             });
     connect(ed, &CodeEditor::referencesRequested, this, [this, ed](int line, int column) { showReferencesAt(ed, line, column); });
     connect(ed, &CodeEditor::serverDataRequested, this, [this, doc, ed] { requestServerData(doc, ed); });
+    wireCodeLenses(doc, ed);
     connect(ed, &CodeEditor::inlayHintsRequested, this, [this, doc, ed](int first, int last) { requestHints(doc, ed, first, last); });
     connect(ed, &CodeEditor::caretSettled, this, [this, doc, ed] {
         requestHighlights(doc, ed);
@@ -233,6 +242,7 @@ void MainWindow::requestServerData(Document *doc, CodeEditor *ed)
     } else {
         ed->clearDocumentSymbols();
     }
+    requestCodeLenses(doc, ed);
 }
 
 // Ctrl+Alt+H: the callers (and callees) of the function under the caret, in a tree that opens level by level.
@@ -256,7 +266,7 @@ void MainWindow::showCallHierarchy()
             return;
         }
         if (!m_callDialog) {
-            m_callDialog = new CallHierarchyDialog(this);
+            m_callDialog = new CallHierarchyDialog(CallHierarchyDialog::Kind::Calls, this);
             m_callDialog->setAttribute(Qt::WA_DeleteOnClose);
             m_callDialog->setFetch([this](const LspCallItem &item, bool incoming, std::function<void(const QVector<LspCallItem> &, bool)> done) {
                 m_lsp->callHierarchyCalls(item, incoming, std::move(done));
@@ -268,6 +278,44 @@ void MainWindow::showCallHierarchy()
         m_callDialog->show();
         m_callDialog->raise();
         m_callDialog->activateWindow();
+    });
+}
+
+// Ctrl+Shift+H: the supertypes / subtypes of the class or interface under the caret.
+void MainWindow::showTypeHierarchy()
+{
+    CodeEditor *ed = m_editors->currentEditor();
+    Document *doc = ed ? documentOf(ed) : nullptr;
+    if (!doc)
+        return;
+    if (!m_lsp->supportsTypeHierarchy(doc)) {
+        statusBar()->showMessage(tr("Type Hierarchy needs a running language server that supports it for this file"), 4000);
+        return;
+    }
+    const QTextCursor c = ed->textCursor();
+    QPointer<CodeEditor> guard(ed);
+    m_lsp->prepareTypeHierarchy(doc, c.blockNumber(), c.positionInBlock(), [this, guard](const QVector<LspCallItem> &items) {
+        if (!guard)
+            return;
+        if (items.isEmpty()) {
+            statusBar()->showMessage(tr("No class or interface under the caret"), 3000);
+            return;
+        }
+        if (!m_typeDialog) {
+            m_typeDialog = new CallHierarchyDialog(CallHierarchyDialog::Kind::Types, this);
+            m_typeDialog->setAttribute(Qt::WA_DeleteOnClose);
+            m_typeDialog->setFetch([this](const LspCallItem &item, bool up, std::function<void(const QVector<LspCallItem> &, bool)> done) {
+                m_lsp->typeHierarchy(item, up, std::move(done));
+            });
+            connect(m_typeDialog, &CallHierarchyDialog::openRequested, this,
+                    [this](const QString &path, int line, int column) { m_editors->openFileAt(path, line + 1, column + 1); });
+        }
+        // An interface is mostly asked "who implements it": start with its subtypes (SymbolKind 11 = Interface).
+        const LspCallItem &item = items.first();
+        m_typeDialog->setRoot(item, m_projects->project().root, item.kind == 11);
+        m_typeDialog->show();
+        m_typeDialog->raise();
+        m_typeDialog->activateWindow();
     });
 }
 

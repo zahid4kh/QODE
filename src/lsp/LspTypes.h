@@ -104,6 +104,13 @@ struct LspColor {
     QString server;
 };
 
+// A link in the text (textDocument/documentLink): an #include, an import path, a $schema URL ... Links the server
+// would only fill in on documentLink/resolve have no target and are left out.
+struct LspDocumentLink {
+    int startLine = 0, startColumn = 0, endLine = 0, endColumn = 0;
+    QString target; // a URI
+};
+
 // One way to write a picked colour (textDocument/colorPresentation): "#ff0000", "rgb(255, 0, 0)", ...
 struct LspColorPresentation {
     QString label;
@@ -151,7 +158,21 @@ struct LspFoldingRange {
     QString kind;
 };
 
+// textDocument/codeLens: an action label shown with a line ("▶ Run", "3 references"). A lens without a command is
+// completed with codeLens/resolve before it shows. QODE's own lenses (Java / Kotlin tests and mains) have no server and
+// use "qode." commands.
+struct LspCodeLens {
+    int line = 0, column = 0; // start of the range it belongs to (0-based)
+    QString title;            // as sent, "$(play) Run" icon markers included
+    QString command;
+    QJsonArray arguments;
+    QJsonObject raw;          // the CodeLens, handed back to codeLens/resolve
+    QString server;           // id of the server that sent it; empty for QODE's own
+    bool resolved() const { return !command.isEmpty() || !title.isEmpty(); }
+};
+
 // One node of the call hierarchy (callHierarchy/incomingCalls, outgoingCalls): a function and where it calls / is called.
+// The type hierarchy (typeHierarchy/supertypes, subtypes) uses it too, without call sites.
 struct LspCallItem {
     QString name;
     QString detail;
@@ -159,7 +180,7 @@ struct LspCallItem {
     QString server;                     // id of the server that answered; it must be asked for the calls too
     QString path;
     int line = 0, column = 0;           // selectionRange start: the name
-    QJsonObject raw;                    // the CallHierarchyItem, handed back to incomingCalls / outgoingCalls
+    QJsonObject raw;                    // the CallHierarchyItem / TypeHierarchyItem, handed back to the follow-up requests
     QVector<QPair<int, int>> callSites; // (line, column) of each call in the *calling* function's file (fromRanges)
     QString callSitePath;               // the file those call sites are in
 };

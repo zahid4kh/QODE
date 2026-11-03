@@ -3,6 +3,7 @@
   "order": 10,
   "category": "Kotlin",
   "name": "Console Application",
+  "icon": "file-terminal.svg",
   "description": "A Gradle (Kotlin DSL) command-line app with a unit test and a version catalog. Includes the Gradle wrapper, so no Gradle install is needed.",
   "mixins": ["gradle-wrapper"],
   "requires": ["jdk17"],

@@ -1,0 +1,10 @@
+[versions]
+kotlin = "{{kotlinVersion}}"
+logback = "{{logbackVersion}}"
+
+[libraries]
+logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+kotlin-test-junit = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

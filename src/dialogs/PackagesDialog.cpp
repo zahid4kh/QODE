@@ -13,7 +13,6 @@
 #include <QDesktopServices>
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QFontDatabase>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -189,7 +188,7 @@ PackagesDialog::PackagesDialog(const QString &projectRoot, QWidget *parent)
 
     m_log = new QPlainTextEdit(this);
     m_log->setReadOnly(true);
-    m_log->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    m_log->setFont(SettingsManager::instance().editorFont());
     m_log->setMaximumBlockCount(1000);
     m_log->setFixedHeight(160);
     m_log->hide();

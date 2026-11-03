@@ -7,6 +7,7 @@
 
 #include <QFileInfo>
 #include <QHash>
+#include <QPainter>
 
 namespace FileIcons {
 
@@ -55,6 +56,7 @@ struct Tables {
         add({"cog", Tint::Number}, {"yaml", "yml", "toml", "ini", "cfg", "conf", "config", "pro", "pri", "prf", "cmake", "mk", "gradle",
                                     "properties", "desktop", "env", "editorconfig"});
         add({"file-text", Tint::Accent}, {"md", "markdown", "mdown"});
+        add({"arrow-left-right", Tint::Accent}, {"http", "rest"});
         add({"file-text", Tint::Muted}, {"txt", "log", "rst", "text", "csv", "tsv", "tex", "license", "pdf", "doc", "docx", "odt"});
         add({"file-terminal", Tint::String}, {"sh", "bash", "zsh", "ksh", "fish", "bat", "cmd", "ps1"});
         add({"image", Tint::Keyword}, {"png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg", "tif", "tiff", "avif", "icns"});
@@ -112,7 +114,55 @@ QIcon make(const char *icon, Tint tint, Cache &c)
     return ic;
 }
 
+// The Kotlin logo (a filled shape, heavier than the line icons, so drawn a little smaller), with a terminal badge on
+// scripts (*.kts that are not Gradle build scripts).
+QIcon makeKotlin(bool script, Cache &c)
+{
+    const QString key = script ? QStringLiteral("kotlin|script") : QStringLiteral("kotlin");
+    auto it = c.icons.constFind(key);
+    if (it != c.icons.constEnd())
+        return it.value();
+    QColor col = colorFor(Tint::Keyword, c.palette);
+    col.setAlphaF(0.92);
+    const QColor badge = colorFor(Tint::String, c.palette);
+    QIcon icon;
+    for (int size : {14, 16, 20, 24, 32}) {
+        const qreal dpr = 2.0;
+        QPixmap pm(QSize(size, size) * dpr);
+        pm.setDevicePixelRatio(dpr);
+        pm.fill(Qt::transparent);
+        QPainter p(&pm);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setRenderHint(QPainter::SmoothPixmapTransform);
+        const int logo = qRound(size * (script ? 0.70 : 0.78));
+        const int at = script ? qRound(size * 0.04) : (size - logo) / 2;
+        p.drawPixmap(QRect(at, at, logo, logo), Icons::pixmap(QStringLiteral(":/new-icons/kotlin.svg"), col, logo, dpr));
+        if (script) {
+            const int b = qRound(size * 0.58);
+            const QRect br(size - b, size - b, b, b);
+            p.setPen(Qt::NoPen);
+            p.setBrush(c.palette.panel);
+            p.drawEllipse(br);
+            p.drawPixmap(br.adjusted(1, 1, -1, -1), Icons::pixmap(QStringLiteral(":/new-icons/terminal.svg"), badge, b - 2, dpr));
+        }
+        p.end();
+        icon.addPixmap(pm);
+    }
+    c.icons.insert(key, icon);
+    return icon;
+}
+
+ConfigBrand g_brand = ConfigBrand::Spring;
+
 } // namespace
+
+bool setConfigBrand(ConfigBrand brand)
+{
+    if (g_brand == brand)
+        return false;
+    g_brand = brand;
+    return true;
+}
 
 QIcon forFile(const QString &fileName)
 {
@@ -124,10 +174,20 @@ QIcon forFile(const QString &fileName)
         return make(n->icon, n->tint, c);
     // "README.md" style: the stem decides when the extension is generic.
     const QString ext = QFileInfo(lower).suffix();
+    // Ktor configuration: application.yaml / application.conf (HOCON) in a Ktor project.
+    if (g_brand == ConfigBrand::Ktor && lower.startsWith(QLatin1String("application"))
+        && (ext == QLatin1String("yml") || ext == QLatin1String("yaml") || ext == QLatin1String("conf")))
+        return make("ktor", Tint::Accent, c);
     // Spring Boot configuration: application.properties / application-dev.yml / bootstrap.yaml ...
     if ((lower.startsWith(QLatin1String("application")) || lower.startsWith(QLatin1String("bootstrap")))
         && (ext == QLatin1String("properties") || ext == QLatin1String("yml") || ext == QLatin1String("yaml")))
         return make("spring", Tint::String, c);
+    // Kotlin and Gradle: build scripts carry Gradle's logo, other scripts the Kotlin logo with a terminal badge.
+    if (ext == QLatin1String("kts") || ext == QLatin1String("kt") || ext == QLatin1String("gradle")) {
+        if (ext == QLatin1String("gradle") || lower.endsWith(QLatin1String(".gradle.kts")))
+            return make("gradle", Tint::Number, c);
+        return makeKotlin(ext == QLatin1String("kts"), c);
+    }
     auto e = tables.byExtension.constFind(ext);
     if (e != tables.byExtension.constEnd())
         return make(e->icon, e->tint, c);

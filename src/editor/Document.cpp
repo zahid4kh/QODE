@@ -2,13 +2,16 @@
 
 #include "SyntaxHighlighter.h"
 #include "filesystem/FileManager.h"
+#include "history/LocalHistory.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
 #include "editor/Language.h"
 
 #include <QFileInfo>
+#include <QFontMetricsF>
 #include <QPlainTextDocumentLayout>
 #include <QStringConverter>
+#include <QTextBlock>
 #include <QTextDocument>
 
 Document::Document(QObject *parent)
@@ -17,6 +20,14 @@ Document::Document(QObject *parent)
     m_doc = new QTextDocument(this);
     m_doc->setDocumentLayout(new QPlainTextDocumentLayout(m_doc));
     m_doc->setUndoRedoEnabled(true);
+    // The editor's font and tab stops from the start: CodeEditor then finds nothing to change when it takes the
+    // document. Each change after the text is in lays every line out again (a one-line file at once), which costs
+    // seconds on a minified file.
+    const QFont font = SettingsManager::instance().editorFont();
+    m_doc->setDefaultFont(font);
+    QTextOption option = m_doc->defaultTextOption();
+    option.setTabStopDistance(QFontMetricsF(font).horizontalAdvance(QLatin1Char(' ')) * SettingsManager::instance().tabSize());
+    m_doc->setDefaultTextOption(option);
     m_highlighter = new SyntaxHighlighter(m_doc);
     m_highlighter->setTheme(Theme::byName(SettingsManager::instance().theme()));
 
@@ -24,6 +35,11 @@ Document::Document(QObject *parent)
         if (m_state == State::Saving)
             return;
         setState(modified ? State::Modified : State::Clean);
+    });
+    // A `#!` typed into the first line of a file without a known extension picks the language.
+    connect(m_doc, &QTextDocument::contentsChange, this, [this](int position) {
+        if (position < m_doc->firstBlock().length())
+            applyLanguage(m_doc->firstBlock().text());
     });
     connect(&SettingsManager::instance(), &SettingsManager::themeChanged, this, [this](const QString &t) {
         m_highlighter->setTheme(Theme::byName(t));
@@ -51,9 +67,18 @@ QString Document::languageName() const
     return l ? l->name : QStringLiteral("Plain Text");
 }
 
-void Document::applyLanguage()
+const LanguageDefinition *Document::language() const
 {
-    m_highlighter->setLanguage(Languages::forFile(m_path));
+    return m_highlighter->language();
+}
+
+void Document::applyLanguage(const QString &firstLine)
+{
+    const LanguageDefinition *lang = Languages::forFile(m_path, firstLine);
+    if (lang == m_highlighter->language())
+        return;
+    m_highlighter->setLanguage(lang);
+    emit languageChanged();
 }
 
 void Document::setState(State s)
@@ -94,7 +119,7 @@ bool Document::changedOnDisk() const
 void Document::setPath(const QString &path)
 {
     m_path = path;
-    applyLanguage();
+    applyLanguage(m_doc->firstBlock().text());
     if (!path.isEmpty())
         recordDiskStamp();
     emit pathChanged(path);
@@ -113,12 +138,13 @@ bool Document::load(const QString &path, QString *error)
     m_bom = data.startsWith("\xEF\xBB\xBF");
     if (m_bom)
         data.remove(0, 3);
+    m_ec = EditorConfig::forFile(path);
 
     // Try UTF-8 first; if the bytes are not valid UTF-8, fall back to Latin-1 which is
     // lossless byte-for-byte, so saving reproduces the original file exactly.
     QStringDecoder utf8(QStringConverter::Utf8, QStringConverter::Flag::Stateless);
-    QString text = utf8.decode(data);
-    if (utf8.hasError()) {
+    QString text = m_ec.charset == QLatin1String("latin1") ? QString() : utf8.decode(data);
+    if (m_ec.charset == QLatin1String("latin1") || utf8.hasError()) {
         m_encoding = QStringLiteral("Latin-1");
         text = QString::fromLatin1(data);
     } else {
@@ -130,9 +156,16 @@ bool Document::load(const QString &path, QString *error)
     m_lineEnding = (crlf > 0 && crlf >= lf) ? LineEnding::CRLF : LineEnding::LF;
     if (crlf > 0)
         text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    applyEditorConfigEncoding();
+    if (m_ec.tabWidth > 0) { // before the text goes in: changing it afterwards lays every line out again
+        QTextOption option = m_doc->defaultTextOption();
+        option.setTabStopDistance(QFontMetricsF(m_doc->defaultFont()).horizontalAdvance(QLatin1Char(' ')) * m_ec.tabWidth);
+        m_doc->setDefaultTextOption(option);
+    }
 
     m_path = path;
-    applyLanguage();
+    applyLanguage(text.section(QLatin1Char('\n'), 0, 0));
+    m_large = text.size() > kLargeChars || text.count(QLatin1Char('\n')) >= kLargeLines;
     m_doc->setPlainText(text);
     m_doc->setModified(false);
     m_doc->clearUndoRedoStacks();
@@ -146,6 +179,28 @@ bool Document::reload(QString *error)
     if (m_path.isEmpty())
         return true;
     return load(m_path, error);
+}
+
+// end_of_line and charset from .editorconfig decide how the file is written back.
+void Document::applyEditorConfigEncoding()
+{
+    if (m_ec.crlf >= 0)
+        m_lineEnding = m_ec.crlf ? LineEnding::CRLF : LineEnding::LF;
+    if (m_ec.charset == QLatin1String("latin1")) {
+        m_encoding = QStringLiteral("Latin-1");
+        m_bom = false;
+    } else if (m_ec.charset.startsWith(QLatin1String("utf-8"))) {
+        m_bom = m_ec.charset == QLatin1String("utf-8-bom");
+        m_encoding = m_bom ? QStringLiteral("UTF-8 BOM") : QStringLiteral("UTF-8");
+    }
+}
+
+void Document::refreshEditorConfig()
+{
+    if (m_path.isEmpty())
+        return;
+    m_ec = EditorConfig::forFile(m_path);
+    applyEditorConfigEncoding();
 }
 
 QByteArray Document::encode()
@@ -181,9 +236,20 @@ bool Document::save(QString *error)
 
 bool Document::saveAs(const QString &path, QString *error)
 {
+    if (!m_saveBlock.isEmpty()) {
+        if (error)
+            *error = m_saveBlock;
+        return false;
+    }
+    if (path != m_path) { // a new name can fall under other .editorconfig sections
+        m_ec = EditorConfig::forFile(path);
+        applyEditorConfigEncoding();
+    }
     const State before = m_state;
     setState(State::Saving);
-    const bool ok = FileManager::writeFile(path, encode(), error);
+    const QByteArray data = encode();
+    LocalHistory::recordWrite(path, data);
+    const bool ok = FileManager::writeFile(path, data, error);
     if (!ok) {
         setState(before);
         return false;
@@ -192,7 +258,7 @@ bool Document::saveAs(const QString &path, QString *error)
     const bool pathChangedNow = path != m_path;
     m_path = path;
     if (pathChangedNow) {
-        applyLanguage();
+        applyLanguage(m_doc->firstBlock().text());
     }
     recordDiskStamp();
     setState(State::Clean);

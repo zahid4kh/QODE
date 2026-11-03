@@ -368,6 +368,13 @@ void Breadcrumbs::setTableToggle(bool available, bool table)
     update();
 }
 
+void Breadcrumbs::setNote(const QString &text, const QString &tooltip)
+{
+    m_note = text;
+    m_noteTip = tooltip;
+    update();
+}
+
 void Breadcrumbs::setCrumbs(const QList<Crumb> &path, const QList<Crumb> &symbols)
 {
     m_path = path;
@@ -401,7 +408,8 @@ void Breadcrumbs::paintEvent(QPaintEvent *)
     const int previewW = m_preview ? fm.horizontalAdvance(previewText) + 14 + 20 : 0;
     const QString tableText = m_tableShown ? tr("Text") : tr("Table");
     const int tableW = m_tableToggle ? fm.horizontalAdvance(tableText) + 14 + 20 : 0;
-    const int avail = width() - 20 - (m_preview ? previewW + 8 : 0) - (m_tableToggle ? tableW + 8 : 0);
+    const int noteW = m_note.isEmpty() ? 0 : fm.horizontalAdvance(m_note) + 12;
+    const int avail = width() - 20 - (m_preview ? previewW + 8 : 0) - (m_tableToggle ? tableW + 8 : 0) - noteW;
 
     QList<Crumb> all = m_path;
     all += m_symbols;
@@ -448,6 +456,15 @@ void Breadcrumbs::paintEvent(QPaintEvent *)
             sep();
     }
 
+    m_noteRect = {};
+    if (!m_note.isEmpty()) {
+        const int right = width() - 8 - (m_preview ? previewW + 8 : 0) - (m_tableToggle ? tableW + 8 : 0);
+        m_noteRect = QRect(right - noteW, 0, noteW, height());
+        p.setFont(f);
+        p.setPen(t.warning);
+        p.drawText(m_noteRect, Qt::AlignVCenter | Qt::AlignRight, m_note);
+    }
+
     m_tableRect = {};
     if (m_tableToggle) {
         m_tableRect = QRect(width() - tableW - 8, 3, tableW, height() - 7);
@@ -482,6 +499,7 @@ void Breadcrumbs::paintEvent(QPaintEvent *)
 
 void Breadcrumbs::mouseMoveEvent(QMouseEvent *event)
 {
+    setToolTip(m_noteRect.contains(event->position().toPoint()) ? m_noteTip : QString());
     const bool overTable = m_tableToggle && m_tableRect.contains(event->position().toPoint());
     if (overTable != m_tableHover) {
         m_tableHover = overTable;

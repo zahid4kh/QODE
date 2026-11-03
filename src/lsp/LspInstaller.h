@@ -11,7 +11,7 @@ class QProcess;
 
 // Downloads and sets up the Kotlin language server from JetBrains' standalone Linux archive:
 // resolve version -> checksum -> download -> verify -> unpack -> link -> test run. Everything lives under
-// ~/.local/share/QODE/lsp/kotlin (no root needed) and runs asynchronously; the archive carries its own Java
+// ~/.local/share/QODE-AGENTIC/lsp/kotlin (no root needed) and runs asynchronously; the archive carries its own Java
 // runtime, so the system needs no JDK for the server itself.
 class LspInstaller : public QObject
 {
@@ -19,7 +19,7 @@ class LspInstaller : public QObject
 public:
     // The release known to work with QODE; "latest" is an opt-in.
     static QString pinnedVersion();
-    static QString installRoot();         // ~/.local/share/QODE/lsp/kotlin
+    static QString installRoot();         // ~/.local/share/QODE-AGENTIC/lsp/kotlin
     static QString linkPath();            // ~/.local/bin/kotlin-lsp
     static QString installedVersion();    // what `current` points to, "" when nothing is installed
     static bool isManaged(const QString &path); // true when `path` resolves into installRoot()

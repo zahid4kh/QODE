@@ -12,6 +12,8 @@ struct ExpoApp
     QString sdk;           // "54.0.0": the schema version for the installed (or declared) expo, "" when unknown
     QString appJson;       // absolute app.json (or app.config.json), "" when the app only has a dynamic config
     QString dynamicConfig; // absolute app.config.js / .ts when present
+    bool web = false;      // react-native-web and react-dom are installed: `expo start` can serve it to a browser
+    QStringList dependencies; // package.json's dependencies and devDependencies
 };
 
 // Finds Expo apps in a project. QODE shows nothing React-Native-specific unless this returns something. Qt Core only.

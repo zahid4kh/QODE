@@ -553,14 +553,15 @@ QString colouredCode(Ctx &ctx, const QString &code, const QString &lang)
     return esc(code);
 }
 
-// A code box: a borderless table (cellpadding 7 marks it for MarkdownPreview, which paints the rounded
-// background) with a header row holding the language and a Copy link, then the code itself.
+// A code box: a borderless table (cellpadding 7 marks it for MarkdownView, which paints the rounded background and
+// shows a Copy button over the header while the pointer is on the box) with a header row holding the language, then
+// the code itself.
 QString codeBlock(Ctx &ctx, const QString &code, const QString &lang)
 {
     QString l = lang;
     l.remove(QRegularExpression(QStringLiteral("^[{.]|[}]$")));
     return QStringLiteral("<table border=\"0\" cellspacing=\"0\" cellpadding=\"7\" width=\"100%\"><tr><td><small>%1</small></td>"
-                          "<td align=\"right\"><small><a href=\"qode-copy:\">Copy</a></small></td></tr>"
+                          "<td align=\"right\"><small>&nbsp;</small></td></tr>"
                           "<tr><td colspan=\"2\"><pre>%2</pre></td></tr></table>")
         .arg(esc(l.toUpper()), colouredCode(ctx, code, l));
 }

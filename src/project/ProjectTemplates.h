@@ -18,7 +18,7 @@ public:
     struct Option {
         QString key;
         QString label;
-        QString type;  // text | package | version | choice | bool | image
+        QString type;  // text | package | version | port | choice | bool | image
         QString def;   // may hold placeholders ({{nameId}}, {{gitIdentity}} ...)
         QString hint;
         QStringList choices;
@@ -37,6 +37,8 @@ public:
         QString category;
         QString name;
         QString description;
+        QString icon; // a file in resources/new-icons shown in the template list, empty = none
+        QString attribution; // copyright / trademark notice behind the info button beside the title, empty = no button
         int order = 0;
         QStringList mixins;
         // Tools the project needs, checked by the dialog (a warning, never a block): "jdk17" = a Java runtime of at least that

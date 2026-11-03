@@ -7,5 +7,7 @@
   "koinVersion": "4.1.0",
   "foojayVersion": "1.0.0",
   "springBootVersion": "4.1.1",
-  "springDependencyManagementVersion": "1.1.7"
+  "springDependencyManagementVersion": "1.1.7",
+  "ktorVersion": "3.6.0",
+  "logbackVersion": "1.5.37"
 }

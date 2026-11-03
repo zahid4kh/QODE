@@ -1,5 +1,7 @@
 #include "ProjectExplorer.h"
 
+#include "cpp/CppTools.h"
+
 #include "ExplorerTree.h"
 #include "GitItemDelegate.h"
 #include "dialogs/NewFileDialog.h"
@@ -31,7 +33,9 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QTreeView>
+#include <QHBoxLayout>
 #include <QVBoxLayout>
+#include <QWidgetAction>
 
 ProjectExplorer::ProjectExplorer(QWidget *parent)
     : QWidget(parent)
@@ -262,6 +266,10 @@ void ProjectExplorer::createFileIn(const QString &dir)
         showError(tr("Unable to create file"), tr("Path:\n%1\n\nReason:\n%2").arg(FileManager::displayPath(path), err));
         return;
     }
+    // C/C++: a header starts with #pragma once (or a guard, when the project's headers use them), a source with its header.
+    const QString starter = CppTools::newFileText(path, m_root);
+    if (!starter.isEmpty())
+        FileManager::writeFile(path, starter.toUtf8(), nullptr);
     emit fileCreated(path);
 }
 
@@ -306,7 +314,7 @@ void ProjectExplorer::deletePath(const QString &path)
     const QFileInfo fi(path);
     const QString what = fi.isDir() ? tr("folder \"%1\" and everything in it").arg(fi.fileName())
                                     : tr("file \"%1\"").arg(fi.fileName());
-    const auto answer = QMessageBox::warning(this, tr("Delete"), tr("Permanently delete %1?\n\nThis cannot be undone.").arg(what),
+    const auto answer = QMessageBox::warning(this, tr("Delete"), tr("Permanently delete %1?\n\nText files can be restored from Local History.").arg(what),
                                              QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
     if (answer != QMessageBox::Yes)
         return;
@@ -335,7 +343,7 @@ void ProjectExplorer::deletePaths(const QStringList &all)
         if (!nested)
             paths << p;
     }
-    const auto answer = QMessageBox::warning(this, tr("Delete"), tr("Permanently delete these %1 items and everything in them?\n\nThis cannot be undone.").arg(paths.size()),
+    const auto answer = QMessageBox::warning(this, tr("Delete"), tr("Permanently delete these %1 items and everything in them?\n\nText files can be restored from Local History.").arg(paths.size()),
                                              QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
     if (answer != QMessageBox::Yes)
         return;
@@ -372,6 +380,7 @@ void ProjectExplorer::showContextMenu(const QPoint &pos)
         addClipboardActions(&menu, path, dir);
         menu.addSeparator();
         addGitActions(&menu, path);
+        menu.addAction(tr("Local History…"), this, [this, path] { emit localHistoryRequested(path); });
         menu.addAction(tr("Refresh"), this, &ProjectExplorer::refresh);
         menu.addAction(tr("Open in File Manager"), this, [path] { FileManager::revealInFileManager(path); });
         menu.addSeparator();
@@ -390,6 +399,8 @@ void ProjectExplorer::showContextMenu(const QPoint &pos)
             menu.addAction(tr("New File"), this, [this, dir] { createFileIn(dir); });
             if (m_newMenuHook)
                 m_newMenuHook(&menu, dir);
+            if (FileManager::isScript(path))
+                addScriptActions(&menu, path);
         }
         menu.addSeparator();
         addClipboardActions(&menu, path, dir);
@@ -398,9 +409,42 @@ void ProjectExplorer::showContextMenu(const QPoint &pos)
         menu.addAction(Icons::tinted(QStringLiteral(":/new-icons/pencil.svg"), Theme::byName(SettingsManager::instance().theme()).editorFg), tr("Rename"), this, [this, path] { renamePath(path); })->setShortcut(QKeySequence(Qt::Key_F2));
         menu.addAction(Icons::tinted(QStringLiteral(":/new-icons/trash-2.svg"), Theme::byName(SettingsManager::instance().theme()).editorFg), tr("Delete"), this, [this, path] { deletePath(path); })->setShortcut(QKeySequence(Qt::Key_Delete));
         menu.addSeparator();
+        menu.addAction(tr("Local History…"), this, [this, path] { emit localHistoryRequested(path); });
         menu.addAction(tr("Reveal in File Manager"), this, [path] { FileManager::revealInFileManager(path); });
     }
     menu.exec(m_tree->viewport()->mapToGlobal(pos));
+}
+
+// A script either offers chmod +x or says, in green, that it already has it.
+void ProjectExplorer::addScriptActions(QMenu *menu, const QString &path)
+{
+    menu->addSeparator();
+    const Theme t = Theme::byName(SettingsManager::instance().theme());
+    if (!QFileInfo(path).isExecutable()) {
+        menu->addAction(Icons::tinted(QStringLiteral(":/new-icons/file-terminal.svg"), t.editorFg), tr("Make Executable"), this, [this, path] {
+            QString error;
+            if (!FileManager::makeExecutable(path, &error))
+                QMessageBox::warning(this, tr("Make Executable"), tr("Could not make %1 executable:\n%2").arg(QFileInfo(path).fileName(), error));
+        });
+        return;
+    }
+    // A plain row, not an action: it states a fact and does nothing when clicked.
+    auto *row = new QWidget(menu);
+    auto *lay = new QHBoxLayout(row);
+    const SettingsManager &s = SettingsManager::instance();
+    lay->setContentsMargins(s.scaled(12), s.scaled(6), s.scaled(26), s.scaled(6));
+    lay->setSpacing(s.scaled(8));
+    auto *icon = new QLabel(row);
+    const int px = s.scaled(16);
+    icon->setPixmap(Icons::tinted(QStringLiteral(":/new-icons/check.svg"), t.success).pixmap(px, px));
+    auto *text = new QLabel(tr("Executable"), row);
+    text->setStyleSheet(QStringLiteral("color: %1;").arg(t.success.name()));
+    lay->addWidget(icon);
+    lay->addWidget(text, 1);
+    row->setToolTip(tr("This file has execute permission"));
+    auto *wa = new QWidgetAction(menu);
+    wa->setDefaultWidget(row);
+    menu->addAction(wa);
 }
 
 // Copy / Paste and the three ways to copy a path.

@@ -3,7 +3,17 @@
 #include "CsvData.h"
 
 #include <QFont>
+#include <QRegularExpression>
 #include <QTextBlock>
+#include <QVarLengthArray>
+
+#include <climits>
+
+namespace {
+// A line inside a heredoc has the block state kHeredocState + 4 * the terminator's index, + 1 for `<<-` (leading tabs
+// before the terminator allowed), + 2 for a quoted terminator (no $expansion in the body). Delimited rules use 1..n.
+constexpr int kHeredocState = 1 << 16;
+} // namespace
 
 SyntaxHighlighter::SyntaxHighlighter(QTextDocument *doc)
     : QSyntaxHighlighter(doc)
@@ -118,6 +128,12 @@ void SyntaxHighlighter::shiftSemanticLines(int edited, int delta)
 
 void SyntaxHighlighter::highlightBlock(const QString &text)
 {
+    // A line this long is minified or generated: it stays plain (each keystroke in it would run every rule over all of
+    // it again) and passes the state it was given on, so a comment or string open before it goes on after it.
+    if (text.size() > kMaxHighlightedLine) {
+        setCurrentBlockState(qMax(previousBlockState(), 0));
+        return;
+    }
     highlightText(text);
     const int blockNumber = currentBlock().blockNumber();
     if (blockNumber < m_semantic.size() && blockNumber < m_semanticHash.size() && m_semanticHash[blockNumber] == lineHash(text)) {
@@ -155,11 +171,32 @@ void SyntaxHighlighter::highlightText(const QString &text)
     }
     if (!m_lang || (text.isEmpty() && previousBlockState() <= 0))
         return;
+    // PCRE2 validates the whole subject on every match() unless told not to, which made every match on a long line cost
+    // the line's length: check it once per block instead.
+    m_matchOptions = QStringView(text).isValidUtf16() ? QRegularExpression::DontCheckSubjectStringMatchOption
+                                                      : QRegularExpression::NoMatchOption;
+
+    if (m_lang->heredocs && previousBlockState() >= kHeredocState) {
+        const int code = previousBlockState() - kHeredocState;
+        QString line = text;
+        if (code & 1)
+            while (line.startsWith(QLatin1Char('\t')))
+                line.remove(0, 1);
+        if (line == m_heredocWords.value(code / 4)) {
+            setFormat(0, text.size(), formatFor(TokenRole::Keyword));
+            return;
+        }
+        setFormat(0, text.size(), formatFor(TokenRole::String));
+        if (!(code & 2))
+            interpolate(text, 0, text.size());
+        setCurrentBlockState(previousBlockState());
+        return;
+    }
 
     // 1. Ordinary token rules.
     if (!text.isEmpty()) {
         for (const HighlightRule &r : m_lang->rules) {
-            auto it = r.pattern.globalMatch(text);
+            auto it = r.pattern.globalMatch(text, 0, QRegularExpression::NormalMatch, m_matchOptions);
             while (it.hasNext()) {
                 const auto m = it.next();
                 const int s = m.capturedStart(r.group);
@@ -177,26 +214,40 @@ void SyntaxHighlighter::highlightText(const QString &text)
     const int prev = previousBlockState();
     if (prev > 0 && prev <= delims.size()) {
         const DelimitedRule &d = delims[prev - 1];
-        const auto m = d.end.match(text, 0);
+        const auto m = d.end.match(text, 0, QRegularExpression::NormalMatch, m_matchOptions);
         if (!m.hasMatch()) {
             setFormat(0, text.length(), formatFor(d.role));
+            if (d.interpolates)
+                interpolate(text, 0, text.length());
             setCurrentBlockState(prev);
             return;
         }
         pos = m.capturedEnd();
         setFormat(0, pos, formatFor(d.role));
+        if (d.interpolates)
+            interpolate(text, 0, pos);
     }
 
+    // Each delimiter's next start is remembered and only searched again once `pos` has passed it: searching every
+    // delimiter from `pos` after each string made long lines quadratic (a 500 KB minified JSON line took seconds,
+    // because a delimiter that never matches, like a comment in JSON, rescanned the rest of the line each time).
+    struct Next {
+        int start = -1, len = 0; // start -1: not searched yet; INT_MAX: no more matches on this line
+    };
+    QVarLengthArray<Next, 8> next(delims.size());
     while (pos < text.length()) {
         int bestStart = -1, bestLen = 0, bestIdx = -1;
-        QRegularExpressionMatch bestMatch;
         for (int i = 0; i < delims.size(); ++i) {
-            const auto m = delims[i].start.match(text, pos);
-            if (m.hasMatch() && (bestStart < 0 || m.capturedStart() < bestStart)) {
-                bestStart = m.capturedStart();
-                bestLen = m.capturedLength();
+            Next &n = next[i];
+            if (n.start < pos) {
+                const auto m = delims[i].start.match(text, pos, QRegularExpression::NormalMatch, m_matchOptions);
+                n.start = m.hasMatch() ? int(m.capturedStart()) : INT_MAX;
+                n.len = int(m.capturedLength());
+            }
+            if (n.start != INT_MAX && (bestStart < 0 || n.start < bestStart)) {
+                bestStart = n.start;
+                bestLen = n.len;
                 bestIdx = i;
-                bestMatch = m;
             }
         }
         if (bestIdx < 0)
@@ -204,18 +255,63 @@ void SyntaxHighlighter::highlightText(const QString &text)
         const DelimitedRule &d = delims[bestIdx];
         if (!d.end.isValid() || d.end.pattern().isEmpty()) {
             setFormat(bestStart, qMax(bestLen, 1), formatFor(d.role));
+            if (d.interpolates)
+                interpolate(text, bestStart, bestStart + qMax(bestLen, 1));
             pos = bestStart + qMax(bestLen, 1);
             continue;
         }
         const int from = bestStart + qMax(bestLen, 1);
-        const auto e = d.end.match(text, from);
+        const auto e = d.end.match(text, from, QRegularExpression::NormalMatch, m_matchOptions);
         if (!e.hasMatch()) {
             setFormat(bestStart, text.length() - bestStart, formatFor(d.role));
+            if (d.interpolates)
+                interpolate(text, from, text.length());
             setCurrentBlockState(bestIdx + 1);
             return;
         }
         setFormat(bestStart, e.capturedEnd() - bestStart, formatFor(d.role));
+        if (d.interpolates)
+            interpolate(text, from, e.capturedEnd());
         pos = e.capturedEnd();
+    }
+    if (m_lang->heredocs)
+        openHeredoc(text);
+}
+
+// $var and ${…} inside a string keep the colour they have outside it.
+void SyntaxHighlighter::interpolate(const QString &text, int from, int to)
+{
+    if (!m_lang->interpolation.isValid() || m_lang->interpolation.pattern().isEmpty())
+        return;
+    auto it = m_lang->interpolation.globalMatch(text, from, QRegularExpression::NormalMatch, m_matchOptions);
+    while (it.hasNext()) {
+        const auto m = it.next();
+        if (m.capturedStart() >= to)
+            break;
+        setFormat(m.capturedStart(), qMin(m.capturedEnd(), to) - m.capturedStart(), formatFor(m_lang->interpolationRole));
+    }
+}
+
+// `<<EOF`, `<<-EOF`, `<<'EOF'`, `<<\EOF` outside strings and comments: the next lines are the heredoc body.
+void SyntaxHighlighter::openHeredoc(const QString &text)
+{
+    static const QRegularExpression op(QStringLiteral("(?<!<)<<(-?)\\s*(?:(['\"])([A-Za-z_][\\w.-]*)\\2|(\\\\?)([A-Za-z_][\\w.-]*))"));
+    auto it = op.globalMatch(text, 0, QRegularExpression::NormalMatch, m_matchOptions);
+    while (it.hasNext()) {
+        const auto m = it.next();
+        const QVariant role = format(m.capturedStart()).property(kTokenRoleProperty);
+        if (role.isValid() && (role.toInt() == int(TokenRole::String) || role.toInt() == int(TokenRole::Comment)))
+            continue;
+        const bool quoted = m.capturedLength(2) > 0 || m.capturedLength(4) > 0;
+        const QString word = quoted && m.capturedLength(2) ? m.captured(3) : m.captured(5);
+        int index = int(m_heredocWords.indexOf(word));
+        if (index < 0) {
+            index = int(m_heredocWords.size());
+            m_heredocWords << word;
+        }
+        setFormat(m.capturedStart(), m.capturedLength(), formatFor(TokenRole::Keyword));
+        setCurrentBlockState(kHeredocState + 4 * index + (m.capturedLength(1) ? 1 : 0) + (quoted ? 2 : 0));
+        return;
     }
 }
 

@@ -189,7 +189,9 @@ WelcomePage::WelcomePage(QWidget *parent)
     m_recentTitle->setAlignment(Qt::AlignCenter);
     wl->addWidget(m_recentTitle);
     m_recent = new RecentList(this);
+    m_recent->setProperty("qodeZoomed", true); // its height is set already zoomed, see fitRecent
     wl->addWidget(m_recent, 0, Qt::AlignCenter);
+    connect(&SettingsManager::instance(), &SettingsManager::editorSettingsChanged, this, &WelcomePage::fitRecent);
 
     auto *hint = new QLabel(tr("<span>Ctrl+Shift+O open project &nbsp;·&nbsp; Ctrl+O open file &nbsp;·&nbsp; Ctrl+Shift+P command palette &nbsp;·&nbsp; Ctrl+J terminal</span>"), content);
     hint->setAlignment(Qt::AlignCenter);
@@ -216,7 +218,12 @@ void WelcomePage::setRecentProjects(const QStringList &paths)
         it->setSizeHint(QSize(0, kRowHeight));
         ++shown;
     }
-    m_recent->setFixedHeight(SettingsManager::instance().scaled(shown * kRowHeight + 4));
+    fitRecent();
     m_recent->setVisible(shown > 0);
     m_recentTitle->setVisible(shown > 0);
+}
+
+void WelcomePage::fitRecent()
+{
+    m_recent->setFixedHeight(SettingsManager::instance().scaled(m_recent->count() * kRowHeight + 4));
 }

@@ -17,6 +17,9 @@ class SyntaxHighlighter : public QSyntaxHighlighter
 public:
     explicit SyntaxHighlighter(QTextDocument *doc);
 
+    // Longer lines are not coloured (minified or generated code); VS Code stops at the same length.
+    static constexpr int kMaxHighlightedLine = 20000;
+
     void setLanguage(const LanguageDefinition *lang);
     const LanguageDefinition *language() const { return m_lang; }
     void setTheme(const Theme &theme);
@@ -49,6 +52,8 @@ protected:
 private:
     void highlightText(const QString &text);
     void highlightCsv(const QString &text);
+    void interpolate(const QString &text, int from, int to);
+    void openHeredoc(const QString &text);
     QTextCharFormat formatFor(TokenRole role) const;
     void rebuildFormats();
 
@@ -59,4 +64,6 @@ private:
     SemanticLines m_semantic;
     QVector<uint> m_semanticHash;
     QChar m_csvDelimiter;
+    QRegularExpression::MatchOptions m_matchOptions; // set per block by highlightText
+    QStringList m_heredocWords; // the terminators seen so far; a block state names one by its index
 };

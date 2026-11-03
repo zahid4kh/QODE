@@ -24,6 +24,11 @@ public:
     bool busy() const { return m_busy; }
     void undo(); // the last move, including the references it rewrote
 
+signals:
+    // After a move, rename or undo: what moved (from -> to) and the closed files whose references were rewritten on disk
+    // (open ones change through their editors). The language servers are told.
+    void filesMoved(const QList<QPair<QString, QString>> &moves, const QStringList &rewritten);
+
 private:
     struct Changed {
         QString path; // after the move

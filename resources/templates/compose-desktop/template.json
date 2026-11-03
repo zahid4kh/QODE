@@ -3,6 +3,7 @@
   "order": 20,
   "category": "Kotlin",
   "name": "Compose Desktop",
+  "icon": "monitor.svg",
   "description": "A Compose Multiplatform desktop app: Material 3, a dark-mode switch, Koin, packaging for Deb / MSI / EXE / DMG and hot reload. Includes the Gradle wrapper.",
   "mixins": ["gradle-wrapper"],
   "requires": ["jdk17"],

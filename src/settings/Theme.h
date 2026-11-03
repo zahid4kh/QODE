@@ -20,6 +20,8 @@ struct Theme {
     QColor diffAddBg, diffDelBg, diffFillBg;
     QColor success, warning, danger, idle; // status dots, errors
     QColor findMatchBg;
+    QColor brandGemini{0x4c, 0x8d, 0xf6}, brandClaude{0xd9, 0x77, 0x57}; // provider logos in the agent's model picker
+    QColor agentBg, agentPanel, agentInput, agentBorder; // the agent view: a slightly darker tone than the rest of the window
     QColor ansi[16];                       // terminal palette
 
     // One editable colour: the JSON key, the label and section shown in the theme editor, and its member.
@@ -42,7 +44,13 @@ struct Theme {
     static Theme monoLight_();
     static Theme byName(const QString &name);
 
+    // This theme as the agent view paints it: window / panel / editorBg / border replaced by the agent colours, so
+    // the agent's widgets keep their usual roles and still stand out from the editor side.
+    Theme agentView() const;
+
     QColor gitColor(GitKind kind) const;
     QColor onAccent() const { return dark ? window : QColor(Qt::white); } // text on accent-filled buttons
+    // Claude Code's brand colour: its top bar button and send button keep it in every theme, unlike brandClaude.
+    static QColor claudeCode() { return QColor(0xd9, 0x77, 0x57); }
     QString styleSheet() const;
 };

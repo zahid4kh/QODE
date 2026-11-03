@@ -33,7 +33,7 @@ ReferencesDialog::ReferencesDialog(QWidget *parent)
     connect(m_tree, &QTreeWidget::itemDoubleClicked, this, &ReferencesDialog::activate);
 }
 
-void ReferencesDialog::setReferences(const QString &symbol, const QVector<Entry> &entries, const QString &root)
+void ReferencesDialog::setReferences(const QString &symbol, const QVector<Entry> &entries, const QString &root, bool implementations)
 {
     m_tree->clear();
     QStringList order;
@@ -61,8 +61,13 @@ void ReferencesDialog::setReferences(const QString &symbol, const QVector<Entry>
         parent->setText(0, QStringLiteral("%1  (%2)").arg(parent->text(0)).arg(parent->childCount()));
     }
     m_tree->expandAll();
-    m_title->setText(tr("%n reference(s) to “%1” in %2 file(s)", nullptr, int(entries.size())).arg(symbol).arg(files.size()));
-    setWindowTitle(tr("References to %1").arg(symbol));
+    if (implementations) {
+        m_title->setText(tr("%n implementation(s) of “%1” in %2 file(s)", nullptr, int(entries.size())).arg(symbol).arg(files.size()));
+        setWindowTitle(tr("Implementations of %1").arg(symbol));
+    } else {
+        m_title->setText(tr("%n reference(s) to “%1” in %2 file(s)", nullptr, int(entries.size())).arg(symbol).arg(files.size()));
+        setWindowTitle(tr("References to %1").arg(symbol));
+    }
     if (m_tree->topLevelItemCount() > 0 && m_tree->topLevelItem(0)->childCount() > 0)
         m_tree->setCurrentItem(m_tree->topLevelItem(0)->child(0));
 }

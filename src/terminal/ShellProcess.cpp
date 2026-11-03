@@ -1,5 +1,7 @@
 #include "ShellProcess.h"
 
+#include "terminal/ShellIntegration.h"
+
 #include <QFileInfo>
 #include <QProcessEnvironment>
 #include <QSocketNotifier>
@@ -103,10 +105,13 @@ bool ShellProcess::start(const QString &workingDirectory, int cols, int rows, QS
     env.remove(QStringLiteral("COLUMNS"));
     env.remove(QStringLiteral("LINES"));
     env.insert(m_extraEnv);
+    QStringList args = m_args;
+    if (args.isEmpty() && !ShellIntegration::apply(m_shell, &args, &env))
+        args = {QStringLiteral("-i")};
     m_process->setProcessEnvironment(env);
     m_process->setWorkingDirectory(workingDirectory);
     m_process->setProgram(m_shell);
-    m_process->setArguments(m_args.isEmpty() ? QStringList{QStringLiteral("-i")} : m_args);
+    m_process->setArguments(args);
 
     // Runs in the forked child just before exec: only async-signal-safe calls allowed.
     const QByteArray slave = QByteArray(slaveName);

@@ -47,16 +47,22 @@ DevServerBar::DevServerBar(QWidget *parent)
     };
     m_toggle = button(QString());
     m_restart = button(tr("Restart the dev server"));
+    m_preview = button(tr("Show the live preview of the page"));
     m_log = button(tr("Show the dev server log"));
     m_env = button(tr("Environment variables (.env files)"));
     m_config = button(tr("Dev server settings (folder, package manager, script, port)"));
     Icons::bind(m_env, QStringLiteral(":/new-icons/key.svg"));
     Icons::bind(m_restart, QStringLiteral(":/new-icons/refresh-cw.svg"));
+    Icons::bind(m_preview, QStringLiteral(":/new-icons/globe.svg"));
     Icons::bind(m_log, QStringLiteral(":/new-icons/scroll-text.svg"));
     Icons::bind(m_config, QStringLiteral(":/new-icons/cog.svg"));
 
     connect(m_toggle, &QToolButton::clicked, this, &DevServerBar::toggle);
     connect(m_restart, &QToolButton::clicked, this, &DevServerBar::restart);
+    connect(m_preview, &QToolButton::clicked, this, &DevServerBar::previewRequested);
+#ifndef QODE_HAS_WEBENGINE
+    m_preview->hide(); // no live preview in a build without Qt WebEngine
+#endif
     connect(m_log, &QToolButton::clicked, this, &DevServerBar::showLog);
     connect(m_env, &QToolButton::clicked, this, &DevServerBar::editEnv);
     connect(m_config, &QToolButton::clicked, this, &DevServerBar::configure);
@@ -80,7 +86,8 @@ void DevServerBar::setProjectRoot(const QString &root)
         m_server->stop();
     m_root = root;
     redetect();
-    if (!m_project.valid && !root.isEmpty() && !SettingsManager::instance().webServer().value(QStringLiteral("declined")).toBool()) {
+    // Also when the root is an Expo app: a web app beside it (docs/, apps/web) is still offered.
+    if (!isAvailable() && !root.isEmpty() && !SettingsManager::instance().webServer().value(QStringLiteral("declined")).toBool()) {
         QStringList nested = WebProject::findNested(root);
         for (int i = nested.size() - 1; i >= 0; --i)
             if (m_ignored.contains(QDir::cleanPath(root + QLatin1Char('/') + nested.at(i))))

@@ -40,6 +40,7 @@ public:
     CodeEditor *currentEditor() const;
     CodeEditor *editorFor(Document *doc) const;
     QList<Document *> documents() const;
+    void refreshTabIcons(); // after the icon of a kind of file changed (FileIcons::setConfigBrand)
     QList<Document *> modifiedDocuments() const;
     QStringList openFilePaths() const;
     int count() const;

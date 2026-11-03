@@ -46,6 +46,10 @@ public:
     QString title() const { return m_title; }
 
     QString textInRange(int startLine, int startCol, int endLine, int endCol) const;
+    // The cursor's line counted from the first line ever printed (lines dropped from the scrollback included), and
+    // back to an index for lineAt / textInRange (negative once that line is gone).
+    qint64 cursorStableLine() const { return m_dropped + m_scrollback.size() + m_row; }
+    int lineIndex(qint64 stable) const { return int(qMax<qint64>(-1, stable - m_dropped)); }
 
     static constexpr int kMaxScrollback = 10000;
 
@@ -53,6 +57,8 @@ signals:
     void changed();
     void titleChanged(const QString &title);
     void reply(const QByteArray &data); // answers to queries such as cursor-position reports
+    // A shell integration mark (OSC 133 / 633: "C", "D;1", "E;make"), sent while the cursor is where the shell put it.
+    void shellMark(const QString &mark);
 
 private:
     enum class State { Ground, Escape, EscapeIntermediate, Csi, Osc, StringIgnore, StringEsc };
@@ -88,6 +94,7 @@ private:
     QVector<Line> m_screen;
     QVector<Line> m_savedPrimary;
     QList<Line> m_scrollback;
+    qint64 m_dropped = 0; // lines removed from the top of the scrollback so far
     int m_row = 0, m_col = 0;
     bool m_wrapPending = false;
     int m_scrollTop = 0, m_scrollBottom = 0;

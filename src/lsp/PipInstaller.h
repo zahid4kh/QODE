@@ -10,13 +10,13 @@
 
 
 // Sets up the Python language tools (basedpyright, plus the ruff companion) in a private virtual environment,
-// ~/.local/share/QODE/lsp/python: nothing global, no root needed, and removing the folder removes everything. Uses
+// ~/.local/share/QODE-AGENTIC/lsp/python: nothing global, no root needed, and removing the folder removes everything. Uses
 // uv when it is installed (and falls back to python3 -m venv + pip if uv fails), plain pip otherwise.
 class PipInstaller : public QObject
 {
     Q_OBJECT
 public:
-    static QString installRoot();      // ~/.local/share/QODE/lsp/python
+    static QString installRoot();      // ~/.local/share/QODE-AGENTIC/lsp/python
     static QStringList packages();     // basedpyright, ruff
     static bool usesUv();              // uv is installed, so it does the work
     static bool isInstalled();

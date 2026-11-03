@@ -13,9 +13,26 @@
 #include <QVersionNumber>
 #include <algorithm>
 
+namespace {
+// The interpreter a `#!` first line names: "bash" for #!/bin/bash and #!/usr/bin/env bash.
+QString shebangInterpreter(const QString &path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return {};
+    const QByteArray line = f.readLine(256);
+    if (!line.startsWith("#!"))
+        return {};
+    static const QRegularExpression re(QStringLiteral("^#!\\s*\\S*/(?:env\\s+(?:-\\S+\\s+)*)?([A-Za-z]+)"));
+    return re.match(QString::fromUtf8(line)).captured(1);
+}
+} // namespace
+
 QString LspServerSpec::languageId(const QString &path) const
 {
     const QString ext = QFileInfo(path).suffix().toLower();
+    if (ext.isEmpty() && !interpreters.isEmpty() && interpreters.contains(shebangInterpreter(path)))
+        return languageIds.value(QString(), id);
     if (!extensions.contains(ext))
         return {};
     if (id == QLatin1String("clangd"))
@@ -34,7 +51,7 @@ namespace LspServers {
 
 QString managedDir(const QString &id)
 {
-    return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QStringLiteral("/QODE/lsp/") + id;
+    return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QStringLiteral("/QODE-AGENTIC/lsp/") + id;
 }
 
 QString managedExecutable(const LspServerSpec &spec)
@@ -303,7 +320,7 @@ const QList<LspServerSpec> &all()
         kotlin.id = QStringLiteral("kotlin");
         kotlin.displayName = QStringLiteral("Kotlin language server");
         kotlin.executables = {QStringLiteral("kotlin-lsp"), QStringLiteral("kotlin-lsp.sh")};
-        // {cache} becomes a per-project folder under ~/.cache/QODE (the server otherwise indexes into a fresh /tmp folder).
+        // {cache} becomes a per-project folder under ~/.cache/QODE-AGENTIC (the server otherwise indexes into a fresh /tmp folder).
         kotlin.arguments = {QStringLiteral("--stdio"), QStringLiteral("--system-path={cache}")};
         kotlin.extensions = {QStringLiteral("kt"), QStringLiteral("kts")};
         kotlin.installer = LspServerSpec::Installer::Download;
@@ -315,7 +332,7 @@ const QList<LspServerSpec> &all()
             "The Kotlin language server is JetBrains' official server (Alpha). It ships its own Java runtime, so you do "
             "not need to install Java for it.\n\n"
             "Easiest: LSP > Kotlin > Download and Set Up. QODE downloads the standalone Linux archive from "
-            "download.jetbrains.com (about 370 MB), unpacks it to ~/.local/share/QODE/lsp/kotlin and links it as "
+            "download.jetbrains.com (about 370 MB), unpacks it to ~/.local/share/QODE-AGENTIC/lsp/kotlin and links it as "
             "~/.local/bin/kotlin-lsp.\n\n"
             "By hand: download the standalone archive (kotlin-server-<version>.tar.gz) from "
             "https://github.com/Kotlin/kotlin-lsp/releases, unpack it, and put bin/intellij-server on your PATH as "
@@ -339,7 +356,7 @@ const QList<LspServerSpec> &all()
             "The Java language server is the Eclipse JDT Language Server (jdtls), the one VS Code, Neovim and Eclipse use. It "
             "needs a Java runtime of version 21 or newer to run (any JDK; your projects can still target older Java versions).\n\n"
             "Easiest: LSP > Java > Download and Set Up. QODE downloads the milestone build from download.eclipse.org "
-            "(about 50 MB) and unpacks it to ~/.local/share/QODE/lsp/jdtls. Nothing is installed system-wide.\n\n"
+            "(about 50 MB) and unpacks it to ~/.local/share/QODE-AGENTIC/lsp/jdtls. Nothing is installed system-wide.\n\n"
             "Java 21 or newer: sudo apt install openjdk-21-jdk (Debian / Ubuntu), sudo dnf install java-21-openjdk-devel (Fedora), "
             "sudo pacman -S jdk21-openjdk (Arch), or https://adoptium.net\n\n"
             "By hand: download and extract a build from https://download.eclipse.org/jdtls/milestones/ and point QODE at its "
@@ -348,7 +365,7 @@ const QList<LspServerSpec> &all()
             "finds their dependencies; the first import can take a minute while Maven / Gradle download them.");
         l.append(java);
 
-        // The web servers: one private `npm install` (NpmInstaller) provides all four, so they share a managedId.
+        // The web servers: one private `npm install` (NpmInstaller "web") provides all four, so they share a managedId.
         auto webServer = [](const QString &id, const QString &name, const QString &exe, const QStringList &exts) {
             LspServerSpec s;
             s.id = id;
@@ -363,7 +380,7 @@ const QList<LspServerSpec> &all()
             s.needsNode = true;
             s.installHelp = QStringLiteral(
                 "%1 is one of the web language servers. They are Node.js programs, so Node.js (with npm) must be installed.\n\n"
-                "Easiest: LSP > %2 > Download and Set Up. QODE runs \"npm install\" into ~/.local/share/QODE/lsp/web, which "
+                "Easiest: LSP > %2 > Download and Set Up. QODE runs \"npm install\" into ~/.local/share/QODE-AGENTIC/lsp/web, which "
                 "sets up the TypeScript / JavaScript, HTML, CSS and JSON servers together. Nothing is installed globally.\n\n"
                 "By hand: npm install -g typescript typescript-language-server vscode-langservers-extracted\n"
                 "Then make sure \"%3\" is on your PATH, or point QODE at it with LSP > Set Server Path.\n\n"
@@ -427,6 +444,37 @@ const QList<LspServerSpec> &all()
             "LSP > Tailwind CSS > Download and Set Up (the official @tailwindcss/language-server, installed with the other web "
             "servers by one npm install; Node.js is required).");
         l.append(tailwind);
+
+        // Bash: its own small npm install (NpmInstaller "bash"), so it can be set up and removed without the web servers.
+        LspServerSpec bash;
+        bash.id = QStringLiteral("bash");
+        bash.displayName = QStringLiteral("Bash");
+        bash.executables = {QStringLiteral("bash-language-server")};
+        bash.arguments = {QStringLiteral("start")};
+        bash.extensions = {QStringLiteral("sh"), QStringLiteral("bash"), QStringLiteral("ksh"), QStringLiteral("bashrc"),
+                           QStringLiteral("bash_profile"), QStringLiteral("bash_aliases"), QStringLiteral("bash_logout")};
+        for (const QString &e : std::as_const(bash.extensions))
+            bash.languageIds.insert(e, QStringLiteral("shellscript"));
+        bash.languageIds.insert(QString(), QStringLiteral("shellscript"));
+        // zsh is left out: ShellCheck refuses zsh scripts, which would leave an error on every one.
+        bash.interpreters = {QStringLiteral("sh"), QStringLiteral("bash"), QStringLiteral("dash"), QStringLiteral("ksh")};
+        bash.installer = LspServerSpec::Installer::Npm;
+        bash.installable = true;
+        bash.managedId = QStringLiteral("bash");
+        bash.managedBinary = QStringLiteral("node_modules/.bin/bash-language-server");
+        bash.needsNode = true;
+        bash.installHelp = QStringLiteral(
+            "The Bash language server (bash-language-server, the one VS Code uses) completes commands, variables and functions, "
+            "shows man / help pages on hover, and jumps to and renames functions and variables. It is a Node.js program, so "
+            "Node.js (with npm) must be installed.\n\n"
+            "Its warnings come from ShellCheck, a separate program: without it the server runs but reports no problems. "
+            "Install it with sudo apt install shellcheck (Debian / Ubuntu), sudo dnf install ShellCheck (Fedora) or "
+            "sudo pacman -S shellcheck (Arch).\n\n"
+            "Easiest: LSP > Bash > Download and Set Up. QODE runs \"npm install\" into ~/.local/share/QODE-AGENTIC/lsp/bash. "
+            "Nothing is installed globally.\n\n"
+            "By hand: npm install -g bash-language-server, then make sure \"bash-language-server\" is on your PATH, or point "
+            "QODE at it with LSP > Set Server Path.");
+        l.append(bash);
         // Python: one private virtual environment (PipInstaller) provides basedpyright and the ruff companion.
         LspServerSpec python;
         python.id = QStringLiteral("python");
@@ -444,7 +492,7 @@ const QList<LspServerSpec> &all()
             "hover, go to definition, completion, rename and find references. It needs Python 3 but no Node.js (it brings its "
             "own).\n\n"
             "Easiest: LSP > Python > Download and Set Up. QODE creates a private virtual environment in "
-            "~/.local/share/QODE/lsp/python and installs basedpyright and ruff into it (with uv when you have it, otherwise "
+            "~/.local/share/QODE-AGENTIC/lsp/python and installs basedpyright and ruff into it (with uv when you have it, otherwise "
             "pip). Nothing is installed globally.\n\n"
             "By hand: pipx install basedpyright (or pip install basedpyright in any environment), then make sure "
             "\"basedpyright-langserver\" is on your PATH, or point QODE at it with LSP > Set Server Path.\n\n"

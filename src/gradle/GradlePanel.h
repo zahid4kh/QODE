@@ -4,7 +4,10 @@
 
 #include "gradle/GradleTasks.h"
 
+class GradleBuildView;
 class QLabel;
+class QNetworkAccessManager;
+class QTabBar;
 class QLineEdit;
 class QProcess;
 class QStackedWidget;
@@ -25,6 +28,9 @@ public:
     // Reads the tasks when the list is empty or older than the build files.
     void ensureLoaded();
     void reload();
+    GradleBuildView *buildView() const { return m_buildView; }
+    void showBuild(); // the Build tab
+    void updateWrapper(); // the wrapper row: version, Upgrade, a gradlew without its exec bit
 
 signals:
     void runRequested(const QString &command, const QString &workDir);
@@ -42,6 +48,15 @@ private:
     void showContextMenu(const QPoint &pos);
     void updateDetail();
     qint64 buildStamp() const;
+    void upgradeWrapper();
+
+    QTabBar *m_tabs;
+    QStackedWidget *m_pages; // tasks | build
+    GradleBuildView *m_buildView;
+    QWidget *m_wrapperRow;
+    QLabel *m_wrapperLabel;
+    QToolButton *m_upgradeBtn, *m_execBtn;
+    QNetworkAccessManager *m_net = nullptr;
 
     QString m_dir;
     QList<GradleTasks::Group> m_groups;

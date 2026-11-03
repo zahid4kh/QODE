@@ -22,7 +22,8 @@ bool isYaml(const QString &path);
 
 // `beforeWord` is the line text in front of the word being typed. For properties the key is read from the line; for
 // YAML `parents` is the key path of the enclosing mappings (found by indentation), `beforeWord` the current line.
-QList<Entry> complete(const QString &beforeWord, bool yaml, const QStringList &parents = {});
+// `ktor`: complete Ktor's keys (ktor.deployment.port …) instead of Spring Boot's.
+QList<Entry> complete(const QString &beforeWord, bool yaml, const QStringList &parents = {}, bool ktor = false);
 
 // Settings of the default profile (application.properties / .yml) as dotted keys, for reading a port or a base path.
 QMap<QString, QString> load(const QString &resourcesDir);

@@ -229,17 +229,6 @@ MediaPanel::MediaPanel(QWidget *parent)
     m_stack = new QStackedWidget(this);
     m_stack->addWidget(m_image);   // 0
     m_stack->addWidget(m_message); // 1
-#ifdef QODE_HAS_MULTIMEDIA
-    m_video = new QVideoWidget(this);
-    m_video->setStyleSheet(QStringLiteral("background: black;"));
-    m_stack->addWidget(m_video); // 2
-    m_audio = new QAudioOutput(this);
-    m_audio->setVolume(0.7f);
-    m_player = new QMediaPlayer(this);
-    m_player->setAudioOutput(m_audio);
-    m_player->setVideoOutput(m_video);
-#endif
-
     // --- video controls ---
     m_playBtn = new QToolButton(this);
     m_playBtn->setAutoRaise(true);
@@ -323,46 +312,6 @@ MediaPanel::MediaPanel(QWidget *parent)
     layout->setSpacing(0);
     layout->addWidget(header);
     layout->addWidget(m_split, 1);
-
-#ifdef QODE_HAS_MULTIMEDIA
-    connect(m_playBtn, &QToolButton::clicked, this, [this] {
-        if (m_player->playbackState() == QMediaPlayer::PlayingState)
-            m_player->pause();
-        else
-            m_player->play();
-    });
-    connect(m_player, &QMediaPlayer::playbackStateChanged, this, [this](QMediaPlayer::PlaybackState st) {
-        Icons::bind(m_playBtn, st == QMediaPlayer::PlayingState ? QStringLiteral(":/new-icons/pause.svg")
-                                                                : QStringLiteral(":/new-icons/play.svg"));
-    });
-    connect(m_player, &QMediaPlayer::durationChanged, this, [this](qint64 d) {
-        m_seek->setRange(0, int(d));
-        updateTime();
-        refreshInfo();
-    });
-    connect(m_player, &QMediaPlayer::positionChanged, this, [this](qint64 pos) {
-        if (!m_seek->isSliderDown())
-            m_seek->setValue(int(pos));
-        updateTime();
-    });
-    connect(m_player, &QMediaPlayer::metaDataChanged, this, &MediaPanel::refreshInfo);
-    connect(m_player, &QMediaPlayer::mediaStatusChanged, this, [this](QMediaPlayer::MediaStatus st) {
-        if (st == QMediaPlayer::EndOfMedia) {
-            m_player->pause();
-            m_player->setPosition(0);
-        }
-    });
-    connect(m_player, &QMediaPlayer::errorOccurred, this, [this](QMediaPlayer::Error, const QString &msg) {
-        showMessage(tr("This video can't be played:\n%1").arg(msg));
-    });
-    connect(m_seek, &QSlider::sliderMoved, m_player, &QMediaPlayer::setPosition);
-    connect(m_seek, &QSlider::sliderReleased, this, [this] { m_player->setPosition(m_seek->value()); });
-    connect(m_volume, &QSlider::valueChanged, this, [this](int v) { m_audio->setVolume(v / 100.0f); });
-    connect(m_muteBtn, &QToolButton::toggled, this, [this](bool muted) {
-        m_audio->setMuted(muted);
-        Icons::bind(m_muteBtn, muted ? QStringLiteral(":/new-icons/volume-x.svg") : QStringLiteral(":/new-icons/volume-2.svg"));
-    });
-#endif
 }
 
 bool MediaPanel::isImage(const QString &path)
@@ -395,8 +344,10 @@ void MediaPanel::setProjectRoot(const QString &root)
 void MediaPanel::clear()
 {
 #ifdef QODE_HAS_MULTIMEDIA
-    m_player->stop();
-    m_player->setSource(QUrl());
+    if (m_player) {
+        m_player->stop();
+        m_player->setSource(QUrl());
+    }
 #endif
     if (m_movie) {
         m_movie->stop();
@@ -509,9 +460,64 @@ void MediaPanel::showImage()
     m_stack->setCurrentWidget(m_image);
 }
 
+void MediaPanel::ensurePlayer()
+{
+#ifdef QODE_HAS_MULTIMEDIA
+    if (m_player)
+        return;
+    m_video = new QVideoWidget(this);
+    m_video->setStyleSheet(QStringLiteral("background: black;"));
+    m_stack->addWidget(m_video); // 2
+    m_audio = new QAudioOutput(this);
+    m_audio->setVolume(m_volume->value() / 100.0f);
+    m_audio->setMuted(m_muteBtn->isChecked());
+    m_player = new QMediaPlayer(this);
+    m_player->setAudioOutput(m_audio);
+    m_player->setVideoOutput(m_video);
+    connect(m_playBtn, &QToolButton::clicked, this, [this] {
+        if (m_player->playbackState() == QMediaPlayer::PlayingState)
+            m_player->pause();
+        else
+            m_player->play();
+    });
+    connect(m_player, &QMediaPlayer::playbackStateChanged, this, [this](QMediaPlayer::PlaybackState st) {
+        Icons::bind(m_playBtn, st == QMediaPlayer::PlayingState ? QStringLiteral(":/new-icons/pause.svg")
+                                                                : QStringLiteral(":/new-icons/play.svg"));
+    });
+    connect(m_player, &QMediaPlayer::durationChanged, this, [this](qint64 d) {
+        m_seek->setRange(0, int(d));
+        updateTime();
+        refreshInfo();
+    });
+    connect(m_player, &QMediaPlayer::positionChanged, this, [this](qint64 pos) {
+        if (!m_seek->isSliderDown())
+            m_seek->setValue(int(pos));
+        updateTime();
+    });
+    connect(m_player, &QMediaPlayer::metaDataChanged, this, &MediaPanel::refreshInfo);
+    connect(m_player, &QMediaPlayer::mediaStatusChanged, this, [this](QMediaPlayer::MediaStatus st) {
+        if (st == QMediaPlayer::EndOfMedia) {
+            m_player->pause();
+            m_player->setPosition(0);
+        }
+    });
+    connect(m_player, &QMediaPlayer::errorOccurred, this, [this](QMediaPlayer::Error, const QString &msg) {
+        showMessage(tr("This video can't be played:\n%1").arg(msg));
+    });
+    connect(m_seek, &QSlider::sliderMoved, m_player, &QMediaPlayer::setPosition);
+    connect(m_seek, &QSlider::sliderReleased, this, [this] { m_player->setPosition(m_seek->value()); });
+    connect(m_volume, &QSlider::valueChanged, this, [this](int v) { m_audio->setVolume(v / 100.0f); });
+    connect(m_muteBtn, &QToolButton::toggled, this, [this](bool muted) {
+        m_audio->setMuted(muted);
+        Icons::bind(m_muteBtn, muted ? QStringLiteral(":/new-icons/volume-x.svg") : QStringLiteral(":/new-icons/volume-2.svg"));
+    });
+#endif
+}
+
 void MediaPanel::showVideo()
 {
 #ifdef QODE_HAS_MULTIMEDIA
+    ensurePlayer();
     m_controls->show();
     m_seek->setRange(0, 0);
     m_seek->setValue(0);
@@ -527,7 +533,8 @@ void MediaPanel::showVideo()
 void MediaPanel::updateTime()
 {
 #ifdef QODE_HAS_MULTIMEDIA
-    m_time->setText(QStringLiteral("%1 / %2").arg(formatTime(m_player->position()), formatTime(m_player->duration())));
+    if (m_player)
+        m_time->setText(QStringLiteral("%1 / %2").arg(formatTime(m_player->position()), formatTime(m_player->duration())));
 #endif
 }
 
@@ -559,7 +566,7 @@ void MediaPanel::refreshInfo()
     const QFileInfo fi(m_path);
     QStringList extra = m_extra;
 #ifdef QODE_HAS_MULTIMEDIA
-    if (isVideo(m_path)) {
+    if (m_player && isVideo(m_path)) {
         const QMediaMetaData md = m_player->metaData();
         QSize res = md.value(QMediaMetaData::Resolution).toSize();
         if (!res.isValid())

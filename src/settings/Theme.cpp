@@ -52,6 +52,10 @@ Theme Theme::dark_()
     t.danger = "#f26b6b";
     t.idle = "#6b7078";
     t.findMatchBg = "#614d1f";
+    t.agentBg = "#17191d";
+    t.agentPanel = "#1f2227";
+    t.agentInput = "#1b1d22";
+    t.agentBorder = "#2a2d35";
     static const char *ansi[16] = {"#3f4451", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#abb2bf",
                                    "#5c6370", "#ef7a85", "#a9d98a", "#f0d08b", "#72bfff", "#d689ee", "#67c7d3", "#ffffff"};
     for (int i = 0; i < 16; ++i)
@@ -73,7 +77,7 @@ Theme Theme::light_()
     t.gutterFg = "#a0a1a7";
     t.gutterActiveFg = "#383a42";
     t.currentLine = "#efefef";
-    t.selection = "#cfe0f7";
+    t.selection = "#c9d0dc";
     t.border = "#d4d4d8";
     t.accent = "#4078f2";
     t.textMuted = "#7a7c85";
@@ -107,6 +111,10 @@ Theme Theme::light_()
     t.danger = "#c42b2b";
     t.idle = "#a0a4ab";
     t.findMatchBg = "#f5e08a";
+    t.agentBg = "#e4e4e8";
+    t.agentPanel = "#ececf0";
+    t.agentInput = "#f3f3f5";
+    t.agentBorder = "#c9c9cf";
     static const char *ansi[16] = {"#383a42", "#e45649", "#50a14f", "#c18401", "#4078f2", "#a626a4", "#0184bc", "#a0a1a7",
                                    "#4f525e", "#e45649", "#50a14f", "#c18401", "#4078f2", "#a626a4", "#0184bc", "#ffffff"};
     for (int i = 0; i < 16; ++i)
@@ -163,6 +171,12 @@ Theme Theme::monoDark_()
     t.danger = "#ffffff";
     t.idle = "#5a5a5a";
     t.findMatchBg = "#4d4d4d";
+    t.agentBg = "#0e0e0e";
+    t.agentPanel = "#171717";
+    t.agentInput = "#121212";
+    t.agentBorder = "#242424";
+    t.brandGemini = "#d0d0d0";
+    t.brandClaude = "#d0d0d0";
     static const char *ansi[16] = {"#3f4451", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#abb2bf", "#5c6370", "#ef7a85", "#a9d98a", "#f0d08b", "#72bfff", "#d689ee", "#67c7d3", "#ffffff"};
     for (int i = 0; i < 16; ++i)
         t.ansi[i] = QColor(QLatin1String(ansi[i]));
@@ -217,6 +231,12 @@ Theme Theme::monoLight_()
     t.danger = "#000000";
     t.idle = "#7a7a7a";
     t.findMatchBg = "#9c9c9c";
+    t.agentBg = "#b2b2b2";
+    t.agentPanel = "#bababa";
+    t.agentInput = "#c2c2c2";
+    t.agentBorder = "#9a9a9a";
+    t.brandGemini = "#2e2e2e";
+    t.brandClaude = "#2e2e2e";
     static const char *ansi[16] = {"#1a1a1a", "#b3362b", "#2f6f2e", "#8a5a00", "#1f55d0", "#8a1c88", "#00637f", "#5a5a5a", "#4a4a4a", "#c4453a", "#3a803a", "#9a6a00", "#2f65e0", "#9a2c98", "#0a7390", "#ffffff"};
     for (int i = 0; i < 16; ++i)
         t.ansi[i] = QColor(QLatin1String(ansi[i]));
@@ -274,6 +294,10 @@ Theme Theme::darcula_()
     t.danger = "#e74848";
     t.idle = "#777777";
     t.findMatchBg = "#32593d";
+    t.agentBg = "#252628";
+    t.agentPanel = "#2f3133";
+    t.agentInput = "#2a2b2d";
+    t.agentBorder = "#46494b";
     static const char *ansi[16] = {"#000000", "#fa5355", "#126e00", "#c2c300", "#4581eb", "#fa54ff", "#33c2c1", "#adadad",
                                    "#555555", "#fb7172", "#67ff4f", "#ffff00", "#6d9df1", "#fb82ff", "#60d3d1", "#eeeeee"};
     for (int i = 0; i < 16; ++i)
@@ -305,6 +329,12 @@ const QList<Theme::Field> &Theme::fields()
         FIELD(currentLine, "currentLine", "Current line", "Editor"),
         FIELD(selection, "selection", "Selection", "Editor"),
         FIELD(findMatchBg, "findMatchBg", "Find match", "Editor"),
+        FIELD(brandGemini, "brandGemini", "Gemini logo", "AI agent"),
+        FIELD(brandClaude, "brandClaude", "Claude logo", "AI agent"),
+        FIELD(agentBg, "agentBg", "Agent background", "AI agent"),
+        FIELD(agentPanel, "agentPanel", "Agent header and messages", "AI agent"),
+        FIELD(agentInput, "agentInput", "Agent input and diffs", "AI agent"),
+        FIELD(agentBorder, "agentBorder", "Agent borders", "AI agent"),
 
         FIELD(keyword, "keyword", "Keywords", "Syntax"),
         FIELD(type, "type", "Types", "Syntax"),
@@ -387,6 +417,16 @@ Theme Theme::byName(const QString &name)
     return ThemeManager::instance().theme(name);
 }
 
+Theme Theme::agentView() const
+{
+    Theme t = *this;
+    t.window = agentBg;
+    t.panel = agentPanel;
+    t.editorBg = agentInput;
+    t.border = agentBorder;
+    return t;
+}
+
 QColor Theme::gitColor(GitKind kind) const
 {
     switch (kind) {
@@ -445,7 +485,8 @@ QTabBar#terminalTabs { background: transparent; }
 QTabBar#terminalTabs::tab { background: transparent; color: %7; padding: 3px 8px; margin: 4px 2px 4px 0; border: 1px solid transparent; border-radius: 6px; min-width: 0; }
 QTabBar#terminalTabs::tab:selected { background: %8; color: %2; border: 1px solid %3; }
 QTabBar#terminalTabs::tab:hover:!selected { background: %4; color: %2; }
-QTabBar::close-button { image: url(%14); subcontrol-position: right; border-radius: 2px; }
+QTabBar CloseButton { min-width: 20px; max-width: 20px; min-height: 16px; max-height: 16px; }
+QTabBar::close-button { image: url(%14); subcontrol-position: right; margin-right: 4px; padding: 2px; border-radius: 3px; }
 QTabBar::close-button:hover { background: %6; }
 QLineEdit, QSpinBox, QComboBox { background: %8; color: %2; border: 1px solid %3; border-radius: 3px; padding: 3px 5px; selection-background-color: %6; }
 QLineEdit:focus { border-color: %9; }

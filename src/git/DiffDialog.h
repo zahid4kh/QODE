@@ -5,7 +5,7 @@
 
 #include <QDialog>
 
-class DiffView;
+class DiffPane;
 class GitRepository;
 class QLabel;
 class QPushButton;
@@ -21,18 +21,13 @@ public:
 private:
     void load();
     void populate(const QString &oldText, const QString &newText);
-    void gotoChange(bool next);
-    void applyTheme();
 
     GitRepository *m_repo;
     QString m_path;
     GitDiffMode m_mode;
-    QLabel *m_title, *m_oldLabel, *m_newLabel, *m_stats;
+    QLabel *m_title, *m_stats;
     QPushButton *m_prev, *m_next, *m_action;
-    DiffView *m_left, *m_right;
-    QVector<int> m_hunkRows;
-    QString m_shownOld, m_shownNew;
-    bool m_haveShown = false;
+    DiffPane *m_pane;
     int m_pending = 0;
     QString m_oldText, m_newText;
     bool m_binary = false;

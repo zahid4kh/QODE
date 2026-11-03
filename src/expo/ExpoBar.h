@@ -4,15 +4,18 @@
 
 #include <QWidget>
 
+class ExpoWebServer;
 class QFileSystemWatcher;
+class QDialog;
 class QLabel;
 class QMenu;
 class QTimer;
 class QToolButton;
 
-// Toolbar strip for an Expo project: a Run button (click = the last used configuration, arrow = all of them: Android,
-// iOS, Metro / Expo Go, prebuild, React Native DevTools) and a button that opens the app.json editor. Hidden unless
-// ExpoProject finds an app; in a monorepo the menu picks which app the commands run in.
+// Toolbar strip for an Expo project: a Run button (the last used configuration) with an arrow button beside it (all of them: Android,
+// iOS, Metro / Expo Go, prebuild, React Native DevTools), the phone preview button and a button that opens the app.json
+// editor. Hidden unless ExpoProject finds an app; in a monorepo the menu picks which app the commands run in. It owns
+// the headless Metro of the web preview (ExpoWebServer).
 class ExpoBar : public QWidget
 {
     Q_OBJECT
@@ -31,6 +34,12 @@ public:
     void runId(const QString &id);
     void useApp(const QString &dir);
 
+    ExpoWebServer *webServer() const { return m_web; }
+    void startWeb(const QString &appDir); // the app in the web preview; another app's preview Metro is stopped first
+    void installWebSupport(const QString &appDir); // `npx expo install react-native-web react-dom @expo/metro-runtime`
+    void showWebLog();
+    void shutdown(); // app closing: ends the preview Metro
+
 signals:
     void availabilityChanged();
     // A shell command line (already `cd`-ed into the app) for the terminal; `id` names the configuration.
@@ -39,6 +48,7 @@ signals:
     void configureRequested();
     void schemaCacheRequested();
     void appChanged();
+    void previewRequested();
 
 private:
     struct Entry
@@ -50,13 +60,15 @@ private:
     void redetect();
     void rebuildMenu();
     void refresh();
-    QString shellCommand(const QString &command) const;
+    QString shellCommand(const QString &command, const QString &dir = QString()) const;
 
     QList<ExpoApp> m_apps;
     QString m_root;
     QFileSystemWatcher *m_watcher;
     QTimer *m_redetect;
-    QToolButton *m_run, *m_config;
+    ExpoWebServer *m_web;
+    QDialog *m_webLog = nullptr;
+    QToolButton *m_run, *m_runMenu, *m_preview, *m_config;
     QLabel *m_app;
     QMenu *m_menu;
 };

@@ -194,6 +194,7 @@ SpringPanel::SpringPanel(QWidget *parent) : QWidget(parent), m_uptime(new QTimer
             m_bar->start();
     });
     connect(m_http, &HttpClientView::locationRequested, this, &SpringPanel::locationRequested);
+    connect(m_http, &HttpClientView::openTextRequested, this, &SpringPanel::openTextRequested);
     connect(m_http, &HttpClientView::refreshRequested, this, &SpringPanel::scanEndpoints);
     connect(m_http, &HttpClientView::startRequested, this, [this] {
         if (m_bar)

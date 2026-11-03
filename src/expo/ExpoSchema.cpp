@@ -28,7 +28,7 @@ ExpoSchema::ExpoSchema(QObject *parent) : QObject(parent), m_net(new QNetworkAcc
 
 QString ExpoSchema::cacheDir()
 {
-    return QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE/expo");
+    return QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE-AGENTIC/expo");
 }
 
 QString ExpoSchema::pathFor(const QString &sdk)

@@ -34,6 +34,19 @@ QString sdkFromVersion(const QString &version)
     return m.hasMatch() ? m.captured(1) + QStringLiteral(".0.0") : QString();
 }
 
+// Whether `package` is installed for the app: in its own node_modules or one a monorepo hoisted it into.
+bool installed(const QString &dir, const QString &root, const char *package)
+{
+    QDir d(dir);
+    for (int up = 0; up < 6; ++up) {
+        if (QFileInfo::exists(d.filePath(QStringLiteral("node_modules/") + QLatin1String(package) + QStringLiteral("/package.json"))))
+            return true;
+        if (d.absolutePath() == QDir(root).absolutePath() || !d.cdUp())
+            break;
+    }
+    return false;
+}
+
 // The installed expo package wins over the declared range; a monorepo hoists it into a parent node_modules.
 QString sdkFor(const QString &dir, const QString &root, const QJsonObject &pkg)
 {
@@ -95,6 +108,8 @@ QList<ExpoApp> detect(const QString &root)
             name = QFileInfo(dir).fileName();
         app.name = name;
         app.sdk = sdkFor(dir, root, pkg);
+        app.web = installed(dir, root, "react-native-web") && installed(dir, root, "react-dom");
+        app.dependencies = pkg.value(QStringLiteral("dependencies")).toObject().keys() + pkg.value(QStringLiteral("devDependencies")).toObject().keys();
         apps.append(app);
         return true;
     };

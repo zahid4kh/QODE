@@ -31,6 +31,7 @@ signals:
     void closeRequested();
     void locationRequested(const QString &path, int line, int column);
     void openFileRequested(const QString &path);
+    void openTextRequested(const QString &text); // a response to show in a new editor tab
 
 private:
     void refresh();

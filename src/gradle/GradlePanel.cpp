@@ -1,8 +1,19 @@
 #include "GradlePanel.h"
 
+#include "gradle/GradleBuildView.h"
+#include "jvm/JvmTools.h"
+
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QMessageBox>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QTabBar>
+
 #include <QApplication>
 #include <QClipboard>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -142,14 +153,67 @@ GradlePanel::GradlePanel(QWidget *parent)
     fl->setContentsMargins(8, 6, 8, 6);
     fl->addWidget(m_filter);
 
+    // The wrapper: its Gradle version, an upgrade to the current release, and the exec bit a zip download loses.
+    m_wrapperRow = new QWidget(this);
+    auto *wl = new QHBoxLayout(m_wrapperRow);
+    wl->setContentsMargins(10, 4, 6, 0);
+    wl->setSpacing(4);
+    m_wrapperLabel = new QLabel(m_wrapperRow);
+    m_wrapperLabel->setObjectName(QStringLiteral("emptyText"));
+    m_upgradeBtn = new QToolButton(m_wrapperRow);
+    m_upgradeBtn->setText(tr("Upgrade…"));
+    m_upgradeBtn->setToolTip(tr("Upgrade the Gradle wrapper to the current Gradle release"));
+    m_upgradeBtn->setAutoRaise(true);
+    connect(m_upgradeBtn, &QToolButton::clicked, this, &GradlePanel::upgradeWrapper);
+    m_execBtn = new QToolButton(m_wrapperRow);
+    m_execBtn->setText(tr("Make gradlew executable"));
+    m_execBtn->setToolTip(tr("gradlew has lost its exec bit (a zip download, or a checkout without file modes): chmod +x gradlew"));
+    m_execBtn->setAutoRaise(true);
+    connect(m_execBtn, &QToolButton::clicked, this, [this] {
+        QFile f(m_dir + QStringLiteral("/gradlew"));
+        if (!f.setPermissions(f.permissions() | QFileDevice::ExeOwner | QFileDevice::ExeGroup | QFileDevice::ExeOther))
+            QMessageBox::warning(this, tr("Gradle"), tr("Could not change the mode of gradlew: %1").arg(f.errorString()));
+        updateWrapper();
+        reload();
+    });
+    wl->addWidget(m_wrapperLabel, 1);
+    wl->addWidget(m_execBtn);
+    wl->addWidget(m_upgradeBtn);
+
+    auto *tasksPage = new QWidget(this);
+    auto *tpl = new QVBoxLayout(tasksPage);
+    tpl->setContentsMargins(0, 0, 0, 0);
+    tpl->setSpacing(0);
+    tpl->addWidget(filterRow);
+    tpl->addWidget(m_stack, 1);
+    tpl->addWidget(m_detail);
+    m_buildView = new GradleBuildView(this);
+    m_pages = new QStackedWidget(this);
+    m_pages->addWidget(tasksPage);
+    m_pages->addWidget(m_buildView);
+    m_tabs = new QTabBar(this);
+    m_tabs->setDrawBase(false);
+    m_tabs->setExpanding(false);
+    m_tabs->addTab(tr("Tasks"));
+    m_tabs->addTab(tr("Build"));
+    connect(m_tabs, &QTabBar::currentChanged, m_pages, &QStackedWidget::setCurrentIndex);
+    connect(m_tabs, &QTabBar::currentChanged, this, [this](int i) {
+        if (i == 1)
+            m_buildView->refresh();
+    });
+    auto *tabRow = new QHBoxLayout;
+    tabRow->setContentsMargins(8, 4, 8, 0);
+    tabRow->addWidget(m_tabs);
+    tabRow->addStretch(1);
+
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     layout->addWidget(header);
     layout->addWidget(m_folder);
-    layout->addWidget(filterRow);
-    layout->addWidget(m_stack, 1);
-    layout->addWidget(m_detail);
+    layout->addWidget(m_wrapperRow);
+    layout->addLayout(tabRow);
+    layout->addWidget(m_pages, 1);
 
     connect(&SettingsManager::instance(), &SettingsManager::themeChanged, this, [this] { populate(); });
     updateDetail();
@@ -170,7 +234,57 @@ void GradlePanel::setBuildDir(const QString &dir)
     }
     m_tree->clear();
     m_folder->setText(dir.isEmpty() ? QString() : QDir::toNativeSeparators(QDir::home().relativeFilePath(dir)).prepend(QStringLiteral("~/")));
+    m_buildView->setRoot(dir);
     updateDetail();
+    updateWrapper();
+}
+
+void GradlePanel::showBuild()
+{
+    m_tabs->setCurrentIndex(1);
+}
+
+void GradlePanel::updateWrapper()
+{
+    const JvmTools::Found v = m_dir.isEmpty() ? JvmTools::Found() : JvmTools::wrapperVersion(m_dir);
+    const bool exec = !m_dir.isEmpty() && JvmTools::wrapperNeedsExecBit(m_dir);
+    m_wrapperRow->setVisible(!v.isEmpty() || exec);
+    m_wrapperLabel->setText(v.isEmpty() ? tr("Gradle wrapper") : tr("Gradle %1 (wrapper)").arg(v.value));
+    m_upgradeBtn->setVisible(!v.isEmpty() && !exec);
+    m_execBtn->setVisible(exec);
+}
+
+void GradlePanel::upgradeWrapper()
+{
+    const JvmTools::Found current = JvmTools::wrapperVersion(m_dir);
+    if (!m_net)
+        m_net = new QNetworkAccessManager(this);
+    QNetworkRequest req(QUrl(QStringLiteral("https://services.gradle.org/versions/current")));
+    req.setTransferTimeout(15000);
+    m_upgradeBtn->setEnabled(false);
+    QNetworkReply *reply = m_net->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, current] {
+        reply->deleteLater();
+        m_upgradeBtn->setEnabled(true);
+        const QString latest = QJsonDocument::fromJson(reply->readAll()).object().value(QStringLiteral("version")).toString();
+        if (reply->error() != QNetworkReply::NoError || latest.isEmpty()) {
+            QMessageBox::warning(this, tr("Upgrade Gradle Wrapper"), tr("Could not read the current Gradle release from services.gradle.org: %1").arg(reply->errorString()));
+            return;
+        }
+        if (latest == current.value) {
+            QMessageBox::information(this, tr("Upgrade Gradle Wrapper"), tr("The wrapper already uses Gradle %1, the current release.").arg(latest));
+            return;
+        }
+        const auto answer = QMessageBox::question(
+            this, tr("Upgrade Gradle Wrapper"),
+            tr("Upgrade the wrapper from Gradle %1 to %2?\n\nThis runs, in the terminal:\n./gradlew wrapper --gradle-version %2\n"
+               "and then ./gradlew wrapper once more, so the wrapper scripts and jar come from the new version too. Check the "
+               "release notes for breaking changes before a major upgrade.")
+                .arg(current.value, latest));
+        if (answer != QMessageBox::Yes)
+            return;
+        emit runRequested(QStringLiteral("%1 wrapper --gradle-version %2 --distribution-type bin && %1 wrapper").arg(GradleTasks::runner(m_dir), latest), m_dir);
+    });
 }
 
 qint64 GradlePanel::buildStamp() const

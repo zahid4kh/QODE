@@ -3,6 +3,7 @@
   "order": 10,
   "category": "C / C++",
   "name": "C++ Console Application",
+  "icon": "file-terminal.svg",
   "description": "A small C++ program with a compile script and a run script you can edit, or CMake if you prefer. clangd works right away. No build system to learn: compile.sh builds every .cpp under src/.",
   "requires": ["tool:{{compiler}}", "tool:cmake?buildSystem=CMake"],
   "options": [

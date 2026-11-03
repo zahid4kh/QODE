@@ -12,7 +12,7 @@
 
 class QTimer;
 
-// Live view of a Spring Boot application's output. The raw text is split into entries first: one per Logback line
+// Live view of a Spring Boot application's (or Ktor server's) output. The raw text is split into entries first: one per Logback line
 // (time, level, logger, message), with stack traces attached to the line that caused them, Gradle / Maven build output
 // and plain output (banner, println) as entries of their own. The entries are then drawn into a read-only document,
 // filtered by level and text. Stack traces fold: only your own frames and the exception lines stay visible, a click on

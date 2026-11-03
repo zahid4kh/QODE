@@ -193,6 +193,32 @@ LanguageDefinition json()
     return d;
 }
 
+// .http / .rest request files (VS Code REST Client, IntelliJ HTTP client).
+LanguageDefinition http()
+{
+    LanguageDefinition d;
+    d.name = QStringLiteral("HTTP");
+    d.lineComment = QStringLiteral("#");
+    d.rules.append({re(QStringLiteral("\\b(?:true|false|null)\\b")), TokenRole::Keyword});
+    d.rules.append({re(QStringLiteral("-?\\b\\d+(?:\\.\\d+)?\\b")), TokenRole::Number});
+    d.rules.append({re(QStringLiteral("^[A-Za-z][\\w-]*(?=:\\s)")), TokenRole::Attribute});              // Header-Name: value
+    d.rules.append({re(QStringLiteral("\\bhttps?://[^\\s{}]+")), TokenRole::Link});
+    d.rules.append({re(QStringLiteral("^(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|TRACE|CONNECT)(?=\\s)")), TokenRole::Keyword});
+    d.rules.append({re(QStringLiteral("\\sHTTP/[\\d.]+\\s*$")), TokenRole::Keyword});
+    d.rules.append({re(QStringLiteral("^@[\\w.$-]+(?=\\s*=)")), TokenRole::Type});                      // @host = …
+    d.rules.append({re(QStringLiteral("^<@?\\s+\\S.*$")), TokenRole::Preprocessor});                  // < ./body.json
+    d.rules.append({re(QStringLiteral("^>>!?\\s.*$")), TokenRole::Preprocessor});                     // >> out.json
+    d.rules.append({re(QStringLiteral("^\\s*(?:#|//)\\s*@[\\w-]+.*$")), TokenRole::Preprocessor});    // # @name login
+    d.rules.append({re(QStringLiteral("\\{\\{[^}]*\\}\\}")), TokenRole::Function});
+    d.rules.append({re(QStringLiteral("^###.*$")), TokenRole::Heading});
+    d.delimited.append({re(QStringLiteral("^\\s*(?:#(?!##)|//)(?!\\s*@[\\w-]).*$")), {}, TokenRole::Comment});
+    d.delimited.append({re(QStringLiteral("\"(?:[^\"\\\\]|\\\\.)*\"(?=\\s*:)")), {}, TokenRole::Attribute, true}); // JSON keys
+    d.delimited.append({re(dqString), {}, TokenRole::String, true});
+    d.interpolation = re(QStringLiteral("\\{\\{[^}]*\\}\\}"));
+    d.interpolationRole = TokenRole::Function;
+    return d;
+}
+
 LanguageDefinition markup(const QString &name, bool html)
 {
     LanguageDefinition d;
@@ -275,25 +301,52 @@ LanguageDefinition csv(bool tabs)
     return d;
 }
 
+// Words of a shell command line: `-`, `.` and `/` join words there (`--if-needed`, `./test`), so \b would split them.
+QString shellWords(const QStringList &w)
+{
+    return QStringLiteral("(?<![\\w./-])(?:") + w.join(QLatin1Char('|')) + QStringLiteral(")(?![\\w./-])");
+}
+
 LanguageDefinition shell()
 {
     LanguageDefinition d;
     d.name = QStringLiteral("Shell");
     d.lineComment = QStringLiteral("#");
-    d.rules.append({re(words({"if", "then", "else", "elif", "fi", "for", "while", "until", "do", "done", "case",
-                              "esac", "in", "function", "select", "return", "exit", "break", "continue", "local",
-                              "export", "readonly", "declare", "unset", "shift", "source", "trap"})),
-                    TokenRole::Keyword});
-    d.rules.append({re(words({"echo", "printf", "cd", "ls", "cat", "grep", "sed", "awk", "mkdir", "rm", "cp", "mv",
-                              "chmod", "chown", "test", "read", "eval", "exec", "set", "alias", "true", "false"})),
+    // $name, ${…}, $1, $@ …, and the opening of $( … ) / $(( … )).
+    const QString expansion = QStringLiteral("(?<!\\\\)\\$(?:\\{[^}\\n]*\\}|[A-Za-z_]\\w*|[0-9@#?$!*-]|\\(\\(?)");
+    d.rules.append({re(shellWords({"echo", "printf", "cd", "pwd", "pushd", "popd", "dirs", "ls", "cat", "grep", "egrep",
+                                   "sed", "awk", "find", "xargs", "sort", "uniq", "head", "tail", "wc", "cut", "tr", "tee",
+                                   "mkdir", "rmdir", "rm", "cp", "mv", "ln", "touch", "chmod", "chown", "basename",
+                                   "dirname", "realpath", "readlink", "mktemp", "sleep", "date", "env", "which", "curl",
+                                   "wget", "tar", "sudo", "kill", "wait", "test", "read", "readarray", "mapfile", "eval",
+                                   "exec", "set", "shopt", "alias", "unalias", "getopts", "command", "builtin", "type",
+                                   "hash", "let", "ulimit", "umask", "jobs", "fg", "bg", "disown", "true", "false"})),
                     TokenRole::Function});
-    d.rules.append({re(QStringLiteral("\\$(?:\\{[^}\\n]*\\}|[A-Za-z_]\\w*|[0-9@#?$!*-])")), TokenRole::Type});
-    d.rules.append({re(numberPattern), TokenRole::Number});
+    d.rules.append({re(shellWords({"if", "then", "else", "elif", "fi", "for", "while", "until", "do", "done", "case",
+                                   "esac", "in", "function", "select", "time", "coproc", "return", "exit", "break",
+                                   "continue", "local", "export", "readonly", "declare", "typeset", "unset", "shift",
+                                   "source", "trap"})),
+                    TokenRole::Keyword});
+    // `name() {` and `function name`.
+    d.rules.append({re(QStringLiteral("^\\s*(?:function\\s+)?([A-Za-z_][\\w:.-]*)\\s*\\(\\s*\\)")), TokenRole::Function, 1});
+    d.rules.append({re(QStringLiteral("\\bfunction\\s+([A-Za-z_][\\w:.-]*)")), TokenRole::Function, 1});
+    // The name in an assignment (NAME=…, arr[i]=…, x+=…), coloured like the $NAME that reads it.
+    d.rules.append({re(QStringLiteral("(?<![\\w$./-])([A-Za-z_]\\w*)(?=(?:\\[[^\\]\\n]*\\])?\\+?=)")), TokenRole::Type, 1});
+    // Tests: [ ], [[ ]], the comparison operators and the file / string tests after an opening bracket.
+    d.rules.append({re(QStringLiteral("\\[\\[|\\]\\]|(?<![\\w\\]$])\\[(?=\\s)|(?<=\\s)\\](?![\\w\\[])")), TokenRole::Keyword});
+    d.rules.append({re(QStringLiteral("(?<=\\s)-(?:eq|ne|lt|le|gt|ge|nt|ot|ef)(?=\\s)")), TokenRole::Keyword});
+    d.rules.append({re(QStringLiteral("(?:\\[\\[?|!|&&|\\|\\|)\\s+(-[a-zA-Z])(?=\\s)")), TokenRole::Keyword, 1});
+    d.rules.append({re(QStringLiteral("(?<![\\w.$/-])\\d+(?:\\.\\d+)?(?![\\w./-])")), TokenRole::Number});
+    d.rules.append({re(expansion), TokenRole::Type});
     d.rules.append({re(QStringLiteral("^#!.*")), TokenRole::Preprocessor});
-    d.delimited.append({re(QStringLiteral("(?<![\\w$])#[^\\n]*")), {}, TokenRole::Comment});
+    // A comment starts a word: `${#arr[@]}` and `a#b` are not comments. The first-line #! stays the shebang.
+    d.delimited.append({re(QStringLiteral("(?:^(?!#!)|(?<=[\\s;&|(]))#[^\\n]*")), {}, TokenRole::Comment});
     // Both quote kinds can span lines in a shell script. \G pins the end search to where it starts, skipping \".
-    d.delimited.append({re(QStringLiteral("\"")), re(QStringLiteral("\\G(?:[^\"\\\\]|\\\\.)*\"")), TokenRole::String});
-    d.delimited.append({re(QStringLiteral("'")), re(QStringLiteral("'")), TokenRole::String});
+    d.delimited.append({re(QStringLiteral("\\$'")), re(QStringLiteral("\\G(?:[^'\\\\]|\\\\.)*'")), TokenRole::String});
+    d.delimited.append({re(QStringLiteral("(?<!\\\\)\"")), re(QStringLiteral("\\G(?:[^\"\\\\]|\\\\.)*\"")), TokenRole::String, true});
+    d.delimited.append({re(QStringLiteral("(?<!\\\\)'")), re(QStringLiteral("'")), TokenRole::String});
+    d.interpolation = re(expansion);
+    d.heredocs = true;
     return d;
 }
 
@@ -322,6 +375,7 @@ struct Registry {
         add(markup(QStringLiteral("HTML"), true), {"html", "htm", "xhtml"});
         add(markup(QStringLiteral("XML"), false), {"xml", "xsl", "xslt", "svg", "ui", "qrc", "ts_xml", "plist", "rss", "atom", "xsd", "pom"});
         add(css(), {"css"});
+        add(http(), {"http", "rest"});
         add(markdown(), {"md", "markdown", "mdown"});
         add(csv(false), {"csv"});
         add(csv(true), {"tsv"});
@@ -340,13 +394,24 @@ const Registry &registry()
 
 namespace Languages {
 
-const LanguageDefinition *forFile(const QString &fileName)
+const LanguageDefinition *forFile(const QString &fileName, const QString &firstLine)
 {
     const Registry &r = registry();
     const QString base = QFileInfo(fileName).fileName().toLower();
     QString lang = r.byFileName.value(base);
     if (lang.isEmpty())
         lang = r.byExtension.value(QFileInfo(base).suffix());
+    if (lang.isEmpty() && firstLine.startsWith(QLatin1String("#!"))) {
+        // #!/bin/bash, #!/usr/bin/env -S python3 -u …: the interpreter is the first word after the path (and env).
+        static const QRegularExpression interp(QStringLiteral("^#!\\s*\\S*/(?:env\\s+(?:-\\S+\\s+)*)?([A-Za-z]+)"));
+        static const QHash<QString, QString> byInterpreter{
+            {QStringLiteral("sh"), QStringLiteral("Shell")},          {QStringLiteral("bash"), QStringLiteral("Shell")},
+            {QStringLiteral("zsh"), QStringLiteral("Shell")},         {QStringLiteral("ksh"), QStringLiteral("Shell")},
+            {QStringLiteral("dash"), QStringLiteral("Shell")},        {QStringLiteral("ash"), QStringLiteral("Shell")},
+            {QStringLiteral("python"), QStringLiteral("Python")},     {QStringLiteral("node"), QStringLiteral("JavaScript")},
+            {QStringLiteral("deno"), QStringLiteral("TypeScript")},   {QStringLiteral("bun"), QStringLiteral("TypeScript")}};
+        lang = byInterpreter.value(interp.match(firstLine).captured(1));
+    }
     if (lang.isEmpty())
         return nullptr;
     auto it = r.defs.constFind(lang);

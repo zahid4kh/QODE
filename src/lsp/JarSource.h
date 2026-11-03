@@ -34,5 +34,7 @@ QString storeText(const QString &uri, const QByteArray &text);
 // The jar URI a cached file was unpacked from, or an empty string for any other path.
 QString uriForPath(const QString &path);
 bool isLibraryPath(const QString &path);
+// One entry of a jar / zip (stored or deflated), e.g. a Maven plugin's META-INF/maven/plugin.xml.
+bool readJarEntry(const QString &jarPath, const QString &entry, QByteArray *out);
 
 } // namespace JarSource

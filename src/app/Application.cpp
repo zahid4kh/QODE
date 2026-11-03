@@ -29,7 +29,7 @@ Application::Application(int &argc, char **argv)
     : QApplication(argc, argv)
 {
     setApplicationName(QStringLiteral("QODE"));
-    setOrganizationName(QStringLiteral("QODE"));
+    setOrganizationName(QStringLiteral("QODE-AGENTIC"));
     setApplicationVersion(QStringLiteral(QODE_VERSION));
     setDesktopFileName(QStringLiteral("qode"));
     QIcon appIcon;
@@ -92,9 +92,9 @@ QString Application::scaled(const QString &sheet) const
     return out + sheet.mid(last);
 }
 
-void Application::scaleWidget(QWidget *w)
+void Application::scaleWidget(QWidget *w, double fontRatio)
 {
-    if (w->inherits("QTipLabel"))
+    if (w->inherits("QTipLabel") || w->window()->property("qodeNoZoom").toBool())
         return;
     auto sc = [this](int v) { return qRound(v * m_zoom); };
     // style sheet
@@ -109,15 +109,15 @@ void Application::scaleWidget(QWidget *w)
         if (target != cur)
             w->setStyleSheet(target);
     }
-    // fonts that were set explicitly (the application font reaches the others by itself)
-    if (w->testAttribute(Qt::WA_SetFont) && w->font().pointSizeF() > 0) {
-        track<double>(w, "font", w->font().pointSizeF(), [this](double v) { return v * m_zoom; }, [w](const double &v) {
-            QFont f = w->font();
-            f.setPointSizeF(v);
-            w->setFont(f);
-        });
+    // Fonts set explicitly are always derived from the application font or SettingsManager::editorFont(),
+    // both already at the current zoom, so a new widget's font is left alone (scaling it here zoomed an
+    // editor opened at 130% to 169%). On a zoom change they move by the ratio of the new zoom to the old.
+    if (fontRatio != 1.0 && w->testAttribute(Qt::WA_SetFont) && w->font().pointSizeF() > 0) {
+        QFont f = w->font();
+        f.setPointSizeF(f.pointSizeF() * fontRatio);
+        w->setFont(f);
     }
-    if (!w->isWindow()) {
+    if (!w->isWindow() && !w->property("qodeZoomed").toBool()) {
         const QSize mn = w->minimumSize(), mx = w->maximumSize();
         auto big = [](int v) { return v >= QWIDGETSIZE_MAX; };
         track<QSize>(w, "min", mn, [&](const QSize &s) { return QSize(sc(s.width()), sc(s.height())); }, [w](const QSize &s) { w->setMinimumSize(s); });
@@ -142,14 +142,19 @@ void Application::applyZoom()
     const double z = SettingsManager::instance().uiZoom() / 100.0;
     if (qFuzzyCompare(z, m_zoom))
         return;
+    const double ratio = z / m_zoom;
     m_zoom = z;
     QFont f = font();
     f.setPointSizeF(kBaseFontSize * m_zoom);
+    // The font goes in before the style sheet as well: re-polishing for the new sheet gives every styled widget
+    // the application font of that moment, so with the font set only afterwards the explorer, menu bar and
+    // labels kept the previous zoom's size (230% after a reset to 100%). Again after, see applyTheme.
     setFont(f);
     setStyleSheet(scaled(Theme::byName(SettingsManager::instance().theme()).styleSheet()));
+    setFont(f);
     const auto widgets = allWidgets();
     for (QWidget *w : widgets)
-        scaleWidget(w);
+        scaleWidget(w, ratio);
     for (QWidget *w : widgets) { // wrapped labels and size hints must be recomputed for the new metrics
         if (w->layout())
             w->layout()->invalidate();
@@ -170,6 +175,8 @@ bool Application::eventFilter(QObject *watched, QEvent *event)
     }
     if (event->type() == QEvent::Polish && watched->isWidgetType()) {
         auto *w = static_cast<QWidget *>(watched);
+        if (qstrcmp(w->metaObject()->className(), "CloseButton") == 0) // QTabBar's close button: sized by the zoomed style sheet (Theme)
+            w->setProperty("qodeZoomed", true);
         if (!qFuzzyCompare(m_zoom, 1.0))
             scaleWidget(w);
         if (qstrcmp(w->metaObject()->className(), "QTipLabel") == 0) { // tooltip window: transparent corners so the stylesheet's radius shows
@@ -209,4 +216,7 @@ void Application::applyTheme(const QString &name)
     p.setColor(QPalette::Disabled, QPalette::ButtonText, t.textMuted);
     setPalette(p);
     setStyleSheet(scaled(t.styleSheet()));
+    // Since Qt 6.11 a new style sheet refills the per-class fonts (QLabel, QMenuBar, ...) with the desktop
+    // font from the platform theme; setting the app font again clears them.
+    setFont(font());
 }

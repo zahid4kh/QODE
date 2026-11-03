@@ -70,6 +70,7 @@ signals:
     void gitDiscardRequested(const QStringList &paths);
     void gitDiffRequested(const QString &path, GitDiffMode mode);
     void gitIgnoreRequested(const QString &path);
+    void localHistoryRequested(const QString &path); // a file or a folder
 
 protected:
     void resizeEvent(QResizeEvent *e) override;
@@ -84,6 +85,7 @@ private:
     void renamePath(const QString &path);
     void deletePath(const QString &path);
     void deletePaths(const QStringList &paths);
+    void addScriptActions(QMenu *menu, const QString &path);
     void addClipboardActions(QMenu *menu, const QString &path, const QString &dir);
     bool clipboardHasContent() const;
     void showError(const QString &title, const QString &text);

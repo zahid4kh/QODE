@@ -25,6 +25,7 @@ struct DelimitedRule {
     QRegularExpression start;
     QRegularExpression end; // invalid => runs to end of line
     TokenRole role;
+    bool interpolates = false; // the language's `interpolation` matches inside it keep their own colour (shell "…")
 };
 
 struct LanguageDefinition {
@@ -34,13 +35,17 @@ struct LanguageDefinition {
     QString lineComment;               // for future comment toggling / display
     bool csv = false;                  // delimited data: SyntaxHighlighter colours it column by column instead of using rules
     QChar csvDelimiter;                // fixed separator for csv (tab for TSV); null => detected from the first line
+    QRegularExpression interpolation;  // code inside strings: `$var` in a shell "…"
+    TokenRole interpolationRole = TokenRole::Type;
+    bool heredocs = false;             // shell: the lines after `<<EOF` up to `EOF` are a string
 };
 
 // Registry of supported languages. Add a language by writing a builder in Language.cpp
 // and mapping its file extensions/names in forFile().
 namespace Languages {
 
-const LanguageDefinition *forFile(const QString &fileName); // nullptr => plain text
+// By file name, else by the interpreter a `#!` first line names (a script without an extension). nullptr => plain text.
+const LanguageDefinition *forFile(const QString &fileName, const QString &firstLine = QString());
 QString nameForFile(const QString &fileName);               // "Plain Text" when unknown
 
 } // namespace Languages

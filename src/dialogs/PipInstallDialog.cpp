@@ -3,7 +3,8 @@
 #include "lsp/LspServers.h"
 #include "lsp/PipInstaller.h"
 
-#include <QFontDatabase>
+#include "settings/SettingsManager.h"
+
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLocale>
@@ -56,7 +57,7 @@ PipInstallDialog::PipInstallDialog(QWidget *parent) : QDialog(parent), m_install
     layout->addWidget(m_bar);
     m_log = new QPlainTextEdit(this);
     m_log->setReadOnly(true);
-    m_log->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    m_log->setFont(SettingsManager::instance().editorFont());
     m_log->setMinimumHeight(140);
     m_log->setMaximumBlockCount(500);
     m_log->hide();

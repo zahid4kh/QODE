@@ -1,18 +1,25 @@
 #include "MarkdownView.h"
 
+#include "CodeImageDialog.h"
+#include "CopyButton.h"
 #include "MarkdownHtml.h"
 #include "editor/HoverRender.h"
+#include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
 
 #include <QAbstractTextDocumentLayout>
 #include <QClipboard>
+#include <QContextMenuEvent>
 #include <QCursor>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QImageReader>
+#include <QMenu>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QRegularExpression>
 #include <QResizeEvent>
 #include <QScrollBar>
 #include <QTextBlock>
@@ -23,8 +30,10 @@
 #include <QTextList>
 #include <QTextTable>
 #include <QTimer>
+#include <QToolButton>
 #include <QToolTip>
 #include <QUrl>
+#include <QWheelEvent>
 #include <functional>
 
 namespace {
@@ -33,13 +42,37 @@ constexpr int kCodePadding = 7;                           // cell padding that m
 const QColor kInlineCodeMark(1, 2, 3);                    // the stylesheet paints `code` with this; polish() turns it into a pill
 
 bool isCodeBox(const QTextTable *t) { return t && t->format().cellPadding() == kCodePadding; }
+
+// Every px length of the stylesheet times `percent` / 100, so headings and spacing zoom with the text.
+QString zoomedCss(const QString &css, int percent)
+{
+    if (percent == 100)
+        return css;
+    static const QRegularExpression px(QStringLiteral("(\\d+)px"));
+    QString out;
+    qsizetype last = 0;
+    for (auto it = px.globalMatch(css); it.hasNext();) {
+        const QRegularExpressionMatch m = it.next();
+        out += css.mid(last, m.capturedStart() - last) + QString::number(qRound(m.captured(1).toInt() * percent / 100.0)) + QStringLiteral("px");
+        last = m.capturedEnd();
+    }
+    return out + css.mid(last);
+}
 }
 
 MarkdownView::MarkdownView(QWidget *parent)
     : QTextBrowser(parent)
     , m_resizeTimer(new QTimer(this))
+    , m_copy(new CopyButton(viewport()))
 {
     setFrameShape(QFrame::NoFrame);
+    viewport()->setMouseTracking(true);
+    m_copy->hide();
+    m_copy->setSource([this] { return codeOf(m_copyBox); });
+    connect(verticalScrollBar(), &QScrollBar::valueChanged, this, [this] {
+        if (viewport()->underMouse())
+            updateCopyButton(viewport()->mapFromGlobal(QCursor::pos()));
+    });
     setOpenLinks(false);
     setLineWrapMode(QTextEdit::WidgetWidth); // never scroll sideways
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -103,6 +136,7 @@ void MarkdownView::resizeEvent(QResizeEvent *e)
     m_resizeTimer->start();
     if (m_autoHeight && e->size().width() != e->oldSize().width())
         updateHeight();
+    placeZoomBadge();
 }
 
 void MarkdownView::applyTheme()
@@ -115,7 +149,8 @@ void MarkdownView::applyTheme()
     pal.setColor(QPalette::LinkVisited, t.accent);
     setPalette(pal);
     viewport()->setPalette(pal);
-    document()->setDefaultStyleSheet(
+    applyZoomFont();
+    document()->setDefaultStyleSheet(zoomedCss(
         QStringLiteral("a { color: %1; } code { font-family: '%2'; background-color: #010203; }"
                        "pre { font-family: '%2'; white-space: pre-wrap; margin: 0px; }"
                        "pre code { background-color: transparent; }"
@@ -127,7 +162,14 @@ void MarkdownView::applyTheme()
                        "p { margin-top: 6px; margin-bottom: 12px; line-height: 160%; }"
                        "li { margin-top: 3px; margin-bottom: 5px; line-height: 160%; } li ul, li ol { margin-top: 2px; margin-bottom: 0px; }"
                        "blockquote { line-height: 160%; }")
-            .arg(t.accent.name(), SettingsManager::instance().editorFont().family(), t.editorFg.name(), t.textMuted.name(), t.border.lighter(115).name()));
+            .arg(t.accent.name(), SettingsManager::instance().editorFont().family(), t.editorFg.name(), t.textMuted.name(), t.border.lighter(115).name()),
+        m_zoom));
+    if (m_zoomBadge) {
+        m_zoomBadge->setIcon(Icons::tinted(QStringLiteral(":/new-icons/rotate-ccw.svg"), t.textMuted));
+        m_zoomBadge->setStyleSheet(QStringLiteral("QToolButton { background: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 2px 7px; }"
+                                                  "QToolButton:hover { color: %4; border-color: %5; }")
+                                       .arg(t.editorBg.name(), t.textMuted.name(), t.border.name(), t.editorFg.name(), t.accent.name()));
+    }
     if (!m_markdown.isEmpty())
         showMarkdown(m_markdown);
 }
@@ -135,6 +177,8 @@ void MarkdownView::applyTheme()
 void MarkdownView::showMarkdown(const QString &markdown)
 {
     m_markdown = markdown;
+    m_copyBox = nullptr; // the boxes are made again
+    m_copy->hide();
     QScrollBar *sb = verticalScrollBar();
     const int pos = sb->value();
     const Theme theme = Theme::byName(SettingsManager::instance().theme());
@@ -172,6 +216,115 @@ QVector<QTextTable *> MarkdownView::codeBoxes() const
     return out;
 }
 
+// The box is the text of its two rows plus the cell padding (the frame rect carries margins we do not want).
+QRectF MarkdownView::codeBoxRect(QTextTable *t, qreal *headerBottom) const
+{
+    QAbstractTextDocumentLayout *lay = document()->documentLayout();
+    const QTextBlock head = t->cellAt(0, 0).firstCursorPosition().block();
+    const QTextBlock body = t->cellAt(1, 0).firstCursorPosition().block();
+    const QTextBlock last = t->cellAt(1, 0).lastCursorPosition().block();
+    const QRectF hr = lay->blockBoundingRect(head), br = lay->blockBoundingRect(body), lr = lay->blockBoundingRect(last);
+    if (headerBottom)
+        *headerBottom = hr.bottom() + kCodePadding;
+    return QRectF(hr.left() - kCodePadding, hr.top() - kCodePadding, br.right() - hr.left() + 2 * kCodePadding, lr.bottom() - hr.top() + 2 * kCodePadding);
+}
+
+QString MarkdownView::codeOf(QTextTable *table)
+{
+    if (!table)
+        return {};
+    QTextCursor c = table->cellAt(1, 0).firstCursorPosition();
+    c.setPosition(table->cellAt(1, 0).lastCursorPosition().position(), QTextCursor::KeepAnchor);
+    return c.selection().toPlainText();
+}
+
+void MarkdownView::mouseMoveEvent(QMouseEvent *e)
+{
+    QTextBrowser::mouseMoveEvent(e);
+    updateCopyButton(e->position().toPoint());
+}
+
+bool MarkdownView::viewportEvent(QEvent *e)
+{
+    if (e->type() == QEvent::Leave && !m_copy->underMouse())
+        m_copy->hide();
+    return QTextBrowser::viewportEvent(e);
+}
+
+QString MarkdownView::selectedPlainText() const
+{
+    return textCursor().selection().toPlainText().remove(QChar(0x202F)).trimmed(); // without the pill padding (see polish)
+}
+
+// Qt's own menu, with icons, plus the chat actions on a reply.
+void MarkdownView::contextMenuEvent(QContextMenuEvent *e)
+{
+    const QString selected = selectedPlainText();
+    const QString link = anchorAt(e->pos());
+    QMenu menu(this);
+    QAction *copy = menu.addAction(tr("Copy"), this, &QTextEdit::copy);
+    Icons::bind(copy, QStringLiteral(":/new-icons/copy.svg"));
+    copy->setEnabled(!selected.isEmpty());
+    if (!link.isEmpty() && !link.startsWith(QLatin1String("qode-copy")))
+        menu.addAction(tr("Copy Link Location"), this, [link] { QGuiApplication::clipboard()->setText(link); });
+    if (QTextTable *box = codeBoxAt(e->pos())) {
+        // The header cell holds the fence's language in capitals (MarkdownHtml::codeBlock).
+        QTextCursor head = box->cellAt(0, 0).firstCursorPosition();
+        head.setPosition(box->cellAt(0, 0).lastCursorPosition().position(), QTextCursor::KeepAnchor);
+        const QString language = head.selection().toPlainText().trimmed().toLower();
+        const QString code = codeOf(box);
+        QAction *image = menu.addAction(tr("Copy Code as Image…"), this, [this, code, language] {
+            CodeImageDialog::show(CodeImage::fromCode(code, language), window());
+        });
+        Icons::bind(image, QStringLiteral(":/new-icons/image.svg"));
+    }
+    if (m_chatActions) {
+        menu.addSeparator();
+        QAction *ask = menu.addAction(tr("Ask about this"), this, [this, selected] { emit askRequested(selected); });
+        Icons::bind(ask, QStringLiteral(":/new-icons/ask-about-this.svg"));
+        ask->setEnabled(!selected.isEmpty());
+        QAction *quote = menu.addAction(tr("Quote this"), this, [this, selected] { emit quoteRequested(selected); });
+        Icons::bind(quote, QStringLiteral(":/new-icons/text-quote.svg"));
+        quote->setEnabled(!selected.isEmpty());
+    }
+    menu.addSeparator();
+    QAction *all = menu.addAction(tr("Select All"), this, &QTextEdit::selectAll);
+    Icons::bind(all, QStringLiteral(":/new-icons/select-all.svg"));
+    all->setEnabled(!document()->isEmpty());
+    menu.exec(e->globalPos());
+}
+
+QTextTable *MarkdownView::codeBoxAt(const QPoint &viewportPos) const
+{
+    const QPointF at = QPointF(viewportPos) + QPointF(horizontalScrollBar()->value(), verticalScrollBar()->value());
+    for (QTextTable *t : codeBoxes())
+        if (codeBoxRect(t).contains(at))
+            return t;
+    return nullptr;
+}
+
+void MarkdownView::updateCopyButton(const QPoint &viewportPos)
+{
+    const QPointF offset(horizontalScrollBar()->value(), verticalScrollBar()->value());
+    const QPointF at = QPointF(viewportPos) + offset;
+    for (QTextTable *t : codeBoxes()) {
+        qreal hy = 0;
+        const QRectF r = codeBoxRect(t, &hy);
+        if (!r.contains(at))
+            continue;
+        m_copyBox = t;
+        m_copy->adjustSize();
+        const QSize s = m_copy->size();
+        const QPointF topRight = QPointF(r.right() - s.width() - 4, r.top() + qMax<qreal>(0, (hy - r.top() - s.height()) / 2)) - offset;
+        m_copy->move(topRight.toPoint());
+        m_copy->show();
+        m_copy->raise();
+        return;
+    }
+    if (!m_copy->underMouse())
+        m_copy->hide();
+}
+
 void MarkdownView::paintEvent(QPaintEvent *e)
 {
     {
@@ -181,19 +334,13 @@ void MarkdownView::paintEvent(QPaintEvent *e)
         const QRectF visible(0, verticalScrollBar()->value(), viewport()->width(), viewport()->height());
         QAbstractTextDocumentLayout *lay = document()->documentLayout();
         for (QTextTable *t : codeBoxes()) {
-            // The box is the text of its two rows plus the cell padding (the frame rect carries margins we do not want).
-            const QTextBlock head = t->cellAt(0, 0).firstCursorPosition().block();
-            const QTextBlock body = t->cellAt(1, 0).firstCursorPosition().block();
-            const QTextBlock last = t->cellAt(1, 0).lastCursorPosition().block();
-            const QRectF hr = lay->blockBoundingRect(head), br = lay->blockBoundingRect(body), lr = lay->blockBoundingRect(last);
-            const QRectF r(hr.left() - kCodePadding, hr.top() - kCodePadding, br.right() - hr.left() + 2 * kCodePadding,
-                           lr.bottom() - hr.top() + 2 * kCodePadding);
+            qreal hy = 0;
+            const QRectF r = codeBoxRect(t, &hy);
             if (!r.intersects(visible))
                 continue;
             QPainterPath path;
             path.addRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), 8, 8);
             p.fillPath(path, m_boxBg);
-            const qreal hy = hr.bottom() + kCodePadding;
             p.save();
             p.setClipPath(path);
             p.fillRect(QRectF(r.left(), r.top(), r.width(), hy - r.top()), m_headBg);
@@ -228,6 +375,7 @@ void MarkdownView::paintEvent(QPaintEvent *e)
             }
         }
         p.setBrush(m_pillBg);
+        p.setPen(QPen(m_pillEdge, 1));
         for (const auto &pill : m_pills) {
             const QTextBlock b = document()->findBlock(pill.first);
             if (!b.isValid() || !b.layout())
@@ -243,7 +391,7 @@ void MarkdownView::paintEvent(QPaintEvent *e)
                     continue;
                 const qreal x1 = line.cursorToX(a), x2 = line.cursorToX(z);
                 const QRectF r(br.left() + qMin(x1, x2), br.top() + line.y(), qAbs(x2 - x1), line.height());
-                p.drawRoundedRect(r.adjusted(0, 1, 0, -1), 4, 4);
+                p.drawRoundedRect(r.adjusted(0.5, 1.5, -0.5, -1.5), 4, 4);
             }
         }
     }
@@ -300,8 +448,12 @@ void MarkdownView::polish()
                        : QColor::fromHsl(t.editorBg.hslHue(), t.editorBg.hslSaturation(), qMax(0, t.editorBg.lightness() - 10));
     m_headBg = dark ? m_boxBg.lighter(125) : m_boxBg.darker(104);
     m_edge = t.border;
-    m_pillBg = dark ? QColor::fromHsl(t.editorBg.hslHue(), t.editorBg.hslSaturation(), qMin(255, t.editorBg.lightness() + 28))
-                        : QColor::fromHsl(t.editorBg.hslHue(), t.editorBg.hslSaturation(), qMax(0, t.editorBg.lightness() - 20));
+    // Translucent ink rather than a shade of editorBg: the chat draws this view transparent over its own (darker, in
+    // light themes) background, where a fixed shade of editorBg all but disappears.
+    m_pillBg = t.editorFg;
+    m_pillBg.setAlpha(dark ? 30 : 22);
+    m_pillEdge = t.editorFg;
+    m_pillEdge.setAlpha(dark ? 34 : 40);
     m_pills.clear();
     // Bullets: Qt draws them hard against the text, so the list drops its own marker and paintEvent draws one with a real gap.
     m_bullets.clear();
@@ -407,10 +559,95 @@ bool MarkdownView::handleCopyLink(const QUrl &url)
         return false;
     const QPoint at = viewport()->mapFromGlobal(QCursor::pos());
     if (auto *table = cursorForPosition(at).currentTable(); isCodeBox(table)) {
-        QTextCursor c = table->cellAt(1, 0).firstCursorPosition();
-        c.setPosition(table->cellAt(1, 0).lastCursorPosition().position(), QTextCursor::KeepAnchor);
-        QGuiApplication::clipboard()->setText(c.selection().toPlainText());
+        QGuiApplication::clipboard()->setText(codeOf(table));
         QToolTip::showText(QCursor::pos(), tr("Copied"), this);
     }
     return true;
+}
+
+void MarkdownView::wheelEvent(QWheelEvent *e)
+{
+    if (!(e->modifiers() & Qt::ControlModifier)) {
+        QTextBrowser::wheelEvent(e);
+        return;
+    }
+    m_wheelRest += e->angleDelta().y();
+    const int steps = m_wheelRest / 120;
+    m_wheelRest %= 120;
+    if (steps)
+        zoomTo(m_zoom + 10 * steps, true);
+    e->accept();
+}
+
+// QTextEdit gives the document the widget's font again on a font change, which would drop the zoom.
+void MarkdownView::changeEvent(QEvent *e)
+{
+    QTextBrowser::changeEvent(e);
+    if (e->type() == QEvent::FontChange && m_zoom != 100)
+        applyZoomFont();
+}
+
+void MarkdownView::setZoom(int percent)
+{
+    zoomTo(percent, false);
+}
+
+void MarkdownView::zoomTo(int percent, bool badge)
+{
+    percent = qBound(50, percent, 250);
+    m_badgeOn = badge;
+    if (percent != m_zoom) {
+        m_zoom = percent;
+        applyTheme(); // the stylesheet's px lengths scale too; renders again
+        emit zoomChanged(m_zoom);
+    }
+    placeZoomBadge();
+}
+
+void MarkdownView::applyZoomFont()
+{
+    QFont f = font();
+    if (f.pointSizeF() > 0)
+        f.setPointSizeF(f.pointSizeF() * m_zoom / 100.0);
+    else
+        f.setPixelSize(qRound(f.pixelSize() * m_zoom / 100.0));
+    document()->setDefaultFont(f);
+}
+
+// At the top right of the part of the view that is on screen: a long reply in the chat is mostly scrolled out of sight.
+void MarkdownView::placeZoomBadge()
+{
+    if (!m_badgeOn || m_zoom == 100) {
+        if (m_zoomBadge)
+            m_zoomBadge->hide();
+        return;
+    }
+    if (!m_zoomBadge) {
+        m_zoomBadge = new QToolButton(this);
+        m_zoomBadge->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        m_zoomBadge->setLayoutDirection(Qt::RightToLeft); // the reset icon after the percentage
+        m_zoomBadge->setIconSize(QSize(12, 12));
+        m_zoomBadge->setCursor(Qt::PointingHandCursor);
+        m_zoomBadge->setToolTip(tr("Reset the zoom to 100% (Ctrl+scroll zooms)"));
+        connect(m_zoomBadge, &QToolButton::clicked, this, [this] { zoomTo(100, false); });
+        applyTheme();
+    }
+    if (!m_followsScroll) {
+        m_followsScroll = true;
+        for (QWidget *w = parentWidget(); w; w = w->parentWidget())
+            if (auto *area = qobject_cast<QAbstractScrollArea *>(w))
+                connect(area->verticalScrollBar(), &QScrollBar::valueChanged, this, &MarkdownView::placeZoomBadge);
+    }
+    m_zoomBadge->setText(tr("%1%").arg(m_zoom));
+    m_zoomBadge->adjustSize();
+    QRect shown = rect();
+    for (QWidget *w = parentWidget(); w; w = w->parentWidget())
+        shown &= QRect(mapFrom(w, QPoint(0, 0)), w->size());
+    if (shown.height() < m_zoomBadge->height() + 12) {
+        m_zoomBadge->hide();
+        return;
+    }
+    m_zoomBadge->move(shown.x() + shown.width() - m_zoomBadge->width() - 6, shown.y() + 6);
+    m_zoomBadge->show();
+    m_zoomBadge->raise();
 }

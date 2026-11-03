@@ -24,6 +24,8 @@ public:
     // Folders that belong to another run control (Expo apps): a server script there is not offered as a web server.
     void setIgnoredDirs(const QStringList &absoluteDirs);
     bool isActive() const;
+    DevServer *server() const { return m_server; }
+    const WebProject &project() const { return m_project; }
 
     void start();
     void stop();
@@ -33,6 +35,7 @@ public:
     void editEnv();
     // The folder the server runs in: the project root, or the nested web project (e.g. docs/) picked for it.
     QString workDir() const;
+    QString command() const { return effective().command; } // what start() runs
     // Uses a nested web project (relative folder) and starts its server.
     void useFolder(const QString &relative);
     void dontAskAboutNested();
@@ -45,6 +48,7 @@ signals:
     void nestedProjectsFound(const QStringList &relativeDirs);
     void openFileRequested(const QString &path);
     void stateChanged();
+    void previewRequested();
 
 private:
     struct Effective
@@ -66,6 +70,6 @@ private:
     QFileSystemWatcher *m_watcher;
     QTimer *m_redetect;
     QLabel *m_dot, *m_text;
-    QToolButton *m_toggle, *m_restart, *m_log, *m_env, *m_config;
+    QToolButton *m_toggle, *m_restart, *m_preview, *m_log, *m_env, *m_config;
     ServerLogDialog *m_logDialog = nullptr;
 };

@@ -189,15 +189,16 @@ void SpringLogView::processLine(QString line)
     // Spring Boot's default pattern: 2026-10-15T10:31:22.123+02:00  INFO 4711 --- [demo] [  main] c.e.d.Application : Started ...
     static const QRegularExpression spring(
         QStringLiteral(R"(^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\s+(TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\s+(?:\d+\s+)?---\s+((?:\[[^\]]*\]\s*)*)(\S+)\s*:\s?(.*)$)"));
-    // Plain Logback: 10:31:22.123 [main] INFO  c.e.d.Application - message
+    // Plain Logback: 10:31:22.123 [main] INFO  c.e.d.Application - message (Ktor's pattern puts the date in front)
     static const QRegularExpression logback(
-        QStringLiteral(R"(^(\d{2}:\d{2}:\d{2}[.,]\d+)\s+\[([^\]]*)\]\s+(TRACE|DEBUG|INFO|WARN|ERROR)\s+(\S+)\s+-\s+(.*)$)"));
+        QStringLiteral(R"(^((?:\d{4}-\d{2}-\d{2}[T ])?\d{2}:\d{2}:\d{2}[.,]\d+)\s+\[([^\]]*)\]\s+(TRACE|DEBUG|INFO|WARN|ERROR)\s+(\S+)\s+-\s+(.*)$)"));
     static const QRegularExpression bracket(QStringLiteral(R"(\[([^\]]*)\])"));
     static const QRegularExpression build(QStringLiteral(
         R"(^(?:> (?:Task|Configure|Transform)\b|BUILD |Deprecated Gradle|FAILURE:|\* (?:What went wrong|Try|Exception is|Get more help)|\[(?:INFO|WARNING|ERROR)\]|Starting a Gradle Daemon|Reusing configuration|Downloading |Daemon will be stopped|Picked up |\d+ actionable tasks?|Calculating task graph|Welcome to Gradle|[ew]: |Execution failed for task|Process 'command))"));
     static const QRegularExpression kotlinLoc(QStringLiteral(R"(^[ew]: (?:file://)?(/[^:]+?):(\d+):(\d+))"));
     static const QRegularExpression javaLoc(QStringLiteral(R"(^(/[^:\s]+\.(?:java|kt)):(\d+): (?:error|warning))"));
-    static const QRegularExpression bootRun(QStringLiteral(R"(^> Task :(?:[\w-]+:)*bootRun\b)"));
+    // Spring's bootRun or Ktor's run: what follows is the application's own output.
+    static const QRegularExpression bootRun(QStringLiteral(R"(^> Task :(?:[\w-]+:)*(?:bootRun|run)\b)"));
     static const QRegularExpression failedBlock(QStringLiteral(R"(^\*{5,}$|^APPLICATION FAILED TO START$)"));
 
     line.remove(QLatin1Char('\r'));

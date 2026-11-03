@@ -41,6 +41,7 @@ signals:
 private:
     void showImage();
     void showVideo();
+    void ensurePlayer(); // the video player, created with the first video (Qt Multimedia's backend is slow to load)
     void showMessage(const QString &text);
     void refreshInfo();
     void addInfo(const QString &key, const QString &value, bool wrapPath = false);
@@ -67,8 +68,8 @@ private:
     QLabel *m_time;
     QMovie *m_movie = nullptr;
 #ifdef QODE_HAS_MULTIMEDIA
-    QMediaPlayer *m_player;
-    QAudioOutput *m_audio;
-    QVideoWidget *m_video;
+    QMediaPlayer *m_player = nullptr;
+    QAudioOutput *m_audio = nullptr;
+    QVideoWidget *m_video = nullptr;
 #endif
 };

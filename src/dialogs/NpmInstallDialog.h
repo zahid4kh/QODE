@@ -8,13 +8,14 @@ class QPlainTextEdit;
 class QProgressBar;
 class QPushButton;
 
-// "Download and Set Up" for the web language servers (TypeScript / JavaScript, HTML, CSS, JSON): explains what will
-// happen, then runs NpmInstaller with npm's output shown live. exec() returns Accepted once everything is installed.
+// "Download and Set Up" for a server installed with npm: the web language servers (TypeScript / JavaScript, HTML, CSS,
+// JSON; managedId "web") or the Bash server ("bash"). Explains what will happen, then runs NpmInstaller with npm's output
+// shown live. exec() returns Accepted once everything is installed.
 class NpmInstallDialog : public QDialog
 {
     Q_OBJECT
 public:
-    explicit NpmInstallDialog(QWidget *parent = nullptr);
+    explicit NpmInstallDialog(const QString &managedId, QWidget *parent = nullptr);
 
 protected:
     void reject() override;

@@ -11,7 +11,7 @@ class QProcess;
 
 // Downloads and sets up the Eclipse JDT language server (jdtls) from download.eclipse.org:
 // resolve version -> checksum -> download -> verify -> unpack -> link. Everything lives under
-// ~/.local/share/QODE/lsp/jdtls (no root needed) and runs asynchronously. The server itself needs a Java 21+ runtime
+// ~/.local/share/QODE-AGENTIC/lsp/jdtls (no root needed) and runs asynchronously. The server itself needs a Java 21+ runtime
 // on the machine; that is checked (and reported in the result note) but not installed.
 class JdtlsInstaller : public QObject
 {
@@ -19,7 +19,7 @@ class JdtlsInstaller : public QObject
 public:
     // The milestone known to work with QODE; "latest" is an opt-in.
     static QString pinnedVersion();
-    static QString installRoot();      // ~/.local/share/QODE/lsp/jdtls
+    static QString installRoot();      // ~/.local/share/QODE-AGENTIC/lsp/jdtls
     static QString installedVersion(); // what `current` points to, "" when nothing is installed
 
     explicit JdtlsInstaller(QObject *parent = nullptr);

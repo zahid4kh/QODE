@@ -120,7 +120,7 @@ void analyseGradle(Module &m)
     m.spring = has(t, R"(org\.springframework\.boot|libs\.plugins\.spring[.]?boot|springBoot)");
     m.quarkus = has(t, R"(io\.quarkus)");
     m.micronaut = has(t, R"(io\.micronaut\.application)");
-    m.ktor = has(t, R"(io\.ktor\.plugin)");
+    m.ktor = has(t, R"(io\.ktor\.plugin|ktorLibs\.plugins\.ktor|libs\.plugins\.ktor)");
     m.javafx = has(t, R"(org\.openjfx\.javafxplugin)");
     m.appPlugin = has(t, R"re((id\s*\(\s*["']application["']\s*\)|^\s*`?application`?\s*$|apply\s+plugin:\s*["']application["']|\bapplication\s*\{))re",
                       QRegularExpression::MultilineOption)
@@ -141,6 +141,118 @@ void analyseMaven(Module &m)
 }
 
 } // namespace
+
+QString JvmProject::runMainInitScript()
+{
+    // Runs any main class of a module that has no `application` plugin (Java and Kotlin/JVM alike); lives in the
+    // cache, so the project stays untouched.
+    const QString dir = QDir::homePath() + QStringLiteral("/.cache/QODE-AGENTIC/run");
+    QDir().mkpath(dir);
+    const QString path = dir + QStringLiteral("/run-main.init.gradle");
+    const QByteArray body =
+        "// Written by QODE: lets the Run button start a main class without the `application` plugin.\n"
+        "allprojects { p ->\n"
+        "    p.plugins.withId('java') {\n"
+        "        if (p.findProperty('qode.main') != null && p.tasks.findByName('qodeRun') == null) {\n"
+        "            p.tasks.register('qodeRun', JavaExec) {\n"
+        "                group = 'application'\n"
+        "                classpath = p.sourceSets.main.runtimeClasspath\n"
+        "                mainClass = p.property('qode.main')\n"
+        "                standardInput = System.in\n"
+        "            }\n"
+        "        }\n"
+        "    }\n"
+        "}\n";
+    QFile cur(path);
+    if (!cur.open(QIODevice::ReadOnly) || cur.readAll() != body) {
+        cur.close();
+        QSaveFile out(path);
+        if (out.open(QIODevice::WriteOnly)) {
+            out.write(body);
+            out.commit();
+        }
+    }
+    return path;
+}
+
+namespace {
+// How a file of the project is built: Gradle or Maven, the command to call it, and the module (the direct sub-folder holding
+// the file when it has a build file of its own, else "" for the root). `tool` is empty when there is no build.
+struct BuildOf {
+    bool gradle = false;
+    QString tool, module;
+};
+
+BuildOf buildOf(const QString &root, const QString &file)
+{
+    BuildOf b;
+    if (root.isEmpty() || !file.startsWith(root + QLatin1Char('/')))
+        return b;
+    const bool wrapper = QFileInfo::exists(root + QStringLiteral("/gradlew"));
+    b.gradle = wrapper || !gradleFile(root).isEmpty() || QFileInfo::exists(root + QStringLiteral("/settings.gradle.kts"))
+               || QFileInfo::exists(root + QStringLiteral("/settings.gradle"));
+    const bool maven = !b.gradle && QFileInfo::exists(root + QStringLiteral("/pom.xml"));
+    if (!b.gradle && !maven)
+        return b;
+    const QString rel = file.mid(root.size() + 1);
+    if (rel.contains(QLatin1Char('/'))) {
+        const QString first = rel.section(QLatin1Char('/'), 0, 0);
+        const QString dir = root + QLatin1Char('/') + first;
+        if (b.gradle ? !gradleFile(dir).isEmpty() : QFileInfo::exists(dir + QStringLiteral("/pom.xml")))
+            b.module = first;
+    }
+    if (b.gradle) {
+        b.tool = wrapper ? (QFileInfo(root + QStringLiteral("/gradlew")).isExecutable() ? QStringLiteral("./gradlew") : QStringLiteral("sh gradlew"))
+                         : QStringLiteral("gradle");
+    } else {
+        const QString w = root + QStringLiteral("/mvnw");
+        b.tool = QFileInfo::exists(w) ? (QFileInfo(w).isExecutable() ? QStringLiteral("./mvnw") : QStringLiteral("sh mvnw")) : QStringLiteral("mvn");
+        if (!b.module.isEmpty())
+            b.tool += QStringLiteral(" -f ") + shellQuote(b.module + QStringLiteral("/pom.xml"));
+    }
+    return b;
+}
+} // namespace
+
+QString JvmProject::mainCommand(const QString &root, const QString &file, const QString &mainClass, const QStringList &initScripts)
+{
+    const BuildOf b = buildOf(root, file);
+    if (b.tool.isEmpty())
+        return {};
+    const QString cls = mainClass.contains(QLatin1Char('$')) ? shellQuote(mainClass) : mainClass;
+    if (b.gradle) {
+        QString cmd = b.tool + QStringLiteral(" --console=plain");
+        for (const QString &s : initScripts)
+            cmd += QStringLiteral(" --init-script ") + shellQuote(s);
+        cmd += QStringLiteral(" --init-script ") + shellQuote(runMainInitScript()) + QStringLiteral(" -Pqode.main=") + cls + QLatin1Char(' ')
+               + (b.module.isEmpty() ? QString() : QLatin1Char(':') + b.module + QLatin1Char(':')) + QStringLiteral("qodeRun");
+        return cmd;
+    }
+    return b.tool + QStringLiteral(" -q compile exec:java -Dexec.mainClass=") + cls;
+}
+
+QString JvmProject::testCommand(const QString &root, const QString &file, const QString &testClass, const QString &method,
+                                const QStringList &initScripts, const QString &mavenDebugAgent)
+{
+    const BuildOf b = buildOf(root, file);
+    if (b.tool.isEmpty() || testClass.isEmpty())
+        return {};
+    if (b.gradle) {
+        // cleanTest: an up-to-date test task would otherwise run nothing (and a debugger would wait for nothing).
+        const QString prefix = b.module.isEmpty() ? QString() : QLatin1Char(':') + b.module + QLatin1Char(':');
+        QString cmd = b.tool + QStringLiteral(" --console=plain");
+        for (const QString &s : initScripts)
+            cmd += QStringLiteral(" --init-script ") + shellQuote(s);
+        return cmd + QLatin1Char(' ') + prefix + QStringLiteral("cleanTest ") + prefix + QStringLiteral("test --tests ")
+               + shellQuote(method.isEmpty() ? testClass : testClass + QLatin1Char('.') + method);
+    }
+    // Surefire forks the test JVM: maven.surefire.debug gives it the debugger option.
+    QString cmd = b.tool + QStringLiteral(" test -Dsurefire.failIfNoSpecifiedTests=false -Dtest=")
+                  + shellQuote(method.isEmpty() ? testClass : testClass + QLatin1Char('#') + method);
+    if (!mavenDebugAgent.isEmpty())
+        cmd += QStringLiteral(" -Dmaven.surefire.debug=") + shellQuote(mavenDebugAgent);
+    return cmd;
+}
 
 JvmProject JvmProject::detect(const QString &root)
 {
@@ -196,36 +308,8 @@ JvmProject JvmProject::detect(const QString &root)
     QString initScript; // created lazily, only when a module needs it
 
     auto ensureInit = [&]() {
-        if (!initScript.isEmpty())
-            return initScript;
-        // Runs any main class of a module that has no `application` plugin (Java and Kotlin/JVM alike); lives in the
-        // cache, so the project stays untouched.
-        const QString dir = QDir::homePath() + QStringLiteral("/.cache/QODE/run");
-        QDir().mkpath(dir);
-        initScript = dir + QStringLiteral("/run-main.init.gradle");
-        const QByteArray body =
-            "// Written by QODE: lets the Run button start a main class without the `application` plugin.\n"
-            "allprojects { p ->\n"
-            "    p.plugins.withId('java') {\n"
-            "        if (p.findProperty('qode.main') != null && p.tasks.findByName('qodeRun') == null) {\n"
-            "            p.tasks.register('qodeRun', JavaExec) {\n"
-            "                group = 'application'\n"
-            "                classpath = p.sourceSets.main.runtimeClasspath\n"
-            "                mainClass = p.property('qode.main')\n"
-            "                standardInput = System.in\n"
-            "            }\n"
-            "        }\n"
-            "    }\n"
-            "}\n";
-        QFile cur(initScript);
-        if (!cur.open(QIODevice::ReadOnly) || cur.readAll() != body) {
-            cur.close();
-            QSaveFile out(initScript);
-            if (out.open(QIODevice::WriteOnly)) {
-                out.write(body);
-                out.commit();
-            }
-        }
+        if (initScript.isEmpty())
+            initScript = runMainInitScript();
         return initScript;
     };
 

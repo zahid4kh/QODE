@@ -42,17 +42,24 @@ const QStringList &todoTags()
     return tags;
 }
 
-// A tag only counts right after a comment opener, so identifiers and strings are not picked up.
+// A tag only counts right after a comment opener, so identifiers and strings are not picked up. Kotlin's TODO("…")
+// calls are matched too (the second alternative); onResults keeps those only in .kt / .kts files.
 QString todoPattern()
 {
-    return QStringLiteral("(?://+|#+|/\\*+|\\*|--|<!--|;+|%+)\\s*@?\\b(?:") + todoTags().join(QLatin1Char('|')) + QStringLiteral(")\\b");
+    return QStringLiteral("(?://+|#+|/\\*+|\\*|--|<!--|;+|%+)\\s*@?\\b(?:") + todoTags().join(QLatin1Char('|')) +
+           QStringLiteral(")\\b|(?<![\\w.])TODO\\s*\\(");
+}
+
+bool isKotlin(const QString &path)
+{
+    return path.endsWith(QLatin1String(".kt")) || path.endsWith(QLatin1String(".kts"));
 }
 
 QColor tagColor(const Theme &t, const QString &tag)
 {
-    if (tag == QLatin1String("FIXME") || tag == QLatin1String("BUG"))
+    if (tag == QLatin1String("FIXME") || tag == QLatin1String("BUG") || tag == QLatin1String("error"))
         return t.gitDeleted;
-    if (tag == QLatin1String("HACK") || tag == QLatin1String("XXX"))
+    if (tag == QLatin1String("HACK") || tag == QLatin1String("XXX") || tag == QLatin1String("warning"))
         return t.gitModified;
     return t.accent;
 }
@@ -142,7 +149,8 @@ private:
         nf.setPointSizeF(qMax(7.0, nf.pointSizeF() - 1.5));
         p->setFont(nf);
         p->setPen(m_theme.gutterFg);
-        p->drawText(QRect(r.left() + 6, r.top(), 34, r.height()), Qt::AlignVCenter | Qt::AlignRight, QString::number(index.data(RoleLine).toInt()));
+        if (const int line = index.data(RoleLine).toInt(); line > 0) // linker errors have no line
+            p->drawText(QRect(r.left() + 6, r.top(), 34, r.height()), Qt::AlignVCenter | Qt::AlignRight, QString::number(line));
 
         int x = r.left() + 6 + 34 + 8;
         const QString tag = index.data(RoleTag).toString();
@@ -215,6 +223,8 @@ TasksPanel::TasksPanel(QWidget *parent)
     };
     m_todoBtn = makeTab(tr("TODO"));
     m_markBtn = makeTab(tr("Bookmarks"));
+    m_probBtn = makeTab(tr("Problems"));
+    m_probBtn->setToolTip(tr("Compiler errors and warnings printed in the terminal"));
     m_todoBtn->setChecked(true);
     m_refresh = new QToolButton(this);
     Icons::bind(m_refresh, QStringLiteral(":/new-icons/refresh-cw.svg"));
@@ -238,14 +248,23 @@ TasksPanel::TasksPanel(QWidget *parent)
         addTag(tag, tag);
     m_filterBtn->setMenu(filterMenu);
 
+    m_fixBtn = new QToolButton(this);
+    Icons::bind(m_fixBtn, QStringLiteral(":/new-icons/sparkles.svg"));
+    m_fixBtn->setToolTip(tr("Fix with QODE: start a QODE chat with these errors and their files"));
+    m_fixBtn->setAutoRaise(true);
+    m_fixBtn->setVisible(false);
+    connect(m_fixBtn, &QToolButton::clicked, this, [this] { emit fixRequested(problemsToFix(QString())); });
+
     auto *bar = new QHBoxLayout;
     bar->setContentsMargins(8, 6, 8, 2);
     bar->setSpacing(4);
     bar->addWidget(m_todoBtn);
     bar->addWidget(m_markBtn);
+    bar->addWidget(m_probBtn);
     bar->addStretch(1);
     bar->addWidget(m_filterBtn);
     bar->addWidget(m_refresh);
+    bar->addWidget(m_fixBtn);
 
     m_summary = new QLabel(this);
     m_summary->setContentsMargins(10, 2, 10, 4);
@@ -253,9 +272,15 @@ TasksPanel::TasksPanel(QWidget *parent)
 
     m_todoTree = makeTree(this);
     m_markTree = makeTree(this);
+    m_probTree = makeTree(this);
     m_stack = new QStackedWidget(this);
     m_stack->addWidget(m_todoTree);
     m_stack->addWidget(m_markTree);
+    m_stack->addWidget(m_probTree);
+    m_probTimer = new QTimer(this);
+    m_probTimer->setSingleShot(true);
+    m_probTimer->setInterval(120);
+    connect(m_probTimer, &QTimer::timeout, this, &TasksPanel::rebuildProblems);
 
     auto *lay = new QVBoxLayout(this);
     lay->setContentsMargins(0, 0, 0, 0);
@@ -267,11 +292,12 @@ TasksPanel::TasksPanel(QWidget *parent)
 
     connect(m_todoBtn, &QToolButton::clicked, this, &TasksPanel::showTodos);
     connect(m_markBtn, &QToolButton::clicked, this, &TasksPanel::showBookmarks);
+    connect(m_probBtn, &QToolButton::clicked, this, &TasksPanel::showProblems);
     connect(m_refresh, &QToolButton::clicked, this, &TasksPanel::scanTodos);
     connect(m_debounce, &QTimer::timeout, this, &TasksPanel::scanTodos);
     connect(m_search, &ProjectSearch::results, this, &TasksPanel::onResults);
     connect(m_search, &ProjectSearch::finished, this, &TasksPanel::onFinished);
-    for (QTreeWidget *t : {m_todoTree, m_markTree}) {
+    for (QTreeWidget *t : {m_todoTree, m_markTree, m_probTree}) {
         connect(t, &QTreeWidget::itemClicked, this, &TasksPanel::activate);
         connect(t, &QTreeWidget::itemActivated, this, &TasksPanel::activate);
         connect(t, &QWidget::customContextMenuRequested, this, &TasksPanel::showContextMenu);
@@ -279,6 +305,7 @@ TasksPanel::TasksPanel(QWidget *parent)
     connect(&SettingsManager::instance(), &SettingsManager::themeChanged, this, [this] {
         m_todoTree->viewport()->update();
         m_markTree->viewport()->update();
+        m_probTree->viewport()->update();
         updateSummary();
     });
     updateSummary();
@@ -344,7 +371,28 @@ void TasksPanel::onResults(const QList<SearchFileResult> &batch)
         fileItem->setToolTip(0, QDir::toNativeSeparators(fr.path));
         int n = 0;
         for (const SearchMatch &m : fr.matches) {
-            const auto mm = tagRx.match(m.preview, qMax(0, m.previewStart));
+            const int from = qMax(0, m.previewStart);
+            // A match that starts at the tag itself is the call alternative of todoPattern: Kotlin's TODO("reason").
+            if (m.preview.mid(from, 4) == QLatin1String("TODO")) {
+                if (!isKotlin(fr.path))
+                    continue;
+                static const QRegularExpression callRx(QStringLiteral(R"re(TODO\s*\(\s*(?:"((?:[^"\\]|\\.)*)")?)re"));
+                const auto cm = callRx.match(m.preview, from);
+                if (!cm.hasMatch() || cm.capturedStart() != from)
+                    continue;
+                auto *it = new QTreeWidgetItem(fileItem);
+                it->setData(0, RoleKind, 1);
+                it->setData(0, RolePath, fr.path);
+                it->setData(0, RoleLine, m.line);
+                it->setData(0, RoleColumn, m.column);
+                it->setData(0, RoleLength, 4);
+                it->setData(0, RoleTag, QStringLiteral("TODO"));
+                const QString reason = cm.captured(1).trimmed();
+                it->setData(0, RoleText, reason.isEmpty() ? tr("TODO() — not implemented") : tr("TODO(\"%1\")").arg(reason));
+                ++n;
+                continue;
+            }
+            const auto mm = tagRx.match(m.preview, from);
             if (!mm.hasMatch())
                 continue;
             auto *it = new QTreeWidgetItem(fileItem);
@@ -433,6 +481,64 @@ void TasksPanel::rebuildBookmarks()
     emit countsChanged();
 }
 
+void TasksPanel::addProblems(QObject *source, const QList<BuildProblem> &problems)
+{
+    for (const BuildProblem &p : problems)
+        m_problems.append({source, p});
+    m_probTimer->start();
+}
+
+void TasksPanel::clearProblems(QObject *source)
+{
+    const qsizetype before = m_problems.size();
+    m_problems.removeIf([source](const QPair<QObject *, BuildProblem> &e) { return e.first == source; });
+    if (m_problems.size() != before)
+        m_probTimer->start();
+}
+
+// Grouped by file in the order the files first came up; entries in the order they were printed.
+void TasksPanel::rebuildProblems()
+{
+    m_probTree->setUpdatesEnabled(false);
+    m_probTree->clear();
+    m_errorCount = m_warningCount = 0;
+    QHash<QString, QTreeWidgetItem *> files;
+    for (const auto &[source, p] : std::as_const(m_problems)) {
+        Q_UNUSED(source)
+        QTreeWidgetItem *&fileItem = files[p.path];
+        if (!fileItem) {
+            fileItem = new QTreeWidgetItem(m_probTree);
+            fileItem->setData(0, Qt::DisplayRole, relative(p.path));
+            fileItem->setData(0, RoleKind, 0);
+            fileItem->setData(0, RolePath, p.path);
+            fileItem->setToolTip(0, QDir::toNativeSeparators(p.path));
+            fileItem->setExpanded(true);
+        }
+        auto *it = new QTreeWidgetItem(fileItem);
+        it->setData(0, RoleKind, 1);
+        it->setData(0, RolePath, p.path);
+        it->setData(0, RoleLine, p.line);
+        it->setData(0, RoleColumn, qMax(0, p.column - 1));
+        it->setData(0, RoleTag, p.error ? QStringLiteral("error") : QStringLiteral("warning"));
+        it->setData(0, RoleText, p.message);
+        it->setToolTip(0, p.message);
+        fileItem->setData(0, RoleCount, fileItem->childCount());
+        ++(p.error ? m_errorCount : m_warningCount);
+    }
+    m_probTree->setUpdatesEnabled(true);
+    updateSummary();
+    emit countsChanged();
+}
+
+void TasksPanel::showProblems()
+{
+    m_probBtn->setChecked(true);
+    m_stack->setCurrentWidget(m_probTree);
+    m_filterBtn->setVisible(false);
+    m_refresh->setVisible(false);
+    updateSummary();
+}
+
 void TasksPanel::showBookmarks()
 {
     m_markBtn->setChecked(true);
@@ -457,9 +563,25 @@ void TasksPanel::updateSummary()
     QString text;
     QColor color = t.textMuted;
     const bool todos = m_stack->currentWidget() == m_todoTree;
+    m_fixBtn->setVisible(m_stack->currentWidget() == m_probTree && problemCount() > 0);
     m_todoBtn->setText(m_todoCount > 0 ? tr("TODO (%1)").arg(m_todoCount) : tr("TODO"));
     m_markBtn->setText(m_bookmarkCount > 0 ? tr("Bookmarks (%1)").arg(m_bookmarkCount) : tr("Bookmarks"));
-    if (todos) {
+    m_probBtn->setText(problemCount() > 0 ? tr("Problems (%1)").arg(problemCount()) : tr("Problems"));
+    if (m_stack->currentWidget() == m_probTree) {
+        if (problemCount() == 0) {
+            text = tr("No compiler errors. Errors and warnings printed in the terminal (gcc, clang, rustc, javac, CMake) are listed "
+                      "here until the next command runs.");
+        } else {
+            QStringList parts;
+            if (m_errorCount > 0)
+                parts << tr("%n error(s)", nullptr, m_errorCount);
+            if (m_warningCount > 0)
+                parts << tr("%n warning(s)", nullptr, m_warningCount);
+            text = parts.join(QStringLiteral(", "));
+            if (m_errorCount > 0)
+                color = t.gitDeleted;
+        }
+    } else if (todos) {
         int shown = 0;
         for (int i = 0; i < m_todoTree->topLevelItemCount(); ++i)
             shown += m_todoTree->topLevelItem(i)->data(0, RoleCount).toInt();
@@ -494,6 +616,20 @@ void TasksPanel::activate(QTreeWidgetItem *item)
     emit openLocation(item->data(0, RolePath).toString(), line, item->data(0, RoleColumn).toInt(), item->data(0, RoleLength).toInt());
 }
 
+QList<BuildProblem> TasksPanel::problemsToFix(const QString &path) const
+{
+    QList<BuildProblem> errors, all;
+    for (const auto &[source, p] : m_problems) {
+        Q_UNUSED(source)
+        if (!path.isEmpty() && p.path != path)
+            continue;
+        all << p;
+        if (p.error)
+            errors << p;
+    }
+    return errors.isEmpty() ? all : errors;
+}
+
 void TasksPanel::showContextMenu(const QPoint &pos)
 {
     auto *tree = qobject_cast<QTreeWidget *>(sender());
@@ -504,6 +640,21 @@ void TasksPanel::showContextMenu(const QPoint &pos)
     const bool marks = tree == m_markTree;
     if (item) {
         const QString path = item->data(0, RolePath).toString();
+        if (tree == m_probTree && item->data(0, RoleKind).toInt() == 1) {
+            BuildProblem p;
+            p.path = path;
+            p.line = item->data(0, RoleLine).toInt();
+            p.column = item->data(0, RoleColumn).toInt() + 1;
+            p.error = item->data(0, RoleTag).toString() == QLatin1String("error");
+            p.message = item->data(0, RoleText).toString();
+            menu.addAction(tr("Fix with QODE"), this, [this, p] { emit fixRequested({p}); });
+            menu.addSeparator();
+            const QString message = p.message;
+            menu.addAction(tr("Copy Message"), this, [message] { QApplication::clipboard()->setText(message); });
+        } else if (tree == m_probTree) {
+            menu.addAction(tr("Fix This File with QODE"), this, [this, path] { emit fixRequested(problemsToFix(path)); });
+            menu.addSeparator();
+        }
         menu.addAction(tr("Copy Path"), this, [path] { QApplication::clipboard()->setText(path); });
         if (marks && item->data(0, RoleKind).toInt() == 1) {
             const int line = item->data(0, RoleLine).toInt() - 1;
@@ -512,6 +663,11 @@ void TasksPanel::showContextMenu(const QPoint &pos)
     }
     if (marks && m_bookmarkCount > 0)
         menu.addAction(tr("Clear All Bookmarks"), this, &TasksPanel::clearBookmarksRequested);
+    if (tree == m_probTree && !m_problems.isEmpty())
+        menu.addAction(tr("Clear Problems"), this, [this] {
+            m_problems.clear();
+            rebuildProblems();
+        });
     if (!menu.isEmpty())
         menu.exec(tree->viewport()->mapToGlobal(pos));
 }

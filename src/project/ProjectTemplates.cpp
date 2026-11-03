@@ -378,6 +378,8 @@ const QList<ProjectTemplates::Template> &ProjectTemplates::all()
             t.category = o.value(QStringLiteral("category")).toString();
             t.name = o.value(QStringLiteral("name")).toString(t.id);
             t.description = o.value(QStringLiteral("description")).toString();
+            t.icon = o.value(QStringLiteral("icon")).toString();
+            t.attribution = o.value(QStringLiteral("attribution")).toString();
             t.order = o.value(QStringLiteral("order")).toInt();
             auto strings = [&](const char *key) {
                 QStringList l;
@@ -475,6 +477,11 @@ QString ProjectTemplates::validate(const Template &t, const Values &values)
             const auto m = ver.match(v);
             if (!m.hasMatch() || m.captured(1).toInt() < 1 || m.captured(1).toInt() > 255 || m.captured(2).toInt() > 255 || m.captured(3).toInt() > 65535)
                 return QStringLiteral("%1 must look like 1.0.0 (major 1-255, minor up to 255, patch up to 65535).").arg(o.label);
+        } else if (o.type == QLatin1String("port")) {
+            bool ok = false;
+            const int port = v.toInt(&ok);
+            if (!ok || port < 1 || port > 65535)
+                return QStringLiteral("%1 must be a number from 1 to 65535.").arg(o.label);
         } else if (o.type == QLatin1String("choice")) {
             if (!o.choices.contains(v))
                 return QStringLiteral("Pick a value for %1.").arg(o.label);

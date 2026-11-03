@@ -8,6 +8,9 @@
 #include <QMimeData>
 #include <QUrl>
 #include <QContextMenuEvent>
+#include <QDir>
+#include <QFileInfo>
+#include <QRegularExpression>
 #include <QFontMetricsF>
 #include <QInputMethodEvent>
 #include <QKeyEvent>
@@ -41,6 +44,7 @@ TerminalView::TerminalView(QWidget *parent)
     setFocusPolicy(Qt::StrongFocus);
     setAttribute(Qt::WA_InputMethodEnabled, true);
     viewport()->setCursor(Qt::IBeamCursor);
+    viewport()->setMouseTracking(true); // file locations in the output underline under the mouse
     viewport()->setAutoFillBackground(false);
     verticalScrollBar()->setSingleStep(1);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -192,6 +196,13 @@ void TerminalView::paintEvent(QPaintEvent *)
         }
     }
 
+    // The file location under the mouse, underlined like a link.
+    if (m_link.line >= first && m_link.line < first + rows) {
+        const qreal y = (m_link.line - first + 1) * m_ch - 1.5;
+        p.setPen(m_fg);
+        p.drawLine(QPointF(m_link.start * m_cw, y), QPointF(m_link.end * m_cw, y));
+    }
+
     // Cursor
     if (m_screen->cursorVisible() && m_atBottom) {
         const int row = m_screen->cursorRow();
@@ -299,6 +310,13 @@ void TerminalView::sendPaste(QString t)
 
 void TerminalView::mousePressEvent(QMouseEvent *e)
 {
+    if (e->button() == Qt::LeftButton && (e->modifiers() & Qt::ControlModifier)) {
+        const Link link = linkAt(cellAt(e->pos()));
+        if (link.line >= 0) {
+            emit fileLinkActivated(link.path, link.row, link.column);
+            return;
+        }
+    }
     if (e->button() == Qt::LeftButton) {
         m_selecting = true;
         m_selStart = m_selEnd = cellAt(e->pos());
@@ -314,8 +332,10 @@ void TerminalView::mousePressEvent(QMouseEvent *e)
 
 void TerminalView::mouseMoveEvent(QMouseEvent *e)
 {
-    if (!m_selecting)
+    if (!m_selecting) {
+        setHoveredLink(linkAt(cellAt(e->pos())), e->modifiers() & Qt::ControlModifier);
         return;
+    }
     m_selEnd = cellAt(e->pos());
     // Auto-scroll while dragging outside the viewport.
     if (e->pos().y() < 0)
@@ -399,6 +419,106 @@ void TerminalView::contextMenuEvent(QContextMenuEvent *e)
     menu.addAction(tr("Paste"), this, &TerminalView::paste);
     menu.addAction(tr("Select All"), this, &TerminalView::selectAll);
     menu.exec(e->globalPos());
+}
+
+// --- File locations in the output -----------------------------------------------------
+
+QString TerminalView::lineText(int absoluteLine, QVector<int> *columns) const
+{
+    QString text;
+    if (absoluteLine < 0 || absoluteLine >= m_screen->totalLines())
+        return text;
+    const TerminalScreen::Line &line = m_screen->lineAt(absoluteLine);
+    for (int c = 0; c < line.size(); ++c) {
+        const QString ch = QString::fromUcs4(&line.at(c).ch, 1);
+        text += ch;
+        if (columns)
+            for (int k = 0; k < ch.size(); ++k)
+                columns->append(c);
+    }
+    return text;
+}
+
+// gcc / clang / rustc / tsc style "path:line[:column]" (the path needs an extension), and Python's `File "path", line N`.
+TerminalView::Link TerminalView::linkAt(const QPoint &cell) const
+{
+    static const QRegularExpression location(QStringLiteral("((?:~|\\.{1,2})?[\\w./+@-]*[\\w+-]\\.[A-Za-z0-9+]{1,8}):(\\d+)(?::(\\d+))?"));
+    static const QRegularExpression python(QStringLiteral("File \"([^\"]+)\", line (\\d+)"));
+    QVector<int> columns;
+    const QString text = lineText(cell.y(), &columns);
+    for (const QRegularExpression *re : {&location, &python}) {
+        for (auto it = re->globalMatch(text); it.hasNext();) {
+            const QRegularExpressionMatch m = it.next();
+            const int from = columns.value(m.capturedStart(), -1), to = columns.value(m.capturedEnd() - 1, -1) + 1;
+            if (from < 0 || cell.x() < from || cell.x() >= to)
+                continue;
+            const QString path = resolveLink(m.captured(1), cell.y());
+            if (path.isEmpty())
+                return {};
+            Link link;
+            link.line = cell.y();
+            link.start = from;
+            link.end = to;
+            link.path = path;
+            link.row = m.captured(2).toInt();
+            link.column = re == &location ? m.captured(3).toInt() : 0;
+            return link;
+        }
+    }
+    return {};
+}
+
+QString TerminalView::resolveLink(const QString &raw, int line) const
+{
+    QString path = raw;
+    if (path.startsWith(QLatin1String("~/")))
+        path = QDir::homePath() + path.mid(1);
+    if (QFileInfo(path).isAbsolute())
+        return QFileInfo(path).isFile() ? QDir::cleanPath(path) : QString();
+    QStringList folders;
+    // make -C dir / recursive make: the nearest "Entering directory" line above says where the compiler ran.
+    static const QRegularExpression entering(QStringLiteral("Entering directory [`'\"](.+)['\"]"));
+    for (int l = line; l >= 0 && l > line - 2000; --l) {
+        const QString text = lineText(l);
+        if (text.contains(QLatin1String("Leaving directory")) && l != line)
+            break;
+        const QRegularExpressionMatch m = entering.match(text);
+        if (m.hasMatch()) {
+            folders << m.captured(1);
+            break;
+        }
+    }
+    if (m_linkFolders)
+        folders += m_linkFolders();
+    for (const QString &dir : std::as_const(folders)) {
+        const QFileInfo fi(QDir(dir).filePath(path));
+        if (fi.isFile())
+            return QDir::cleanPath(fi.absoluteFilePath());
+    }
+    return {};
+}
+
+void TerminalView::setHoveredLink(const Link &link, bool ctrl)
+{
+    viewport()->setCursor(link.line >= 0 && ctrl ? Qt::PointingHandCursor : Qt::IBeamCursor);
+    if (link == m_link)
+        return;
+    m_link = link;
+    viewport()->setToolTip(link.line >= 0 ? tr("Ctrl+click to open %1:%2").arg(QFileInfo(link.path).fileName()).arg(link.row) : QString());
+    viewport()->update();
+}
+
+void TerminalView::leaveEvent(QEvent *e)
+{
+    setHoveredLink({}, false);
+    QAbstractScrollArea::leaveEvent(e);
+}
+
+void TerminalView::keyReleaseEvent(QKeyEvent *e)
+{
+    if (e->key() == Qt::Key_Control && m_link.line >= 0)
+        viewport()->setCursor(Qt::IBeamCursor);
+    QAbstractScrollArea::keyReleaseEvent(e);
 }
 
 // --- Keyboard ----------------------------------------------------------------
@@ -523,6 +643,8 @@ void TerminalView::keyPressEvent(QKeyEvent *e)
 {
     const Qt::KeyboardModifiers m = e->modifiers();
     const int key = e->key();
+    if (key == Qt::Key_Control && m_link.line >= 0)
+        viewport()->setCursor(Qt::PointingHandCursor);
 
     // Clipboard
     if ((m == (Qt::ControlModifier | Qt::ShiftModifier) && key == Qt::Key_C) ||

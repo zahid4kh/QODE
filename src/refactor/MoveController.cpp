@@ -1,4 +1,5 @@
 #include "MoveController.h"
+#include "history/LocalHistory.h"
 
 #include "editor/CodeEditor.h"
 #include "editor/Document.h"
@@ -125,8 +126,10 @@ bool MoveController::applyEdits(const QString &path, const QVector<MoveRefactor:
             record->backward = MoveRefactor::inverse(before, edits);
             record->afterHash = qHash(doc->text());
         }
-        if (!wasModified)
+        if (!wasModified) {
+            const LocalHistory::Reason reason(LocalHistory::Kind::Refactor);
             m_editors->saveQuietly(doc);
+        }
     } else {
         QString before;
         bool bom = false;
@@ -162,6 +165,7 @@ void MoveController::execute(const QVector<PathMove> &moves, const MoveRefactor:
             return;
         }
         done.append(m);
+        LocalHistory::pathMoved(m.from, m.to);
         m_explorer->notifyMoved(m.from, m.to); // open tabs, previews ... follow
     }
 
@@ -171,11 +175,15 @@ void MoveController::execute(const QVector<PathMove> &moves, const MoveRefactor:
     batch.targetDir = targetDir;
     batch.renamed = m_renaming;
     int skipped = 0, references = 0;
+    QStringList onDisk;
     for (const MoveRefactor::FileChange &c : plan.changes) {
         Changed rec;
+        const bool open = m_editors->documentForPath(c.path);
         if (applyEdits(c.path, c.edits, c.baseHash, &rec, c.references)) {
             batch.changed.append(rec);
             references += c.references;
+            if (!open)
+                onDisk << c.path;
         } else {
             ++skipped;
         }
@@ -183,6 +191,10 @@ void MoveController::execute(const QVector<PathMove> &moves, const MoveRefactor:
     m_last = batch;
     m_hasLast = true;
     m_busy = false;
+    QList<QPair<QString, QString>> movedPairs;
+    for (const PathMove &m : moves)
+        movedPairs.append({m.from, m.to});
+    emit filesMoved(movedPairs, onDisk);
 
     // 3. tell the person
     ProjectExplorer::Notice n;
@@ -234,22 +246,31 @@ void MoveController::undo()
     const Batch b = m_last;
     m_hasLast = false;
     int skipped = 0;
+    QStringList onDisk;
     for (int i = b.changed.size() - 1; i >= 0; --i) {
         const Changed &c = b.changed.at(i);
+        const bool open = m_editors->documentForPath(c.path);
         if (!applyEdits(c.path, c.backward, c.afterHash, nullptr, 0))
             ++skipped;
+        else if (!open)
+            onDisk << c.path;
     }
     QStringList back;
+    QList<QPair<QString, QString>> movedPairs;
     for (int i = b.moves.size() - 1; i >= 0; --i) {
         const PathMove &m = b.moves.at(i);
         if (QFileInfo::exists(m.from) || !QFile::rename(m.to, m.from)) {
+            emit filesMoved(movedPairs, onDisk);
             fail(tr("Couldn't put “%1” back.").arg(QFileInfo(m.to).fileName()));
             return;
         }
+        LocalHistory::pathMoved(m.to, m.from);
         m_explorer->notifyMoved(m.to, m.from);
         back << m.from;
+        movedPairs.append({m.to, m.from});
     }
     m_busy = false;
+    emit filesMoved(movedPairs, onDisk);
     ProjectExplorer::Notice n;
     n.text = b.renamed ? tr("Rename undone") : tr("Move undone");
     if (skipped > 0) {

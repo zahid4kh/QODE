@@ -9,6 +9,9 @@ class Island : public QWidget
     Q_OBJECT
 public:
     explicit Island(QWidget *content, QWidget *parent = nullptr);
+    // The content can come later (null above): a widget built inside its island is not moved under a new parent
+    // afterwards, which costs a style / font / palette pass over its whole subtree (see MainWindow's constructor).
+    void setContent(QWidget *content);
 
     // While sliding, the island may be narrower than its content's minimum: the content keeps `fullWidth`,
     // anchored to the right edge, and is clipped. Ending restores the normal layout.

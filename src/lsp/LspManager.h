@@ -36,6 +36,8 @@ public:
         int documents = 0; // open files this server handles
         bool syncing = false; // a build-file sync (Gradle / Maven re-import) is running
         QString progress;  // what the server reports it is busy with ("Importing Gradle project 40%"), or empty
+        int percent = -1;  // of that operation, -1 when the server gives none
+        QStringList operations; // every running operation, newest first
         bool installable = false; // QODE can download it (LspInstaller)
         bool companion = false;   // ESLint / Tailwind: runs next to a file's main server
     };
@@ -54,6 +56,11 @@ public:
     void documentSaved(Document *doc);
     void documentPathChanged(Document *doc);
     void buildFileSaved(const QString &path); // .pro / .pri saved; Gradle / Maven files re-sync the JVM servers
+    // Files or folders were moved or renamed on disk (`moves`: from -> to), and `rewritten` closed files had their imports
+    // updated on disk. Servers that registered for it get workspace/didRenameFiles, and every running server hears the
+    // old paths are gone, the new ones exist and the rewritten files changed (workspace/didChangeWatchedFiles). QODE
+    // updates the imports itself, so willRenameFiles (where the server would edit them) is not used.
+    void filesMoved(const QList<QPair<QString, QString>> &moves, const QStringList &rewritten);
     // Tells the Java and Kotlin servers that the build files changed so they re-import the project (Gradle / Maven). With
     // `manual` the files are announced even when unchanged and a server that shows no sign of syncing is restarted.
     // Returns false when no JVM server is running (nothing to sync).
@@ -68,7 +75,9 @@ public:
     QString serverPath(const QString &serverId) const; // configured override, "" = search PATH
     void setServerPath(const QString &serverId, const QString &path);
     void restart(const QString &serverId);
+    // The server's stderr and QODE's timing lines; after a crash, the log of the process that died.
     QStringList logOf(const QString &serverId) const;
+    QString serverIdFor(Document *doc) const; // the document's main server, "" when none
     bool hasCompileDatabase() const;
     // Flags worked out from the project's own build files (a qmake .pro); `source` gets the file name. Empty
     // when the project has a compile database or no recognised build file.
@@ -94,10 +103,15 @@ public:
     void definition(Document *doc, int line, int column, std::function<void(const QVector<LspLocation> &)> done,
                     Navigate what = Navigate::Definition);
     bool supportsNavigation(Document *doc, Navigate what) const;
+    // clangd's textDocument/switchSourceHeader: the header of a source file or the source of a header, from its index (finds
+    // pairs whose names or folders differ); "" when the file is not served by clangd or it knows none.
+    void switchSourceHeader(Document *doc, std::function<void(const QString &path)> done);
     // workspace/symbol: declarations anywhere in the project whose name matches `query`, asked of the document's server.
     bool supportsWorkspaceSymbols(Document *doc) const;
     void workspaceSymbols(Document *doc, const QString &query, std::function<void(const QVector<LspWorkspaceSymbol> &, bool ok)> done);
 
+    // Links in the document (textDocument/documentLink), merged from every server that provides them.
+    void documentLinks(Document *doc, std::function<void(const QVector<LspDocumentLink> &)> done);
     // Colour literals of the document (CSS colours, Tailwind classes), merged from every server that provides them.
     void documentColors(Document *doc, std::function<void(const QVector<LspColor> &)> done);
     // The spellings the server offers for a colour picked by the user ("#ff0000", "rgb(255, 0, 0)", ...).
@@ -174,6 +188,21 @@ public:
     bool supportsCallHierarchy(Document *doc) const;
     void prepareCallHierarchy(Document *doc, int line, int column, std::function<void(const QVector<LspCallItem> &)> done);
     void callHierarchyCalls(const LspCallItem &item, bool incoming, std::function<void(const QVector<LspCallItem> &, bool ok)> done);
+    // Type hierarchy: prepare gives the type(s) under the caret, then the supertypes or subtypes of one.
+    bool supportsTypeHierarchy(Document *doc) const;
+    void prepareTypeHierarchy(Document *doc, int line, int column, std::function<void(const QVector<LspCallItem> &)> done);
+    void typeHierarchy(const LspCallItem &item, bool supertypes, std::function<void(const QVector<LspCallItem> &, bool ok)> done);
+    // Code lenses of the document's main server; ok is false when the request failed (keep what is shown). Lenses
+    // without a command are completed one by one with resolveCodeLens (the lens comes back unchanged when that fails).
+    bool supportsCodeLens(Document *doc) const;
+    void codeLenses(Document *doc, std::function<void(const QVector<LspCodeLens> &, bool ok)> done);
+    void resolveCodeLens(const LspCodeLens &lens, std::function<void(const LspCodeLens &)> done);
+    // workspace/executeCommand on one server; hasCommand says whether it lists the command (executeCommandProvider).
+    bool hasCommand(const QString &serverId, const QString &command) const;
+    void executeCommand(const QString &serverId, const QString &command, const QJsonArray &arguments,
+                        std::function<void(bool ok, const QString &error)> done);
+    // Location / LocationLink, or an array of them, as places in files.
+    static QVector<LspLocation> locationsOf(const QJsonValue &value);
     // textDocument/formatting, waited for with a local event loop (save must stay synchronous). False when no running
     // server formats this document, it timed out or failed; *edits may be empty when the text is already formatted.
     bool formatting(Document *doc, int tabSize, bool spaces, int timeoutMs, QVector<LspTextEdit> *edits);
@@ -184,14 +213,23 @@ public:
 
     QVector<LspDiagnostic> diagnostics(const QString &path) const { return m_diagnostics.value(path); }
     int diagnosticCount(int severity) const;
+    // For a check right after an edit (the QODE chat): whether a server is meant to handle the file (it may still be
+    // starting or be missing), and the pending changes sent at once. syncNow returns the document version the servers now
+    // have, -1 when no server holds it. diagnosticsVersion is the newest version the file's main server reported
+    // diagnostics for (a report counts even when nothing changed; -1 = none yet), so diagnosticsVersion >= syncNow means
+    // the diagnostics describe the current text.
+    bool tracks(Document *doc) const { return m_tracked.contains(doc); }
+    int syncNow(Document *doc);
+    int diagnosticsVersion(Document *doc) const;
 
 signals:
     void statusChanged();
     void inlayHintsRefresh();   // a server wants its hints fetched again (workspace/inlayHint/refresh, new settings)
-    void semanticTokensRefresh(); // workspace/semanticTokens/refresh or workspace/foldingRange/refresh: ask again
+    void serverDataRefresh(); // workspace/semanticTokens|foldingRange|codeLens/refresh: ask for the file-wide data again
     void renameRequested(const QString &path, int line, int column); // "Extract to function" asks for a rename of the new name
     void buildSyncFinished(const QString &serverName); // the re-import ended
     void diagnosticsChanged(const QString &path);
+    void diagnosticsReported(const QString &path); // also when they did not change (see diagnosticsVersion)
 
 private:
     struct Server {
@@ -202,7 +240,13 @@ private:
         int refreshGen = 0;       // debounces workspace/diagnostic/refresh bursts
         int syncGen = 0;          // invalidates the pending "did anything start?" check
         bool syncSawProgress = false;
-        QHash<QString, QStringList> progress; // $/progress token -> {title, text shown} of the running operations
+        struct Progress {
+            QString title, text; // text: what is shown ("Importing Gradle project — app 40%")
+            int percent = -1;
+            quint64 order = 0;   // when it last changed: the newest is shown
+        };
+        QHash<QString, Progress> progress; // $/progress token (jdtls: report id) -> running operation
+        QStringList lastLog;               // the log of the process that stopped (Show Server Log after a crash)
     };
     struct Tracked {
         QString uri, path, serverId; // serverId: the file's main server
@@ -211,6 +255,11 @@ private:
         int version = 0;
         bool dirty = false;
         bool pullDue = false;
+        int reported = -1; // newest version the main server reported diagnostics for
+        QString sent; // the text every server holding the document has: didChange sends only what differs from it
+        // The main server's last semantic tokens (raw numbers) and their resultId: the next request asks for a delta.
+        QString tokensResultId;
+        QVector<quint32> tokensData;
         bool opened() const { return openOn.contains(serverId); }
         QStringList servers() const { return QStringList{serverId} + companions; }
     };
@@ -222,6 +271,8 @@ private:
     void onServerReady(const QString &id);
     void onServerStopped(const QString &id, bool crashed);
     void progressChanged(Server &s);
+    void updateProgressState(Server &s); // ServerState::progress / percent / operations from Server::progress
+    quint64 m_progressOrder = 0;
     void scheduleStatusChanged();
     bool m_statusPending = false;
     QStringList jvmBuildFiles() const;
@@ -232,11 +283,13 @@ private:
     // Every running server holding the document, main server first.
     QList<LspClient *> readyClientsFor(Document *doc, QString *uri);
     void flushChanges(bool pull = true);
+    void flushDocument(Document *doc, Tracked &t, bool pull);
     void setStatus(Server &s, Status status, const QString &detail = {});
     QString rootFor(const QString &filePath) const;
     LspClient *readyClientFor(Document *doc, QString *uri);
     void clearDiagnosticsFor(const QString &path, const QString &serverId = {}); // empty id = every server
     void setDiagnosticsFor(const QString &path, const QJsonArray &list, const QString &serverId);
+    void noteReported(const QString &path, const QString &serverId, int version); // version -1 = the current one
     void publishMerged(const QString &path);
     void pullDiagnostics(Document *doc); // servers with diagnosticProvider (Kotlin) are asked instead of pushing
 

@@ -48,9 +48,15 @@ Island::Island(QWidget *content, QWidget *parent)
     setAttribute(Qt::WA_StyledBackground);
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(content);
-    m_content = content;
     m_overlay = new Overlay(this);
+    if (content)
+        setContent(content);
+}
+
+void Island::setContent(QWidget *content)
+{
+    layout()->addWidget(content);
+    m_content = content;
     m_overlay->raise();
 }
 

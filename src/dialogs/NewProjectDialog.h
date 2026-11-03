@@ -13,6 +13,7 @@ class QLabel;
 class QLineEdit;
 class QListWidget;
 class QPushButton;
+class QToolButton;
 
 // File > New Project: a template list on the left (Empty Project first), the project's name, location and the selected
 // template's own options on the right.
@@ -44,6 +45,7 @@ private:
 
     QListWidget *m_list;
     QLabel *m_title;
+    QToolButton *m_info;
     QLabel *m_description;
     QFormLayout *m_form;
     QLineEdit *m_name;

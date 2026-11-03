@@ -1,8 +1,11 @@
 #pragma once
 
+#include "terminal/Terminal.h"
+
 #include <QHash>
 #include <QPointer>
 #include <QStringList>
+#include <QVector>
 #include <QWidget>
 
 #include <functional>
@@ -44,11 +47,23 @@ public:
     void clear();
     void focusTerminal();
     int sessionCount() const;
+    // Every pane with its tab's title, the current one marked (the chat's terminal_output).
+    struct Pane {
+        QString tab;
+        Terminal *terminal = nullptr;
+        bool current = false;
+    };
+    QVector<Pane> panes() const;
 
 signals:
     void hideRequested();
     void maximizeToggled(bool maximized);
     void tabsChanged(const QStringList &names);
+    void openFileRequested(const QString &path, int line, int column); // Ctrl+click on a file location in a pane's output
+    // Compiler errors / warnings printed in a pane (`source`), and their end when it starts a new command or closes.
+    void problemsFound(QObject *source, const QList<BuildProblem> &problems);
+    void problemsCleared(QObject *source);
+    void fixRequested(const FailedCommand &failure); // a pane's "Fix with QODE"
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;

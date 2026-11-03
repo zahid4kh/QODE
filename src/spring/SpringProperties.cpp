@@ -151,13 +151,49 @@ const Key kKeys[] = {
     {"trace", "boolean", "true|false"},
 };
 
+// Ktor's own keys (application.yaml / .conf of a Ktor server).
+const Key kKtorKeys[] = {
+    {"ktor.deployment.port", "int, 8080 — \"$PORT:8080\" reads the environment", ""},
+    {"ktor.deployment.sslPort", "int — HTTPS port (needs ktor.security.ssl)", ""},
+    {"ktor.deployment.host", "0.0.0.0", ""},
+    {"ktor.deployment.watch", "List — class path parts reloaded in development mode", ""},
+    {"ktor.deployment.rootPath", "String — path prefix of every route", ""},
+    {"ktor.deployment.shutdown.url", "String — a URL that stops the server", ""},
+    {"ktor.deployment.shutdownGracePeriod", "ms, 1000", ""},
+    {"ktor.deployment.shutdownTimeout", "ms, 5000", ""},
+    {"ktor.deployment.connectionGroupSize", "int — Netty acceptor threads", ""},
+    {"ktor.deployment.workerGroupSize", "int — Netty I/O threads", ""},
+    {"ktor.deployment.callGroupSize", "int — threads running the handlers", ""},
+    {"ktor.deployment.requestQueueLimit", "int, 16", ""},
+    {"ktor.deployment.runningLimit", "int, 32", ""},
+    {"ktor.deployment.shareWorkGroup", "boolean, false", "true|false"},
+    {"ktor.deployment.responseWriteTimeoutSeconds", "int, 10", ""},
+    {"ktor.deployment.requestReadTimeoutSeconds", "int, 0 (none)", ""},
+    {"ktor.deployment.tcpKeepAlive", "boolean, false", "true|false"},
+    {"ktor.deployment.maxInitialLineLength", "int, 4096", ""},
+    {"ktor.deployment.maxHeaderSize", "int, 8192", ""},
+    {"ktor.deployment.maxChunkSize", "int, 8192", ""},
+    {"ktor.application.modules", "List — fully qualified module functions (com.example.ApplicationKt.module)", ""},
+    {"ktor.development", "boolean, false — detailed errors, auto-reload", "true|false"},
+    {"ktor.security.ssl.keyStore", "path of the key store", ""},
+    {"ktor.security.ssl.keyAlias", "String", ""},
+    {"ktor.security.ssl.keyStorePassword", "String", ""},
+    {"ktor.security.ssl.privateKeyPassword", "String", ""},
+    {"jwt.secret", "String — read with environment.config.property(\"jwt.secret\")", ""},
+    {"jwt.issuer", "String", ""},
+    {"jwt.audience", "String", ""},
+    {"jwt.realm", "String", ""},
+    {"jwt.domain", "String", ""},
+};
+
 struct Index
 {
     QMap<QString, Key> flat;               // dotted key -> data
     QMap<QString, QSet<QString>> children; // parent path ("" = root) -> segments
-    Index()
+    template <size_t N>
+    explicit Index(const Key (&keys)[N])
     {
-        for (const Key &k : kKeys) {
+        for (const Key &k : keys) {
             const QString full = QString::fromLatin1(k.name);
             flat.insert(full, k);
             const QStringList parts = full.split(QLatin1Char('.'));
@@ -170,16 +206,16 @@ struct Index
     }
 };
 
-const Index &index()
+const Index &index(bool ktor)
 {
-    static const Index idx;
-    return idx;
+    static const Index spring(kKeys);
+    static const Index ktorIndex(kKtorKeys);
+    return ktor ? ktorIndex : spring;
 }
 
-QList<SpringProperties::Entry> childrenOf(const QString &parent, const QString &partial)
+QList<SpringProperties::Entry> childrenOf(const Index &idx, const QString &parent, const QString &partial)
 {
     QList<SpringProperties::Entry> out;
-    const Index &idx = index();
     const auto it = idx.children.constFind(parent);
     if (it == idx.children.constEnd())
         return out;
@@ -193,7 +229,7 @@ QList<SpringProperties::Entry> childrenOf(const QString &parent, const QString &
         e.label = n.mid(partial.size());
         e.group = idx.children.contains(full);
         const auto k = idx.flat.constFind(full);
-        e.detail = k != idx.flat.constEnd() ? QString::fromLatin1(k->detail) : QStringLiteral("…");
+        e.detail = k != idx.flat.constEnd() ? QString::fromUtf8(k->detail) : QStringLiteral("…");
         if (e.label.isEmpty())
             continue;
         out << e;
@@ -201,11 +237,11 @@ QList<SpringProperties::Entry> childrenOf(const QString &parent, const QString &
     return out;
 }
 
-QList<SpringProperties::Entry> valuesOf(const QString &key)
+QList<SpringProperties::Entry> valuesOf(const Index &idx, const QString &key)
 {
     QList<SpringProperties::Entry> out;
-    const auto it = index().flat.constFind(key);
-    if (it == index().flat.constEnd() || !*it->values)
+    const auto it = idx.flat.constFind(key);
+    if (it == idx.flat.constEnd() || !*it->values)
         return out;
     for (const QString &v : QString::fromLatin1(it->values).split(QLatin1Char('|')))
         out << SpringProperties::Entry{v, QStringLiteral("value"), false};
@@ -295,8 +331,9 @@ QStringList yamlParents(const QStringList &linesAbove, int indent)
     return path;
 }
 
-QList<Entry> complete(const QString &beforeWord, bool yaml, const QStringList &parents)
+QList<Entry> complete(const QString &beforeWord, bool yaml, const QStringList &parents, bool ktor)
 {
+    const Index &idx = index(ktor);
     static const QRegularExpression propKey(QStringLiteral(R"(^\s*([\w.\-\[\]]*)$)"));
     static const QRegularExpression propValue(QStringLiteral(R"(^\s*([\w.\-\[\]]+)\s*[=:]\s*[\w.\-,*]*$)"));
     static const QRegularExpression yamlKey(QStringLiteral(R"(^\s*([\w.\-]*)$)"));
@@ -306,7 +343,7 @@ QList<Entry> complete(const QString &beforeWord, bool yaml, const QStringList &p
         QRegularExpressionMatch m = yamlValue.match(beforeWord);
         if (m.hasMatch()) {
             QString key = (parents + QStringList{m.captured(1)}).join(QLatin1Char('.'));
-            QList<Entry> v = valuesOf(key);
+            QList<Entry> v = valuesOf(idx, key);
             const int cut = beforeWord.size() - beforeWord.lastIndexOf(QRegularExpression(QStringLiteral(R"([\s:])"))) - 1;
             for (Entry &e : v)
                 if (cut > 0 && e.label.startsWith(beforeWord.right(cut)))
@@ -318,12 +355,12 @@ QList<Entry> complete(const QString &beforeWord, bool yaml, const QStringList &p
             return {};
         // "max-" : the editor's word starts after the hyphen, so only the rest of the segment is offered.
         const QString partial = m.captured(1);
-        return childrenOf(parents.join(QLatin1Char('.')), partial);
+        return childrenOf(idx, parents.join(QLatin1Char('.')), partial);
     }
 
     QRegularExpressionMatch m = propValue.match(beforeWord);
     if (m.hasMatch()) {
-        QList<Entry> v = valuesOf(m.captured(1));
+        QList<Entry> v = valuesOf(idx, m.captured(1));
         const QString tail = beforeWord.mid(beforeWord.lastIndexOf(QRegularExpression(QStringLiteral(R"([=:\s])"))) + 1);
         for (Entry &e : v)
             if (!tail.isEmpty() && e.label.startsWith(tail))
@@ -337,7 +374,7 @@ QList<Entry> complete(const QString &beforeWord, bool yaml, const QStringList &p
     const int dot = key.lastIndexOf(QLatin1Char('.'));
     const QString parent = dot < 0 ? QString() : key.left(dot);
     const QString partial = key.mid(dot + 1);
-    return childrenOf(parent, partial);
+    return childrenOf(idx, parent, partial);
 }
 
 } // namespace SpringProperties

@@ -1,5 +1,8 @@
 #include "spring/HttpClientView.h"
 
+#include "http/HttpResponseView.h"
+#include "http/HttpRunner.h"
+#include "http/HttpUi.h"
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 
@@ -17,168 +20,24 @@
 #include <QListWidget>
 #include <QMenu>
 #include <QNetworkReply>
-#include <QNetworkRequest>
-#include <QPainter>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSplitter>
 #include <QStackedWidget>
-#include <QStyledItemDelegate>
-#include <QSyntaxHighlighter>
 #include <QToolButton>
 #include <QUrl>
 #include <QVBoxLayout>
 
 namespace {
 
-enum Role { MethodRole = Qt::UserRole + 1, DetailRole, StatusRole, PayloadRole, EndpointRole, HeaderRole };
+using namespace HttpUi;
 
 constexpr int kMaxHistory = 80;
 
-// Colours JSON (also fine for plain text: nothing matches).
-class JsonHighlighter : public QSyntaxHighlighter
-{
-public:
-    explicit JsonHighlighter(QTextDocument *doc) : QSyntaxHighlighter(doc) {}
-    void setTheme(const Theme &t)
-    {
-        m_key = t.property;
-        m_string = t.string;
-        m_number = t.number;
-        m_literal = t.keyword;
-        rehighlight();
-    }
-
-protected:
-    void highlightBlock(const QString &text) override
-    {
-        static const QRegularExpression number(QStringLiteral(R"(-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)"));
-        static const QRegularExpression literal(QStringLiteral(R"(\b(?:true|false|null)\b)"));
-        static const QRegularExpression string(QStringLiteral(R"("(?:[^"\\]|\\.)*"(\s*:)?)"));
-        auto paint = [&](const QRegularExpression &re, const QColor &c) {
-            auto it = re.globalMatch(text);
-            while (it.hasNext()) {
-                const auto m = it.next();
-                setFormat(m.capturedStart(), m.capturedLength(), c);
-            }
-        };
-        paint(number, m_number);
-        paint(literal, m_literal);
-        auto it = string.globalMatch(text);
-        while (it.hasNext()) {
-            const auto m = it.next();
-            setFormat(m.capturedStart(), m.capturedLength(), m.capturedStart(1) >= 0 ? m_key : m_string);
-        }
-    }
-
-private:
-    QColor m_key, m_string, m_number, m_literal;
-};
-
-// Rows of the endpoint / history / saved lists: coloured method, text, muted detail on the right.
-class RowDelegate : public QStyledItemDelegate
-{
-public:
-    RowDelegate(const Theme *theme, QObject *parent) : QStyledItemDelegate(parent), m_theme(theme) {}
-
-    QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &index) const override
-    {
-        return QSize(0, index.data(HeaderRole).toBool() ? 24 : 26);
-    }
-
-    void paint(QPainter *p, const QStyleOptionViewItem &opt, const QModelIndex &index) const override
-    {
-        const Theme &t = *m_theme;
-        p->save();
-        const QRect r = opt.rect;
-        if (index.data(HeaderRole).toBool()) {
-            QFont f = opt.font;
-            f.setBold(true);
-            f.setPointSizeF(qMax(7.0, f.pointSizeF() - 1));
-            p->setFont(f);
-            p->setPen(t.textMuted);
-            p->drawText(r.adjusted(8, 4, -6, 0), Qt::AlignLeft | Qt::AlignVCenter, index.data().toString().toUpper());
-            p->restore();
-            return;
-        }
-        if (opt.state & QStyle::State_Selected)
-            p->fillRect(r, t.selection);
-        else if (opt.state & QStyle::State_MouseOver)
-            p->fillRect(r, t.currentLine);
-
-        int x = r.left() + 8;
-        const QString method = index.data(MethodRole).toString();
-        if (!method.isEmpty()) {
-            QFont f = opt.font;
-            f.setBold(true);
-            f.setPointSizeF(qMax(7.0, f.pointSizeF() - 1.5));
-            p->setFont(f);
-            p->setPen(methodColour(method));
-            const int w = QFontMetrics(f).horizontalAdvance(QStringLiteral("DELETE")) + 8;
-            p->drawText(QRect(x, r.top(), w, r.height()), Qt::AlignLeft | Qt::AlignVCenter, method);
-            x += w;
-        }
-        p->setFont(opt.font);
-        const QString detail = index.data(DetailRole).toString();
-        int right = r.right() - 8;
-        if (!detail.isEmpty()) {
-            const int status = index.data(StatusRole).toInt();
-            QFont f = opt.font;
-            f.setPointSizeF(qMax(7.0, f.pointSizeF() - 1));
-            p->setFont(f);
-            const QFontMetrics fm(f);
-            const int w = qMin(fm.horizontalAdvance(detail) + 6, r.width() / 3);
-            p->setPen(status >= 200 && status < 300 ? t.success : status >= 300 && status < 400 ? t.warning : status >= 400 ? t.danger : t.textMuted);
-            p->drawText(QRect(right - w, r.top(), w, r.height()), Qt::AlignRight | Qt::AlignVCenter, fm.elidedText(detail, Qt::ElideRight, w));
-            right -= w + 8;
-            p->setFont(opt.font);
-        }
-        p->setPen(t.editorFg);
-        const QString text = index.data().toString();
-        p->drawText(QRect(x, r.top(), qMax(0, right - x), r.height()), Qt::AlignLeft | Qt::AlignVCenter,
-                    QFontMetrics(opt.font).elidedText(text, Qt::ElideMiddle, qMax(0, right - x)));
-        p->restore();
-    }
-
-private:
-    QColor methodColour(const QString &m) const
-    {
-        const Theme &t = *m_theme;
-        if (m == QLatin1String("GET"))
-            return t.success;
-        if (m == QLatin1String("POST"))
-            return t.accent;
-        if (m == QLatin1String("PUT"))
-            return t.warning;
-        if (m == QLatin1String("PATCH"))
-            return t.type;
-        if (m == QLatin1String("DELETE"))
-            return t.danger;
-        return t.textMuted;
-    }
-    const Theme *m_theme;
-};
-
-QString sizeText(qint64 b)
-{
-    if (b < 1024)
-        return QStringLiteral("%1 B").arg(b);
-    if (b < 1024 * 1024)
-        return QStringLiteral("%1 KB").arg(b / 1024.0, 0, 'f', 1);
-    return QStringLiteral("%1 MB").arg(b / 1048576.0, 0, 'f', 1);
-}
-
-QString shellQuote(const QString &s)
-{
-    QString q = s;
-    q.replace(QLatin1Char('\''), QStringLiteral("'\\''"));
-    return QLatin1Char('\'') + q + QLatin1Char('\'');
-}
-
 } // namespace
 
-HttpClientView::HttpClientView(QWidget *parent) : QWidget(parent)
+HttpClientView::HttpClientView(QWidget *parent) : QWidget(parent), m_runner(new HttpRunner(this))
 {
     m_theme = Theme::byName(SettingsManager::instance().theme());
 
@@ -219,7 +78,7 @@ HttpClientView::HttpClientView(QWidget *parent) : QWidget(parent)
     m_items->setFrameShape(QFrame::NoFrame);
     m_items->setMouseTracking(true);
     m_items->setContextMenuPolicy(Qt::CustomContextMenu);
-    m_items->setItemDelegate(new RowDelegate(&m_theme, m_items));
+    m_items->setItemDelegate(new HttpRowDelegate(&m_theme, m_items));
     m_items->setUniformItemSizes(false);
 
     auto *listBox = new QWidget(this);
@@ -267,7 +126,7 @@ HttpClientView::HttpClientView(QWidget *parent) : QWidget(parent)
     m_body = new QPlainTextEdit(this);
     m_body->setPlaceholderText(tr("Request body (JSON)"));
     m_body->setFrameShape(QFrame::NoFrame);
-    m_bodyColours = new JsonHighlighter(m_body->document());
+    m_bodyColours = new HttpJsonHighlighter(m_body->document());
     m_reqStack = new QStackedWidget(this);
     m_reqStack->addWidget(m_headers);
     m_reqStack->addWidget(m_body);
@@ -302,44 +161,13 @@ HttpClientView::HttpClientView(QWidget *parent) : QWidget(parent)
     rl->addWidget(m_reqStack, 1);
 
     // --- Response
-    m_status = new QLabel(this);
-    m_status->setTextFormat(Qt::RichText);
-    m_status->setWordWrap(true);
-    m_status->setOpenExternalLinks(false);
-    m_status->setTextInteractionFlags(Qt::TextBrowserInteraction);
-    auto *respTabsRow = segments({tr("Body"), tr("Headers")}, m_respTabs);
-    m_copyResponse = tool(tr("Copy the response"));
-    Icons::bind(m_copyResponse, QStringLiteral(":/new-icons/copy.svg"));
-    m_response = new QPlainTextEdit(this);
-    m_response->setReadOnly(true);
-    m_response->setLineWrapMode(QPlainTextEdit::NoWrap);
-    m_response->setFrameShape(QFrame::NoFrame);
-    m_response->setPlaceholderText(tr("Send a request to see the response."));
-    m_responseColours = new JsonHighlighter(m_response->document());
-
-    auto *respBox = new QWidget(this);
-    auto *pl = new QVBoxLayout(respBox);
-    pl->setContentsMargins(0, 0, 0, 0);
-    pl->setSpacing(0);
-    auto *statusWrap = new QWidget(respBox);
-    auto *sw = new QHBoxLayout(statusWrap);
-    sw->setContentsMargins(10, 6, 8, 2);
-    sw->addWidget(m_status);
-    auto *respHead = new QWidget(respBox);
-    auto *ph = new QHBoxLayout(respHead);
-    ph->setContentsMargins(8, 0, 6, 0);
-    ph->addWidget(respTabsRow);
-    ph->addStretch(1);
-    ph->addWidget(m_copyResponse);
-    pl->addWidget(statusWrap);
-    pl->addWidget(respHead);
-    pl->addWidget(m_response, 1);
+    m_response = new HttpResponseView(this);
 
     auto *split = new QSplitter(Qt::Vertical, this);
     split->setChildrenCollapsible(false);
     split->addWidget(listBox);
     split->addWidget(reqBox);
-    split->addWidget(respBox);
+    split->addWidget(m_response);
     split->setSizes({260, 230, 260});
     split->setStretchFactor(0, 1);
     split->setStretchFactor(1, 1);
@@ -351,7 +179,6 @@ HttpClientView::HttpClientView(QWidget *parent) : QWidget(parent)
     // --- Wiring
     connect(m_listTabs, &QButtonGroup::idClicked, this, &HttpClientView::showList);
     connect(m_reqTabs, &QButtonGroup::idClicked, m_reqStack, &QStackedWidget::setCurrentIndex);
-    connect(m_respTabs, &QButtonGroup::idClicked, this, &HttpClientView::showResponseTab);
     connect(m_filter, &QLineEdit::textChanged, this, &HttpClientView::populate);
     connect(m_listAction, &QToolButton::clicked, this, [this] {
         if (m_list == 0) {
@@ -382,8 +209,8 @@ HttpClientView::HttpClientView(QWidget *parent) : QWidget(parent)
     connect(formatBtn, &QToolButton::clicked, this, &HttpClientView::formatBody);
     connect(curlBtn, &QToolButton::clicked, this, &HttpClientView::copyCurl);
     connect(saveBtn, &QToolButton::clicked, this, &HttpClientView::saveCurrent);
-    connect(m_copyResponse, &QToolButton::clicked, this, [this] { QApplication::clipboard()->setText(m_response->toPlainText()); });
-    connect(m_status, &QLabel::linkActivated, this, [this](const QString &link) {
+    connect(m_response, &HttpResponseView::openTextRequested, this, &HttpClientView::openTextRequested);
+    connect(m_response, &HttpResponseView::linkActivated, this, [this](const QString &link) {
         if (link == QLatin1String("start"))
             emit startRequested();
     });
@@ -397,20 +224,12 @@ HttpClientView::HttpClientView(QWidget *parent) : QWidget(parent)
 void HttpClientView::applyTheme()
 {
     m_theme = Theme::byName(SettingsManager::instance().theme());
-    const Theme &t = m_theme;
-    setStyleSheet(QStringLiteral("QPlainTextEdit, QListWidget { background: %1; color: %2; selection-background-color: %3; }"
-                                 "QPlainTextEdit { padding: 4px; border-top: 1px solid %4; }"
-                                 "QListWidget { border-top: 1px solid %4; outline: none; }"
-                                 "QToolButton[seg=\"true\"] { background: transparent; border: none; border-bottom: 2px solid transparent; padding: 4px 9px; color: %5; }"
-                                 "QToolButton[seg=\"true\"]:checked { background: transparent; color: %6; border-bottom: 2px solid %6; }"
-                                 "QToolButton[seg=\"true\"]:hover:!checked { color: %2; }")
-                      .arg(t.editorBg.name(), t.editorFg.name(), t.selection.name(), t.border.name(), t.textMuted.name(), t.accent.name()));
-    QFont f = SettingsManager::instance().editorFont();
-    for (QPlainTextEdit *e : {m_headers, m_body, m_response})
+    setStyleSheet(HttpUi::styleSheet(m_theme));
+    const QFont f = SettingsManager::instance().editorFont();
+    for (QPlainTextEdit *e : {m_headers, m_body})
         e->setFont(f);
-    static_cast<JsonHighlighter *>(m_bodyColours)->setTheme(t);
-    static_cast<JsonHighlighter *>(m_responseColours)->setTheme(t);
-    m_send->setIcon(Icons::tinted(m_reply ? QStringLiteral(":/new-icons/square.svg") : QStringLiteral(":/new-icons/play.svg"), t.onAccent()));
+    m_bodyColours->setTheme(m_theme);
+    setSending(m_runner->busy());
     m_items->viewport()->update();
     showList(m_list); // refreshes the action icon
 }
@@ -444,6 +263,41 @@ void HttpClientView::setScanning(bool scanning)
         populate();
 }
 
+void HttpClientView::setScanTexts(const QString &scanning, const QString &empty, const QString &rescanTip)
+{
+    m_scanningText = scanning;
+    m_emptyText = empty;
+    m_rescanTip = rescanTip;
+    showList(m_list);
+}
+
+void HttpClientView::openEndpoint(const SpringEndpoint &e, bool sendNow)
+{
+    loadEndpoint(e);
+    if (sendNow && !m_url->text().contains(QLatin1Char('{')))
+        send();
+}
+
+QString HttpClientView::endpointAsHttp(const SpringEndpoint &e) const
+{
+    return asHttp(requestFor(e), e.title());
+}
+
+QString HttpClientView::endpointAsCurl(const SpringEndpoint &e) const
+{
+    auto quote = [](QString v) { return QLatin1Char('\'') + v.replace(QLatin1Char('\''), QStringLiteral("'\\''")) + QLatin1Char('\''); };
+    const Request r = requestFor(e);
+    QStringList parts{QStringLiteral("curl")};
+    if (r.method != QLatin1String("GET"))
+        parts << QStringLiteral("-X") << r.method;
+    parts << quote(absoluteUrl(r.url));
+    for (const QString &h : r.headers.split(QLatin1Char('\n'), Qt::SkipEmptyParts))
+        parts << QStringLiteral("-H") << quote(h.trimmed());
+    if (!r.body.isEmpty())
+        parts << QStringLiteral("--data") << quote(r.body);
+    return parts.join(QLatin1Char(' '));
+}
+
 void HttpClientView::clearForNewProject()
 {
     m_scan = SpringScan();
@@ -454,7 +308,6 @@ void HttpClientView::clearForNewProject()
     m_body->clear();
     m_method->setCurrentIndex(0);
     m_response->clear();
-    m_status->clear();
     populate();
 }
 
@@ -502,11 +355,11 @@ void HttpClientView::loadRequest(const QJsonObject &o)
     m_body->setPlainText(o.value(QStringLiteral("body")).toString());
 }
 
-void HttpClientView::loadEndpoint(const SpringEndpoint &e)
+HttpClientView::Request HttpClientView::requestFor(const SpringEndpoint &e) const
 {
-    const int i = m_method->findText(e.method == QLatin1String("ANY") ? QStringLiteral("GET") : e.method);
-    m_method->setCurrentIndex(i < 0 ? 0 : i);
-    m_url->setText(e.urlTemplate());
+    Request r;
+    r.method = e.method == QLatin1String("ANY") ? QStringLiteral("GET") : e.method;
+    r.url = e.urlTemplate();
     QStringList headers;
     const QString bodyType = e.bodyType();
     if (!bodyType.isEmpty())
@@ -514,8 +367,20 @@ void HttpClientView::loadEndpoint(const SpringEndpoint &e)
     for (const SpringParam &p : e.params)
         if (p.kind == SpringParam::Header && (p.required || !p.defaultValue.isEmpty()))
             headers << p.name + QStringLiteral(": ") + p.defaultValue;
-    m_headers->setPlainText(headers.join(QLatin1Char('\n')));
-    m_body->setPlainText(bodyType.isEmpty() ? QString() : m_scan.bodySkeleton(bodyType));
+    r.headers = headers.join(QLatin1Char('\n'));
+    r.body = bodyType.isEmpty() ? QString() : m_scan.bodySkeleton(bodyType);
+    return r;
+}
+
+void HttpClientView::loadEndpoint(const SpringEndpoint &e)
+{
+    const Request r = requestFor(e);
+    const int i = m_method->findText(r.method);
+    m_method->setCurrentIndex(i < 0 ? 0 : i);
+    m_url->setText(r.url);
+    m_headers->setPlainText(r.headers);
+    m_body->setPlainText(r.body);
+    const QString bodyType = e.bodyType();
     // Show what the user most likely has to fill in.
     m_reqStack->setCurrentIndex(!bodyType.isEmpty() ? 1 : 0);
     m_reqTabs->button(!bodyType.isEmpty() ? 1 : 0)->setChecked(true);
@@ -532,7 +397,7 @@ void HttpClientView::showList(int tab)
     m_listAction->setVisible(tab != 2);
     if (tab == 0) {
         m_listAction->setIcon(Icons::tinted(QStringLiteral(":/new-icons/refresh-cw.svg"), m_theme.editorFg));
-        m_listAction->setToolTip(tr("Scan the controllers again"));
+        m_listAction->setToolTip(m_rescanTip.isEmpty() ? tr("Scan the controllers again") : m_rescanTip);
     } else if (tab == 1) {
         m_listAction->setIcon(Icons::tinted(QStringLiteral(":/new-icons/trash-2.svg"), m_theme.editorFg));
         m_listAction->setToolTip(tr("Clear the history"));
@@ -562,14 +427,15 @@ void HttpClientView::populate()
     m_items->setUpdatesEnabled(false);
     m_items->clear();
     if (m_list == 0) {
-        QString lastFile;
+        QString lastGroup;
         int shown = 0;
         for (int i = 0; i < m_scan.endpoints.size(); ++i) {
             const SpringEndpoint &e = m_scan.endpoints.at(i);
             if (!matches(e.title() + QLatin1Char(' ') + e.controller + QLatin1Char(' ') + e.handler))
                 continue;
-            if (e.file != lastFile) {
-                lastFile = e.file;
+            // A controller class, or a Ktor routing function (several can share a file).
+            if (e.file + QLatin1Char('|') + e.controller != lastGroup) {
+                lastGroup = e.file + QLatin1Char('|') + e.controller;
                 auto *h = new QListWidgetItem(e.controller, m_items);
                 h->setFlags(Qt::NoItemFlags);
                 h->setData(HeaderRole, true);
@@ -582,9 +448,9 @@ void HttpClientView::populate()
             ++shown;
         }
         if (shown == 0)
-            note(m_scanning ? tr("Scanning controllers…")
-                            : m_scan.endpoints.isEmpty() ? tr("No endpoints found. Mapped functions of @RestController classes show up here.")
-                                                         : tr("No endpoint matches the filter."));
+            note(m_scanning ? (m_scanningText.isEmpty() ? tr("Scanning controllers…") : m_scanningText)
+                 : m_scan.endpoints.isEmpty() ? (m_emptyText.isEmpty() ? tr("No endpoints found. Mapped functions of @RestController classes show up here.") : m_emptyText)
+                                              : tr("No endpoint matches the filter."));
     } else {
         const QJsonArray &src = m_list == 1 ? m_history : m_saved;
         int shown = 0;
@@ -619,7 +485,12 @@ void HttpClientView::populate()
 
 QString HttpClientView::resolvedUrl() const
 {
-    const QString u = m_url->text().trimmed();
+    return absoluteUrl(m_url->text());
+}
+
+QString HttpClientView::absoluteUrl(const QString &url) const
+{
+    const QString u = url.trimmed();
     if (u.isEmpty() || u.startsWith(QLatin1Char('/')) || u.startsWith(QLatin1Char('?')))
         return m_base + u;
     if (u.contains(QStringLiteral("://")))
@@ -638,30 +509,23 @@ void HttpClientView::updateTarget()
         m_target->setText(tr("→ %1").arg(resolvedUrl()));
 }
 
-void HttpClientView::send()
+bool HttpClientView::requestData(const Request &r, HttpRequestData *out, QString *error) const
 {
-    if (m_reply) { // the button reads "Cancel" while a request is in flight
-        m_reply->abort();
-        return;
-    }
     static const QRegularExpression placeholder(QStringLiteral(R"(\{\w+\})"));
-    const Request r = current();
-    const QString url = resolvedUrl();
-    const auto ph = placeholder.match(url);
-    if (ph.hasMatch()) {
-        showResponse(tr("Fill in %1 first").arg(ph.captured().toHtmlEscaped()), m_theme.warning, QString(), QString());
-        m_url->setFocus();
-        return;
+    const QString url = absoluteUrl(r.url);
+    if (const auto ph = placeholder.match(url); ph.hasMatch()) {
+        *error = tr("Fill in %1 first").arg(ph.captured());
+        return false;
     }
     const QUrl qurl(url, QUrl::TolerantMode);
     if (!qurl.isValid() || qurl.host().isEmpty()) {
-        showResponse(tr("This is not a valid URL").toHtmlEscaped(), m_theme.danger, QString(), QString());
-        return;
+        *error = tr("This is not a valid URL");
+        return false;
     }
-
-    QNetworkRequest rq(qurl);
-    rq.setTransferTimeout(30000);
-    rq.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("QODE"));
+    out->method = r.method;
+    out->url = qurl;
+    out->timeoutMs = 30000;
+    out->headers.clear();
     bool hasType = false;
     for (const QString &line : r.headers.split(QLatin1Char('\n'))) {
         const QString l = line.trimmed();
@@ -671,106 +535,55 @@ void HttpClientView::send()
         const QString name = l.left(colon).trimmed();
         if (name.compare(QLatin1String("content-type"), Qt::CaseInsensitive) == 0)
             hasType = true;
-        rq.setRawHeader(name.toUtf8(), l.mid(colon + 1).trimmed().toUtf8());
+        out->headers.append({name.toUtf8(), l.mid(colon + 1).trimmed().toUtf8()});
     }
-    const QByteArray body = r.method == QLatin1String("HEAD") ? QByteArray() : r.body.toUtf8();
-    if (!body.trimmed().isEmpty() && !hasType) {
-        const char first = body.trimmed().at(0);
-        rq.setHeader(QNetworkRequest::ContentTypeHeader, QString::fromLatin1(first == '{' || first == '[' ? "application/json" : "text/plain"));
-    }
-
-    m_clock.start();
-    m_reply = m_net.sendCustomRequest(rq, r.method.toLatin1(), body);
-    m_send->setText(tr("Cancel"));
-    m_send->setIcon(Icons::tinted(QStringLiteral(":/new-icons/square.svg"), m_theme.editorFg));
-    m_status->setText(tr("<span style=\"color:%1\">Waiting for %2 …</span>").arg(m_theme.textMuted.name(), url.toHtmlEscaped()));
-    connect(m_reply, &QNetworkReply::finished, this, &HttpClientView::finished);
+    out->body = r.method == QLatin1String("HEAD") ? QByteArray() : r.body.toUtf8();
+    const QByteArray trimmed = out->body.trimmed();
+    if (!trimmed.isEmpty() && !hasType)
+        out->headers.append({QByteArrayLiteral("Content-Type"),
+                             trimmed.startsWith('{') || trimmed.startsWith('[') ? QByteArrayLiteral("application/json") : QByteArrayLiteral("text/plain")});
+    return true;
 }
 
-void HttpClientView::finished()
+void HttpClientView::send()
 {
-    QNetworkReply *reply = m_reply;
-    if (!reply)
+    if (m_runner->busy()) { // the button reads "Cancel" while a request is in flight
+        m_runner->abort();
         return;
-    m_reply = nullptr;
-    reply->deleteLater();
-    m_send->setText(tr("Send"));
-    m_send->setIcon(Icons::tinted(QStringLiteral(":/new-icons/play.svg"), m_theme.editorFg));
-    const qint64 ms = m_clock.elapsed();
+    }
     const Request r = current();
-
-    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    if (status == 0) {
-        QString why;
-        switch (reply->error()) {
-        case QNetworkReply::ConnectionRefusedError:
-            why = tr("Connection refused: nothing listens on %1:%2.").arg(reply->url().host()).arg(reply->url().port(80));
-            if (!m_running)
-                why += tr(" The application is not running — <a href=\"start\" style=\"color:%1\">start it</a>.").arg(m_theme.accent.name());
-            break;
-        case QNetworkReply::HostNotFoundError:
-            why = tr("Host not found: %1").arg(reply->url().host().toHtmlEscaped());
-            break;
-        case QNetworkReply::TimeoutError:
-            why = tr("No answer within 30 seconds.");
-            break;
-        case QNetworkReply::OperationCanceledError:
-            why = tr("Cancelled.");
-            break;
-        default:
-            why = reply->errorString().toHtmlEscaped();
-        }
-        showResponse(why, m_theme.danger, QString(), QString());
-        if (reply->error() != QNetworkReply::OperationCanceledError)
-            remember(r, 0, ms);
+    HttpRequestData data;
+    QString error;
+    if (!requestData(r, &data, &error)) {
+        m_response->showMessage(error.toHtmlEscaped(), m_theme.warning);
+        m_url->setFocus();
         return;
     }
+    setSending(true);
+    m_response->showBusy(tr("Waiting for %1 …").arg(data.url.toString()));
+    m_runner->send(data, HttpResult(), [this, r](const HttpResult &result) { finished(result, r); });
+}
 
-    const QByteArray raw = reply->readAll();
-    const QString type = reply->header(QNetworkRequest::ContentTypeHeader).toString().toLower();
-    QString text;
-    const bool binary = type.startsWith(QLatin1String("image/")) || type.startsWith(QLatin1String("video/")) || type.startsWith(QLatin1String("audio/"))
-                        || type.contains(QLatin1String("octet-stream")) || type.contains(QLatin1String("pdf")) || type.contains(QLatin1String("zip"));
-    if (binary) {
-        text = tr("(binary data, %1)").arg(sizeText(raw.size()));
-    } else {
-        text = QString::fromUtf8(raw.left(2 * 1024 * 1024));
-        const QByteArray trimmed = raw.trimmed();
-        if (type.contains(QLatin1String("json")) || (!trimmed.isEmpty() && (trimmed.at(0) == '{' || trimmed.at(0) == '['))) {
-            QJsonParseError err;
-            const QJsonDocument doc = QJsonDocument::fromJson(raw, &err);
-            if (err.error == QJsonParseError::NoError && raw.size() <= 2 * 1024 * 1024)
-                text = QString::fromUtf8(doc.toJson(QJsonDocument::Indented)).trimmed();
-        }
-        if (raw.size() > 2 * 1024 * 1024)
-            text += tr("\n… (truncated, %1 in total)").arg(sizeText(raw.size()));
+void HttpClientView::setSending(bool sending)
+{
+    m_send->setText(sending ? tr("Cancel") : tr("Send"));
+    m_send->setIcon(Icons::tinted(sending ? QStringLiteral(":/new-icons/square.svg") : QStringLiteral(":/new-icons/play.svg"), m_theme.onAccent()));
+}
+
+void HttpClientView::finished(const HttpResult &result, const Request &r)
+{
+    setSending(false);
+    if (result.ok()) {
+        m_response->showResult(result);
+        remember(r, result.status, result.ms);
+        return;
     }
-    QStringList headers;
-    for (const auto &pair : reply->rawHeaderPairs())
-        headers << QString::fromLatin1(pair.first) + QStringLiteral(": ") + QString::fromLatin1(pair.second);
-
-    const QColor colour = status < 300 ? m_theme.success : status < 400 ? m_theme.warning : m_theme.danger;
-    const QString reason = reply->attribute(QNetworkRequest::HttpReasonPhraseAttribute).toString();
-    showResponse(QStringLiteral("<b>%1 %2</b> <span style=\"color:%3\">· %4 ms · %5</span>")
-                     .arg(status).arg(reason.toHtmlEscaped(), m_theme.textMuted.name()).arg(ms).arg(sizeText(raw.size())),
-                 colour, text, headers.join(QLatin1Char('\n')));
-    remember(r, status, ms);
-}
-
-// `status` is rich text (callers escape what they insert).
-void HttpClientView::showResponse(const QString &status, const QColor &colour, const QString &body, const QString &headers)
-{
-    m_respBody = body;
-    m_respHeaders = headers;
-    m_status->setText(QStringLiteral("<span style=\"color:%1\">%2</span>").arg(colour.name(), status));
-    showResponseTab(m_respTab);
-}
-
-void HttpClientView::showResponseTab(int tab)
-{
-    m_respTab = tab;
-    m_respTabs->button(tab)->setChecked(true);
-    m_response->setPlainText(tab == 0 ? m_respBody : m_respHeaders);
+    QString why = HttpRunner::describeError(result);
+    if (result.error == QNetworkReply::ConnectionRefusedError && !m_running)
+        why += tr(" The application is not running — <a href=\"start\" style=\"color:%1\">start it</a>.").arg(m_theme.accent.name());
+    m_response->showMessage(why, m_theme.danger);
+    if (result.error != QNetworkReply::OperationCanceledError)
+        remember(r, 0, result.ms);
 }
 
 void HttpClientView::remember(const Request &r, int status, qint64 ms)
@@ -842,6 +655,7 @@ void HttpClientView::listMenu(const QPoint &pos)
             if (!m_url->text().contains(QLatin1Char('{')))
                 send();
         });
+        menu.addAction(tr("Copy as .http Request"), this, [this, e] { QApplication::clipboard()->setText(asHttp(requestFor(e), e.title())); });
     } else {
         QJsonArray &src = m_list == 1 ? m_history : m_saved;
         auto indexOfPayload = [&src, &payload] {
@@ -851,6 +665,14 @@ void HttpClientView::listMenu(const QPoint &pos)
             return -1;
         };
         menu.addAction(tr("Load"), this, [this, payload] { loadRequest(payload); });
+        menu.addAction(tr("Copy as .http Request"), this, [this, payload] {
+            Request r;
+            r.method = payload.value(QStringLiteral("method")).toString();
+            r.url = payload.value(QStringLiteral("url")).toString();
+            r.headers = payload.value(QStringLiteral("headers")).toString();
+            r.body = payload.value(QStringLiteral("body")).toString();
+            QApplication::clipboard()->setText(asHttp(r, payload.value(QStringLiteral("name")).toString()));
+        });
         if (m_list == 1)
             menu.addAction(tr("Save…"), this, [this, payload] {
                 loadRequest(payload);
@@ -883,27 +705,26 @@ void HttpClientView::listMenu(const QPoint &pos)
     menu.exec(m_items->viewport()->mapToGlobal(pos));
 }
 
-QString HttpClientView::curl(const Request &r) const
-{
-    QStringList parts{QStringLiteral("curl")};
-    if (r.method != QLatin1String("GET"))
-        parts << QStringLiteral("-X") << r.method;
-    parts << shellQuote(resolvedUrl());
-    for (const QString &line : r.headers.split(QLatin1Char('\n'))) {
-        const QString l = line.trimmed();
-        if (!l.isEmpty() && !l.startsWith(QLatin1Char('#')) && l.contains(QLatin1Char(':')))
-            parts << QStringLiteral("-H") << shellQuote(l);
-    }
-    if (!r.body.trimmed().isEmpty())
-        parts << QStringLiteral("-d") << shellQuote(r.body);
-    return parts.join(QLatin1Char(' '));
-}
-
 void HttpClientView::copyCurl()
 {
-    QApplication::clipboard()->setText(curl(current()));
+    HttpRequestData data;
+    QString error;
     m_target->setVisible(true);
+    if (!requestData(current(), &data, &error)) {
+        m_target->setText(error);
+        return;
+    }
+    QApplication::clipboard()->setText(HttpUi::curl(data));
     m_target->setText(tr("curl command copied"));
+}
+
+QString HttpClientView::asHttp(const Request &r, const QString &name) const
+{
+    // Path variables become .http variables: {id} -> {{id}}.
+    static const QRegularExpression pathVar(QStringLiteral(R"((?<!\{)\{(\w+)\}(?!\}))"));
+    QString url = absoluteUrl(r.url);
+    url.replace(pathVar, QStringLiteral("{{\\1}}"));
+    return HttpFile::format(name, r.method, url, r.headers, r.body);
 }
 
 void HttpClientView::formatBody()

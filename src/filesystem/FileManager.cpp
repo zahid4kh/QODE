@@ -1,5 +1,7 @@
 #include "FileManager.h"
 
+#include "history/LocalHistory.h"
+
 #include <QDesktopServices>
 #include <QDir>
 #include <QFile>
@@ -82,6 +84,7 @@ bool renamePath(const QString &from, const QString &to, QString *error)
             *error = QStringLiteral("Could not rename \"%1\".").arg(QFileInfo(from).fileName());
         return false;
     }
+    LocalHistory::pathMoved(from, to);
     return true;
 }
 
@@ -157,9 +160,40 @@ QString copyInto(const QString &source, const QString &targetDir, QString *error
     return dest;
 }
 
+bool isScript(const QString &path)
+{
+    const QFileInfo fi(path);
+    if (!fi.isFile())
+        return false;
+    static const QStringList kShell{QStringLiteral("sh"), QStringLiteral("bash"), QStringLiteral("zsh"), QStringLiteral("ksh")};
+    if (kShell.contains(fi.suffix().toLower()))
+        return true;
+    QFile f(path);
+    return f.open(QIODevice::ReadOnly) && f.read(2) == "#!";
+}
+
+bool makeExecutable(const QString &path, QString *error)
+{
+    QFile f(path);
+    QFileDevice::Permissions p = f.permissions();
+    if (p & QFileDevice::ReadOwner)
+        p |= QFileDevice::ExeOwner | QFileDevice::ExeUser;
+    if (p & QFileDevice::ReadGroup)
+        p |= QFileDevice::ExeGroup;
+    if (p & QFileDevice::ReadOther)
+        p |= QFileDevice::ExeOther;
+    if (f.setPermissions(p))
+        return true;
+    if (error)
+        *error = f.errorString();
+    return false;
+}
+
 bool removePath(const QString &path, QString *error)
 {
     const QFileInfo fi(path);
+    if (!fi.isSymLink())
+        LocalHistory::recordDisk(path, LocalHistory::Kind::BeforeDelete); // the text files stay restorable
     bool ok;
     if (fi.isDir() && !fi.isSymLink())
         ok = QDir(path).removeRecursively();

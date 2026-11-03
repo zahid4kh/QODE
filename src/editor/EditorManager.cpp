@@ -11,6 +11,7 @@
 #include "FindBar.h"
 #include "dialogs/UnsavedChangesDialog.h"
 #include "filesystem/FileManager.h"
+#include "history/LocalHistory.h"
 #include "media/MediaPanel.h"
 #include "format/Formatter.h"
 #include "settings/SettingsManager.h"
@@ -161,6 +162,18 @@ EditorManager::EditorManager(QWidget *parent)
     m_changeTimer->setInterval(200);
     connect(m_changeTimer, &QTimer::timeout, this, &EditorManager::processPendingChanges);
     connect(m_watcher, &QFileSystemWatcher::fileChanged, this, &EditorManager::onWatchedFileChanged);
+    // A saved .editorconfig applies to the open files at once.
+    connect(this, &EditorManager::documentSaved, this, [this](Document *saved) {
+        if (QFileInfo(saved->filePath()).fileName() != QLatin1String(".editorconfig"))
+            return;
+        for (Document *d : documents()) {
+            d->refreshEditorConfig();
+            const EditorConfig::Properties &ec = d->editorConfig();
+            if (CodeEditor *ed = editorFor(d))
+                ed->setIndentOverride(ec.useTabs, ec.indentSize, ec.tabWidth);
+        }
+        emit cursorInfoChanged(); // the status bar shows the line ending and the encoding
+    });
 
     m_autoSaveTimer = new QTimer(this);
     m_autoSaveTimer->setSingleShot(true);
@@ -401,7 +414,15 @@ EditorManager::Entry EditorManager::addDocument(Document *doc)
 {
     auto *editor = new CodeEditor;
     auto *pane = new EditorPane(editor, m_active->tabs());
+    editor->setLargeFile(doc->isLarge());
     editor->attachDocument(doc->textDocument());
+    if (doc->isLarge())
+        pane->crumbs->setNote(tr("Large file"),
+                              tr("This file is too large for the language server, the git change markers, the minimap and "
+                                 "edit predictions; they are off for it."));
+    const EditorConfig::Properties &ec = doc->editorConfig();
+    if (!ec.isEmpty())
+        editor->setIndentOverride(ec.useTabs, ec.indentSize, ec.tabWidth);
     editor->setIndentAfterColon(doc->languageName() == QLatin1String("Python"));
     editor->setLanguage(doc->languageName());
     editor->setEmmetMode(emmetModeFor(doc));
@@ -443,11 +464,21 @@ EditorManager::Entry EditorManager::addDocument(Document *doc)
         syncFileClaims();
         emit documentPathChanged(doc);
     });
+    connect(doc, &Document::languageChanged, this, [this, doc, editor] {
+        editor->setIndentAfterColon(doc->languageName() == QLatin1String("Python"));
+        editor->setLanguage(doc->languageName());
+        editor->setEmmetMode(emmetModeFor(doc));
+        emit documentStateChanged();
+    });
     connect(editor, &QPlainTextEdit::cursorPositionChanged, this, [this, editor] {
         if (editor == currentEditor())
             emit cursorInfoChanged();
     });
     connect(editor, &CodeEditor::overwriteModeToggled, this, [this]() { emit cursorInfoChanged(); });
+    connect(editor, &CodeEditor::cursorsChanged, this, [this, editor] {
+        if (editor == currentEditor())
+            emit cursorInfoChanged();
+    });
     connect(editor, &CodeEditor::filesDropped, this, [this](const QStringList &paths) {
         for (const QString &p : paths)
             if (QFileInfo(p).isFile())
@@ -511,6 +542,12 @@ void EditorManager::setProjectRoot(const QString &root)
 {
     m_projectRoot = root;
     updateAllCrumbs();
+}
+
+void EditorManager::refreshTabIcons()
+{
+    for (Document *doc : documents())
+        updateTabTitle(doc);
 }
 
 namespace {
@@ -915,6 +952,10 @@ void EditorManager::restoreLayout(const QJsonObject &state)
 
 bool EditorManager::saveDocument(Document *doc)
 {
+    if (!doc->saveBlock().isEmpty()) {
+        emit statusMessage(doc->saveBlock());
+        return false;
+    }
     if (doc->isUntitled())
         return saveDocumentAs(doc);
     prepareForSave(doc, false, doc->filePath());
@@ -1003,8 +1044,11 @@ void EditorManager::prepareForSave(Document *doc, bool automatic, const QString 
         }
     }
 
-    const bool trim = s.trimTrailingWhitespace() && doc->languageName() != QLatin1String("Markdown"); // "  " is a line break there
-    const bool newline = s.insertFinalNewline();
+    // .editorconfig decides per file where it says something; otherwise the settings.
+    const EditorConfig::Properties &ec = doc->editorConfig();
+    const bool trim = ec.trimTrailingWhitespace >= 0 ? ec.trimTrailingWhitespace == 1
+                                                     : s.trimTrailingWhitespace() && doc->languageName() != QLatin1String("Markdown"); // "  " is a line break there
+    const bool newline = ec.insertFinalNewline >= 0 ? ec.insertFinalNewline == 1 : s.insertFinalNewline();
     if (!trim && !newline)
         return;
     CodeEditor *ed = editorFor(doc);
@@ -1096,11 +1140,12 @@ bool EditorManager::saveQuietly(Document *doc)
 
 bool EditorManager::autoSaveDocument(Document *doc)
 {
-    if (!doc || !doc->isModified() || doc->isUntitled() || m_prompting)
+    if (!doc || !doc->isModified() || doc->isUntitled() || m_prompting || !doc->saveBlock().isEmpty())
         return false;
     if (!doc->existsOnDisk() || doc->changedOnDisk())
         return false; // the external-change prompt decides what happens to this one
     prepareForSave(doc, true, doc->filePath());
+    const LocalHistory::Reason reason(LocalHistory::Kind::AutoSaved); // at most one such version a minute
     QString err;
     if (!doc->save(&err)) {
         emit statusMessage(tr("Auto save failed for %1: %2").arg(doc->fileName(), err));

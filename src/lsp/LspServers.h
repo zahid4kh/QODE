@@ -20,7 +20,7 @@ struct LspServerSpec {
     enum class Installer { None, Download, Npm, Jdtls, Pip };
     Installer installer = Installer::None;
     bool installable = false; // installer != None
-    QString managedId;        // folder under <data>/QODE/lsp/ (defaults to id)
+    QString managedId;        // folder under <data>/QODE-AGENTIC/lsp/ (defaults to id)
     QString managedBinary;    // launcher inside that folder, e.g. "node_modules/.bin/vscode-html-language-server"
     bool needsNode = false;   // a Node.js script: `node` must be reachable by its "#!/usr/bin/env node" line
     // A companion runs next to the file's main server (ESLint, Tailwind CSS): it never becomes "the" server of a file,
@@ -30,13 +30,15 @@ struct LspServerSpec {
     bool resolvesCompletions = false; // accepting an item asks completionItem/resolve first (jdtls and typescript-language-server add imports there)
     bool wantsConfiguration = false; // asks the client for settings through workspace/configuration (we answer in LspManager)
     QHash<QString, QString> languageIds; // extension -> LSP language id when it differs from `id`
+    // A file without an extension whose `#!` line names one of these (bash, sh …) is handled too, under languageIds[""].
+    QStringList interpreters;
 
     // LSP language id for a file ("c", "cpp", ...), or an empty string.
     QString languageId(const QString &path) const;
 };
 
 namespace LspServers {
-// Where QODE keeps a server it downloaded itself ("<data>/QODE/lsp/<id>"), and that server's launcher.
+// Where QODE keeps a server it downloaded itself ("<data>/QODE-AGENTIC/lsp/<id>"), and that server's launcher.
 QString managedDir(const QString &id);
 QString managedExecutable(const LspServerSpec &spec); // empty when nothing is installed
 // True when `path` resolves into the folder QODE installs this server's files into.

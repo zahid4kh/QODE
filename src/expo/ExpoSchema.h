@@ -7,7 +7,7 @@
 class QNetworkAccessManager;
 
 // Expo publishes the JSON schema of app.json per SDK version (exp.host). It is downloaded once, wrapped to describe
-// the {"expo": {...}} file and cached in ~/.cache/QODE/expo, then handed to the JSON language server for completion,
+// the {"expo": {...}} file and cached in ~/.cache/QODE-AGENTIC/expo, then handed to the JSON language server for completion,
 // hover docs and validation. Nothing is ever written into a project.
 class ExpoSchema : public QObject
 {

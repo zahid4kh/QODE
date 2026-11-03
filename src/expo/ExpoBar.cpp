@@ -1,6 +1,8 @@
 #include "ExpoBar.h"
 
+#include "ExpoWebServer.h"
 #include "settings/Icons.h"
+#include "webdev/ServerDialogs.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
 
@@ -26,7 +28,8 @@ QString quoted(const QString &s)
 } // namespace
 
 ExpoBar::ExpoBar(QWidget *parent)
-    : QWidget(parent), m_watcher(new QFileSystemWatcher(this)), m_redetect(new QTimer(this)), m_menu(new QMenu(this))
+    : QWidget(parent), m_watcher(new QFileSystemWatcher(this)), m_redetect(new QTimer(this)), m_web(new ExpoWebServer(this)),
+      m_menu(new QMenu(this))
 {
     m_redetect->setSingleShot(true);
     m_redetect->setInterval(600);
@@ -40,20 +43,41 @@ ExpoBar::ExpoBar(QWidget *parent)
     m_run = new QToolButton(this);
     m_run->setAutoRaise(true);
     m_run->setIconSize(QSize(16, 16));
-    m_run->setPopupMode(QToolButton::MenuButtonPopup);
-    m_run->setMenu(m_menu);
     Icons::bind(m_run, QStringLiteral(":/new-icons/play.svg"));
+    // Its own button rather than QToolButton::MenuButtonPopup, whose arrow part is a few pixels wide and
+    // drawn by the style (a thin empty strip with the app style sheet). Zoom scales this one like the rest.
+    m_runMenu = new QToolButton(this);
+    m_runMenu->setAutoRaise(true);
+    m_runMenu->setIconSize(QSize(12, 12));
+    m_runMenu->setFixedWidth(22); // the 12 px chevron plus the style sheet's 5 px padding each side
+    m_runMenu->setPopupMode(QToolButton::InstantPopup);
+    m_runMenu->setMenu(m_menu);
+    m_runMenu->setToolTip(tr("Run on Android or iOS, Metro / Expo Go, prebuild, DevTools…"));
+    Icons::bind(m_runMenu, QStringLiteral(":/new-icons/chevron-down.svg"));
     m_app = new QLabel(this);
     m_app->setContentsMargins(2, 0, 6, 0);
+    m_preview = new QToolButton(this);
+    m_preview->setAutoRaise(true);
+    m_preview->setIconSize(QSize(16, 16));
+    m_preview->setToolTip(tr("Preview the app in an iPhone or Android mockup (Expo for web)"));
+    Icons::bind(m_preview, QStringLiteral(":/new-icons/smartphone.svg"));
     m_config = new QToolButton(this);
     m_config->setAutoRaise(true);
     m_config->setIconSize(QSize(16, 16));
     Icons::bind(m_config, QStringLiteral(":/new-icons/file-json.svg"));
     l->addWidget(m_run);
+    l->addWidget(m_runMenu);
     l->addWidget(m_app);
+    l->addWidget(m_preview);
     l->addWidget(m_config);
 
     connect(m_run, &QToolButton::clicked, this, &ExpoBar::runLast);
+    m_run->setContextMenuPolicy(Qt::CustomContextMenu); // right-click on play opens the same list
+    connect(m_run, &QToolButton::customContextMenuRequested, this, [this] { m_runMenu->showMenu(); });
+    connect(m_preview, &QToolButton::clicked, this, &ExpoBar::previewRequested);
+#ifndef QODE_HAS_WEBENGINE
+    m_preview->hide(); // no phone mockup preview in a build without Qt WebEngine
+#endif
     connect(m_config, &QToolButton::clicked, this, &ExpoBar::configureRequested);
     connect(m_menu, &QMenu::aboutToShow, this, &ExpoBar::rebuildMenu);
     connect(&SettingsManager::instance(), &SettingsManager::themeChanged, this, &ExpoBar::refresh);
@@ -90,6 +114,8 @@ const ExpoApp *ExpoBar::appForFile(const QString &path) const
 
 void ExpoBar::setProjectRoot(const QString &root)
 {
+    if (root != m_root && m_web)
+        m_web->stop();
     m_root = root;
     redetect();
 }
@@ -102,7 +128,7 @@ void ExpoBar::redetect()
     bool same = found.size() == m_apps.size();
     for (int i = 0; same && i < found.size(); ++i)
         same = found[i].dir == m_apps[i].dir && found[i].sdk == m_apps[i].sdk && found[i].appJson == m_apps[i].appJson &&
-               found[i].name == m_apps[i].name;
+               found[i].name == m_apps[i].name && found[i].web == m_apps[i].web;
     m_apps = found;
 
     const QStringList watched = m_watcher->files() + m_watcher->directories();
@@ -144,7 +170,7 @@ void ExpoBar::refresh()
         for (const Entry &e : all)
             if (e.id == kDefault)
                 chosen = &e;
-    m_run->setToolTip(tr("%1 (F5)\nClick the arrow for Android, iOS, prebuild and DevTools").arg(chosen ? chosen->text : QString()));
+    m_run->setToolTip(tr("%1 (F5)\nThe arrow next to it has Android, iOS, prebuild and DevTools").arg(chosen ? chosen->text : QString()));
     m_config->setToolTip(app && !app->appJson.isEmpty() ? tr("Configure app.json (name, icons, permissions, plugins…)")
                                                         : tr("This app has no app.json to configure"));
     m_config->setEnabled(app && !app->appJson.isEmpty());
@@ -208,6 +234,11 @@ void ExpoBar::rebuildMenu()
         if (e.id.startsWith(QLatin1String("prebuild")))
             add(e);
     m_menu->addSeparator();
+#ifdef QODE_HAS_WEBENGINE
+    QAction *preview = m_menu->addAction(Icons::tinted(QStringLiteral(":/new-icons/smartphone.svg"), t.editorFg), tr("Preview in Phone Mockup"));
+    preview->setToolTip(tr("Runs the app for web and shows it in an iPhone or Android mockup in the right panel"));
+    connect(preview, &QAction::triggered, this, &ExpoBar::previewRequested);
+#endif
     QAction *dev = m_menu->addAction(Icons::tinted(QStringLiteral(":/new-icons/eye.svg"), t.editorFg), tr("Open React Native DevTools"));
     dev->setToolTip(tr("Opens the debugger of the running Metro session (what pressing j in the Expo CLI does)"));
     connect(dev, &QAction::triggered, this, &ExpoBar::devToolsRequested);
@@ -232,13 +263,49 @@ void ExpoBar::rebuildMenu()
     connect(cache, &QAction::triggered, this, &ExpoBar::schemaCacheRequested);
 }
 
-QString ExpoBar::shellCommand(const QString &command) const
+QString ExpoBar::shellCommand(const QString &command, const QString &dir) const
 {
     const ExpoApp *app = currentApp();
-    if (!app)
+    const QString in = !dir.isEmpty() ? dir : app ? app->dir : QString();
+    if (in.isEmpty())
         return command;
     // A subshell with the absolute folder: the terminal may have been moved elsewhere, and its own directory stays put.
-    return QStringLiteral("(cd %1 && %2)").arg(quoted(app->dir), command);
+    return QStringLiteral("(cd %1 && %2)").arg(quoted(in), command);
+}
+
+void ExpoBar::startWeb(const QString &appDir)
+{
+    // One preview Metro at a time: start() on a live one stops it and starts again in the other app.
+    if (m_web)
+        m_web->startApp(appDir);
+}
+
+void ExpoBar::installWebSupport(const QString &appDir)
+{
+    emit commandRequested(shellCommand(QStringLiteral("npx expo install react-native-web react-dom @expo/metro-runtime"), appDir),
+                          QStringLiteral("web-setup"));
+}
+
+void ExpoBar::showWebLog()
+{
+    if (!m_web)
+        return;
+    if (!m_webLog) {
+        auto *dlg = new ServerLogDialog(m_web, window());
+        dlg->setWindowTitle(tr("Expo Web Preview Log"));
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        connect(dlg, &QObject::destroyed, this, [this] { m_webLog = nullptr; });
+        m_webLog = dlg;
+    }
+    m_webLog->show();
+    m_webLog->raise();
+    m_webLog->activateWindow();
+}
+
+void ExpoBar::shutdown()
+{
+    delete m_web; // the destructor ends the process group
+    m_web = nullptr;
 }
 
 void ExpoBar::runId(const QString &id)

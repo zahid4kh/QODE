@@ -21,8 +21,8 @@ public:
     };
 
     explicit ReferencesDialog(QWidget *parent = nullptr);
-    // `root` shortens the shown paths.
-    void setReferences(const QString &symbol, const QVector<Entry> &entries, const QString &root);
+    // `root` shortens the shown paths; `implementations` words it as the implementations of the symbol.
+    void setReferences(const QString &symbol, const QVector<Entry> &entries, const QString &root, bool implementations = false);
 
 signals:
     void openRequested(const QString &path, int line, int column); // 0-based

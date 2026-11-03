@@ -10,4 +10,9 @@ namespace FileIcons {
 QIcon forFile(const QString &fileName); // by file name / extension; generic file icon when unknown
 QIcon folder();
 
+// Whose logo application.yaml / .yml / .properties / .conf carry: Spring's by default, Ktor's in a Ktor project
+// (where application.conf is the HOCON configuration too). True when it changed (views then repaint).
+enum class ConfigBrand { Spring, Ktor };
+bool setConfigBrand(ConfigBrand brand);
+
 } // namespace FileIcons

@@ -3,31 +3,53 @@
 #include "lsp/LspServers.h"
 #include "lsp/NpmInstaller.h"
 
-#include <QFontDatabase>
+#include "settings/SettingsManager.h"
+
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QStandardPaths>
 #include <QVBoxLayout>
 
-NpmInstallDialog::NpmInstallDialog(QWidget *parent) : QDialog(parent), m_installer(new NpmInstaller(this))
+NpmInstallDialog::NpmInstallDialog(const QString &managedId, QWidget *parent)
+    : QDialog(parent)
+    , m_installer(new NpmInstaller(managedId, this))
 {
-    setWindowTitle(tr("Set Up Web Language Servers"));
+    const bool bash = managedId == QLatin1String("bash");
+    setWindowTitle(bash ? tr("Set Up Bash Language Server") : tr("Set Up Web Language Servers"));
     setMinimumWidth(560);
     auto *layout = new QVBoxLayout(this);
 
-    auto *info = new QLabel(
-        tr("QODE will set up the language servers for <b>TypeScript / JavaScript, HTML, CSS (SCSS, Less) and JSON</b> "
-           "with npm:"
-           "<ul>"
-           "<li>Runs <b>%1</b></li>"
-           "<li>Everything goes into <b>%2</b> (about 130 MB); nothing is installed globally and no administrator rights are needed</li>"
-           "<li>Needs <b>Node.js</b> with npm on this computer</li>"
-           "<li>All four servers are installed together; removing them later deletes that one folder</li>"
-           "</ul>")
-            .arg(NpmInstaller::commandLine().toHtmlEscaped(), NpmInstaller::installRoot().toHtmlEscaped()),
-        this);
+    const QString command = NpmInstaller::commandLine(managedId).toHtmlEscaped(), root = NpmInstaller::installRoot(managedId).toHtmlEscaped();
+    QString text;
+    if (bash) {
+        // Its warnings come from ShellCheck, which npm does not provide: say up front whether it is there.
+        const bool shellcheck = !QStandardPaths::findExecutable(QStringLiteral("shellcheck")).isEmpty();
+        text = tr("QODE will set up the <b>Bash language server</b> (bash-language-server) with npm:"
+                  "<ul>"
+                  "<li>Runs <b>%1</b></li>"
+                  "<li>Everything goes into <b>%2</b> (about 30 MB); nothing is installed globally and no administrator rights are needed</li>"
+                  "<li>Needs <b>Node.js</b> with npm on this computer</li>"
+                  "<li>%3</li>"
+                  "</ul>")
+                   .arg(command, root,
+                        shellcheck ? tr("<b>ShellCheck</b> is installed: problems in your scripts are reported as you type")
+                                   : tr("<b>ShellCheck</b> is not installed. Without it the server reports no problems; install it "
+                                        "with <b>sudo apt install shellcheck</b> (Fedora: ShellCheck, Arch: shellcheck)"));
+    } else {
+        text = tr("QODE will set up the language servers for <b>TypeScript / JavaScript, HTML, CSS (SCSS, Less) and JSON</b> "
+                  "with npm:"
+                  "<ul>"
+                  "<li>Runs <b>%1</b></li>"
+                  "<li>Everything goes into <b>%2</b> (about 130 MB); nothing is installed globally and no administrator rights are needed</li>"
+                  "<li>Needs <b>Node.js</b> with npm on this computer</li>"
+                  "<li>All four servers are installed together; removing them later deletes that one folder</li>"
+                  "</ul>")
+                   .arg(command, root);
+    }
+    auto *info = new QLabel(text, this);
     info->setWordWrap(true);
     info->setTextFormat(Qt::RichText);
     layout->addWidget(info);
@@ -44,7 +66,7 @@ NpmInstallDialog::NpmInstallDialog(QWidget *parent) : QDialog(parent), m_install
     layout->addWidget(m_bar);
     m_log = new QPlainTextEdit(this);
     m_log->setReadOnly(true);
-    m_log->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    m_log->setFont(SettingsManager::instance().editorFont());
     m_log->setMinimumHeight(140);
     m_log->setMaximumBlockCount(500);
     m_log->hide();
@@ -71,8 +93,10 @@ NpmInstallDialog::NpmInstallDialog(QWidget *parent) : QDialog(parent), m_install
         if (!t.isEmpty())
             m_log->appendPlainText(t);
     });
-    connect(m_installer, &NpmInstaller::finished, this,
-            [this] { finish(true, tr("Done. The TypeScript / JavaScript, HTML, CSS and JSON language servers are installed.")); });
+    connect(m_installer, &NpmInstaller::finished, this, [this, bash] {
+        finish(true, bash ? tr("Done. The Bash language server is installed.")
+                          : tr("Done. The TypeScript / JavaScript, HTML, CSS and JSON language servers are installed."));
+    });
     connect(m_installer, &NpmInstaller::failed, this, [this](const QString &error) { finish(false, error); });
 }
 

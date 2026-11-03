@@ -24,6 +24,7 @@ signals:
     void clearRecentRequested();
 
 private:
+    void fitRecent();
     QLabel *m_recentTitle;
     RecentList *m_recent;
 };

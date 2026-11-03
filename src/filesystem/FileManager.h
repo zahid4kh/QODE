@@ -24,6 +24,11 @@ QString uniquePath(const QString &dir, const QString &name);
 QString copyInto(const QString &source, const QString &targetDir, QString *error);
 bool removePath(const QString &path, QString *error);
 
+// A shell script by extension (.sh, .bash, .zsh, .ksh) or any file whose first line is a `#!`.
+bool isScript(const QString &path);
+// chmod +x: execute permission for everyone who may read the file.
+bool makeExecutable(const QString &path, QString *error);
+
 // Returns an error message when `name` can't be used as a single path component.
 QString validateName(const QString &name);
 

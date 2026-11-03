@@ -1,0 +1,7 @@
+# Start the server (./gradlew run), then send a request with Ctrl+Enter or the ▶ beside it.
+
+### Greet the world
+GET http://localhost:{{port}}/
+
+### Greet by name
+GET http://localhost:{{port}}/?name=Ktor

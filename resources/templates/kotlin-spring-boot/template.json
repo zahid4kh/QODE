@@ -3,6 +3,7 @@
   "order": 15,
   "category": "Kotlin",
   "name": "Spring Boot Backend",
+  "icon": "springboot.svg",
   "description": "A plain Spring Boot (Spring MVC) REST backend in Kotlin with Gradle (Kotlin DSL), a version catalog and tests. No database. Includes the Gradle wrapper, so no Gradle install is needed.",
   "mixins": ["gradle-wrapper"],
   "requires": ["jdk17"],

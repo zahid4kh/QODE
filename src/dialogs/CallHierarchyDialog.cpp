@@ -15,23 +15,24 @@ enum Role { RoleIndex = Qt::UserRole + 1, RoleState };
 enum State { Loaded, NotLoaded, Loading, Recursive };
 }
 
-CallHierarchyDialog::CallHierarchyDialog(QWidget *parent)
-    : QDialog(parent)
+CallHierarchyDialog::CallHierarchyDialog(Kind kind, QWidget *parent)
+    : QDialog(parent), m_kind(kind)
 {
-    setWindowTitle(tr("Call Hierarchy"));
+    const bool calls = kind == Kind::Calls;
+    setWindowTitle(calls ? tr("Call Hierarchy") : tr("Type Hierarchy"));
     setModal(false);
     resize(720, 460);
     auto *layout = new QVBoxLayout(this);
     auto *top = new QHBoxLayout;
     m_title = new QLabel(this);
     top->addWidget(m_title, 1);
-    m_callers = new QRadioButton(tr("Callers"), this);
-    m_callees = new QRadioButton(tr("Callees"), this);
-    m_callers->setChecked(true);
-    m_callers->setToolTip(tr("Who calls this function"));
-    m_callees->setToolTip(tr("What this function calls"));
-    top->addWidget(m_callers);
-    top->addWidget(m_callees);
+    m_up = new QRadioButton(calls ? tr("Callers") : tr("Supertypes"), this);
+    m_down = new QRadioButton(calls ? tr("Callees") : tr("Subtypes"), this);
+    m_up->setChecked(true);
+    m_up->setToolTip(calls ? tr("Who calls this function") : tr("The classes and interfaces this type extends or implements"));
+    m_down->setToolTip(calls ? tr("What this function calls") : tr("The types that extend or implement this one"));
+    top->addWidget(m_up);
+    top->addWidget(m_down);
     layout->addLayout(top);
     m_tree = new QTreeWidget(this);
     m_tree->setHeaderHidden(true);
@@ -43,24 +44,24 @@ CallHierarchyDialog::CallHierarchyDialog(QWidget *parent)
     connect(m_tree, &QTreeWidget::itemExpanded, this, &CallHierarchyDialog::expand);
     connect(m_tree, &QTreeWidget::itemActivated, this, &CallHierarchyDialog::activate);
     connect(m_tree, &QTreeWidget::itemDoubleClicked, this, &CallHierarchyDialog::activate);
-    connect(m_callers, &QRadioButton::toggled, this, [this](bool on) {
+    connect(m_up, &QRadioButton::toggled, this, [this](bool on) {
         if (on)
             rebuild();
     });
-    connect(m_callees, &QRadioButton::toggled, this, [this](bool on) {
+    connect(m_down, &QRadioButton::toggled, this, [this](bool on) {
         if (on)
             rebuild();
     });
 }
 
-void CallHierarchyDialog::setRoot(const LspCallItem &item, const QString &root)
+void CallHierarchyDialog::setRoot(const LspCallItem &item, const QString &root, bool down)
 {
     m_root = item;
     m_projectRoot = root;
-    setWindowTitle(tr("Call Hierarchy of %1").arg(item.name));
+    setWindowTitle(m_kind == Kind::Calls ? tr("Call Hierarchy of %1").arg(item.name) : tr("Type Hierarchy of %1").arg(item.name));
     {
-        QSignalBlocker b1(m_callers), b2(m_callees);
-        m_callers->setChecked(true);
+        QSignalBlocker b1(m_up), b2(m_down);
+        (down ? m_down : m_up)->setChecked(true);
     }
     rebuild();
 }
@@ -72,7 +73,8 @@ QTreeWidgetItem *CallHierarchyDialog::makeNode(const LspCallItem &item, QTreeWid
     QString text = item.name;
     if (!item.detail.isEmpty())
         text += QStringLiteral("  ") + item.detail;
-    text += QStringLiteral("    %1:%2").arg(QFileInfo(file).fileName()).arg(item.line + 1);
+    if (!item.path.isEmpty()) // a library class without source has none
+        text += QStringLiteral("    %1:%2").arg(QFileInfo(file).fileName()).arg(item.line + 1);
     if (item.callSites.size() > 1)
         text += QStringLiteral("  ×%1").arg(item.callSites.size());
     node->setText(0, text);
@@ -96,8 +98,11 @@ void CallHierarchyDialog::rebuild()
 {
     m_tree->clear();
     m_items.clear();
-    const bool incoming = m_callers->isChecked();
-    m_title->setText(incoming ? tr("Callers of “%1”").arg(m_root.name) : tr("Functions called by “%1”").arg(m_root.name));
+    const bool up = m_up->isChecked();
+    if (m_kind == Kind::Calls)
+        m_title->setText(up ? tr("Callers of “%1”").arg(m_root.name) : tr("Functions called by “%1”").arg(m_root.name));
+    else
+        m_title->setText(up ? tr("Supertypes of “%1”").arg(m_root.name) : tr("Subtypes of “%1”").arg(m_root.name));
     QTreeWidgetItem *root = makeNode(m_root, nullptr, true);
     QFont f = root->font(0);
     f.setBold(true);
@@ -115,11 +120,11 @@ void CallHierarchyDialog::expand(QTreeWidgetItem *node)
     wait->setText(0, tr("Loading…"));
     wait->setData(0, RoleState, Loaded);
     const LspCallItem item = m_items.value(node->data(0, RoleIndex).toInt());
-    const bool incoming = m_callers->isChecked();
+    const bool up = m_up->isChecked();
     QPointer<CallHierarchyDialog> guard(this);
     const int index = node->data(0, RoleIndex).toInt();
-    m_fetch(item, incoming, [guard, index, incoming](const QVector<LspCallItem> &calls, bool ok) {
-        if (!guard || guard->m_callers->isChecked() != incoming)
+    m_fetch(item, up, [guard, index, up](const QVector<LspCallItem> &calls, bool ok) {
+        if (!guard || guard->m_up->isChecked() != up)
             return; // the direction changed meanwhile: that tree is gone
         // Find the node again: the tree may have been rebuilt.
         QTreeWidgetItem *target = nullptr;
@@ -152,11 +157,14 @@ void CallHierarchyDialog::fill(QTreeWidgetItem *node, const QVector<LspCallItem>
 {
     if (calls.isEmpty()) {
         auto *none = new QTreeWidgetItem(node);
-        none->setText(0, m_callers->isChecked() ? tr("No callers found") : tr("Calls nothing"));
+        if (m_kind == Kind::Calls)
+            none->setText(0, m_up->isChecked() ? tr("No callers found") : tr("Calls nothing"));
+        else
+            none->setText(0, m_up->isChecked() ? tr("No supertypes") : tr("No subtypes found"));
         none->setForeground(0, palette().color(QPalette::Disabled, QPalette::Text));
         return;
     }
-    // A function already on the path to the root is shown but not expanded again (recursion).
+    // A function (type) already on the path to the root is shown but not expanded again (recursion).
     QList<QPair<QString, QPair<int, int>>> path;
     for (QTreeWidgetItem *p = node; p; p = p->parent()) {
         const LspCallItem &it = m_items.at(p->data(0, RoleIndex).toInt());
@@ -177,5 +185,6 @@ void CallHierarchyDialog::activate(QTreeWidgetItem *node)
     if (!node || node->data(0, RoleIndex).isNull())
         return;
     const LspCallItem &it = m_items.at(node->data(0, RoleIndex).toInt());
-    emit openRequested(it.path, it.line, it.column);
+    if (!it.path.isEmpty())
+        emit openRequested(it.path, it.line, it.column);
 }

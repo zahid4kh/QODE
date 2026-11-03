@@ -24,6 +24,8 @@ public:
     // A "Table" / "Text" switch at the right end of the bar (CSV / TSV files); `table` says which view is showing.
     void setTableToggle(bool available, bool table);
     void setCrumbs(const QList<Crumb> &path, const QList<Crumb> &symbols);
+    // A muted note at the right end of the bar ("Large file"), with what it means as its tooltip. Empty = none.
+    void setNote(const QString &text, const QString &tooltip);
 
     struct Symbol {
         QString name;
@@ -77,4 +79,6 @@ private:
     bool m_tableShown = false;
     bool m_tableHover = false;
     QRect m_tableRect;
+    QString m_note, m_noteTip;
+    QRect m_noteRect;
 };

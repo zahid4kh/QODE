@@ -1,11 +1,11 @@
 #include "InstanceRegistry.h"
 
+#include "platform/Platform.h"
+
 #include <QCryptographicHash>
 #include <QFileInfo>
 #include <QLocalServer>
 #include <QLocalSocket>
-
-#include <unistd.h>
 
 namespace {
 QString normalized(const QString &path)
@@ -25,8 +25,8 @@ InstanceRegistry &InstanceRegistry::instance()
 QString InstanceRegistry::nameFor(Kind kind, const QString &path)
 {
     const QByteArray hash = QCryptographicHash::hash(normalized(path).toUtf8(), QCryptographicHash::Sha1).toHex().left(20);
-    // The abstract namespace is shared by every user on the machine, so the uid is part of the name.
-    return QStringLiteral("qode-%1-%2-%3").arg(getuid()).arg(kind == Project ? QLatin1String("p") : QLatin1String("f"), QString::fromLatin1(hash));
+    // The abstract namespace (named pipes on Windows) is shared by every user on the machine, so the user is part of the name.
+    return QStringLiteral("qode-%1-%2-%3").arg(Platform::userKey()).arg(kind == Project ? QLatin1String("p") : QLatin1String("f"), QString::fromLatin1(hash));
 }
 
 bool InstanceRegistry::isHeldElsewhere(Kind kind, const QString &path) const

@@ -1,6 +1,7 @@
 #include "LspInstaller.h"
 
 #include "LspServers.h"
+#include "platform/Platform.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -15,8 +16,6 @@
 #include <QSysInfo>
 #include <QTimer>
 #include <QUrl>
-
-#include <unistd.h>
 
 namespace {
 const char *kPinnedVersion = "263.6379.0";
@@ -34,20 +33,6 @@ bool isArm()
 bool isIntel()
 {
     return QSysInfo::currentCpuArchitecture() == QLatin1String("x86_64");
-}
-
-// Replaces `link` with a symlink to `target` in one step (a half-written link is never visible).
-bool replaceSymlink(const QString &target, const QString &link)
-{
-    const QString tmp = link + QStringLiteral(".new");
-    ::unlink(QFile::encodeName(tmp).constData());
-    if (::symlink(QFile::encodeName(target).constData(), QFile::encodeName(tmp).constData()) != 0)
-        return false;
-    if (::rename(QFile::encodeName(tmp).constData(), QFile::encodeName(link).constData()) != 0) {
-        ::unlink(QFile::encodeName(tmp).constData());
-        return false;
-    }
-    return true;
 }
 
 void makeExecutable(const QString &path)
@@ -350,7 +335,7 @@ void LspInstaller::finalize()
     makeExecutable(target + QStringLiteral("/jbr/bin/java"));
     QFile::remove(m_file.fileName());
 
-    if (!replaceSymlink(m_version, installRoot() + QStringLiteral("/current"))) {
+    if (!Platform::replaceSymlink(m_version, installRoot() + QStringLiteral("/current"))) {
         abort(tr("Could not create the link %1/current").arg(installRoot()));
         return;
     }
@@ -362,8 +347,8 @@ void LspInstaller::finalize()
             if (!link.isSymLink() || !isManaged(link.symLinkTarget()))
                 m_note += tr("%1 already exists and was left unchanged. ").arg(linkPath());
             else
-                replaceSymlink(installRoot() + QStringLiteral("/current/bin/intellij-server"), linkPath());
-        } else if (!replaceSymlink(installRoot() + QStringLiteral("/current/bin/intellij-server"), linkPath())) {
+                Platform::replaceSymlink(installRoot() + QStringLiteral("/current/bin/intellij-server"), linkPath());
+        } else if (!Platform::replaceSymlink(installRoot() + QStringLiteral("/current/bin/intellij-server"), linkPath())) {
             m_note += tr("Could not create %1. ").arg(linkPath());
         }
         const QStringList path = qEnvironmentVariable("PATH").split(QDir::listSeparator(), Qt::SkipEmptyParts);

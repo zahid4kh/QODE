@@ -1,11 +1,10 @@
 #include "app/Application.h"
 #include "app/StartupProfile.h"
+#include "platform/Platform.h"
 #include "platform/ProcessTree.h"
 #include "window/MainWindow.h"
 
 #include <QCommandLineParser>
-
-#include <csignal>
 
 int main(int argc, char *argv[])
 {
@@ -14,7 +13,7 @@ int main(int argc, char *argv[])
         return 0;
     StartupProfile::begin();
     // Writing to a child process (git, the shell) that already exited must fail with an error, not kill the editor.
-    std::signal(SIGPIPE, SIG_IGN);
+    Platform::initProcess();
     // Qt WebEngine (the web preview) shares OpenGL contexts with the widgets; this must be set before the application exists.
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
     Application app(argc, argv);

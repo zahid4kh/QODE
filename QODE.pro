@@ -305,6 +305,7 @@ HEADERS += \
     src/webdev/EnvDialog.h \
     src/webdev/WebPreview.h \
     src/app/Application.h \
+    src/platform/Platform.h \
     src/platform/ProcessTree.h \
     src/app/DesktopNotify.h \
     src/app/InstanceRegistry.h \
@@ -508,8 +509,9 @@ HEADERS += \
     src/window/MainWindow.h
 
 # The OS layer (src/platform/): one implementation per OS behind the same headers.
-unix: SOURCES += src/platform/ProcessTreeUnix.cpp
-win32: SOURCES += src/platform/ProcessTreeWin.cpp
+unix: SOURCES += src/platform/PlatformUnix.cpp src/platform/ProcessTreeUnix.cpp
+win32: SOURCES += src/platform/PlatformWin.cpp src/platform/ProcessTreeWin.cpp
+win32: LIBS += -ladvapi32 # PlatformWin: the user's SID
 
 RESOURCES += resources/qode.qrc
 

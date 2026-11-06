@@ -1,6 +1,7 @@
 #include "JdtlsInstaller.h"
 
 #include "LspServers.h"
+#include "platform/Platform.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -13,8 +14,6 @@
 #include <QUrl>
 #include <QVersionNumber>
 
-#include <unistd.h>
-
 namespace {
 const char *kPinnedVersion = "1.61.0";
 const char *kPinnedArchive = "jdt-language-server-1.61.0-202609031315.tar.gz";
@@ -23,20 +22,6 @@ const char *kPinnedSha256 = "338e7e73d61836651ba2453919a0d34fa763eb4e7c033420923
 const char *kMilestones = "https://download.eclipse.org/jdtls/milestones";
 constexpr qint64 kNeededBytes = 400LL * 1024 * 1024; // archive (~50 MB) + unpacked copy + slack
 constexpr int kNetworkTimeoutMs = 30000;
-
-// Replaces `link` with a symlink to `target` in one step (a half-written link is never visible).
-bool replaceSymlink(const QString &target, const QString &link)
-{
-    const QString tmp = link + QStringLiteral(".new");
-    ::unlink(QFile::encodeName(tmp).constData());
-    if (::symlink(QFile::encodeName(target).constData(), QFile::encodeName(tmp).constData()) != 0)
-        return false;
-    if (::rename(QFile::encodeName(tmp).constData(), QFile::encodeName(link).constData()) != 0) {
-        ::unlink(QFile::encodeName(tmp).constData());
-        return false;
-    }
-    return true;
-}
 
 QString replyError(QNetworkReply *r)
 {
@@ -320,7 +305,7 @@ void JdtlsInstaller::finalize()
     QFile launcher(target + QStringLiteral("/bin/jdtls"));
     launcher.setPermissions(launcher.permissions() | QFileDevice::ExeOwner | QFileDevice::ExeGroup | QFileDevice::ExeOther);
     QFile::remove(m_file.fileName());
-    if (!replaceSymlink(m_version, installRoot() + QStringLiteral("/current"))) {
+    if (!Platform::replaceSymlink(m_version, installRoot() + QStringLiteral("/current"))) {
         abort(tr("Could not create the link %1/current").arg(installRoot()));
         return;
     }

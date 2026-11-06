@@ -1,14 +1,14 @@
 #include "StartupProfile.h"
 
+#include "platform/Platform.h"
+
 #include <QApplication>
 #include <QEvent>
-#include <QFile>
 #include <QStringList>
 #include <QTimer>
 #include <QWidget>
 
 #include <cstdio>
-#include <unistd.h>
 
 QElapsedTimer StartupProfile::s_clock;
 qint64 StartupProfile::s_last = 0;
@@ -18,24 +18,6 @@ bool StartupProfile::s_done = false;
 QVector<StartupProfile::Mark> StartupProfile::s_marks;
 
 namespace {
-
-// How long the process ran before main(): loading and linking Qt's libraries, static initialisers. From the process's
-// start time in /proc (in clock ticks, so about 10 ms precise); -1 when it cannot be read.
-qint64 msBeforeMain()
-{
-    QFile stat(QStringLiteral("/proc/self/stat")), uptime(QStringLiteral("/proc/uptime"));
-    if (!stat.open(QIODevice::ReadOnly) || !uptime.open(QIODevice::ReadOnly))
-        return -1;
-    const QByteArray s = stat.readAll();
-    // Fields after the command name "(…)", which may hold spaces; starttime is field 22, the 20th after it.
-    const QList<QByteArray> fields = s.mid(s.lastIndexOf(')') + 2).split(' ');
-    const long ticks = sysconf(_SC_CLK_TCK);
-    if (fields.size() < 20 || ticks <= 0)
-        return -1;
-    const double started = fields.at(19).toDouble() / ticks;
-    const double now = uptime.readAll().split(' ').value(0).toDouble();
-    return now > 0 && now >= started ? qint64((now - started) * 1000) : -1;
-}
 
 // Calls finish() once the first paint of any widget in the watched window has been flushed to the screen (the window
 // itself may never get a paint event: its children cover it).
@@ -66,7 +48,7 @@ void StartupProfile::finishOnFirstPaint(QWidget *window)
 
 void StartupProfile::begin()
 {
-    s_beforeMain = msBeforeMain();
+    s_beforeMain = Platform::msBeforeMain(); // loading and linking Qt's libraries, static initialisers
     s_clock.start();
 }
 

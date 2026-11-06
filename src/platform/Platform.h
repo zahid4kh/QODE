@@ -56,6 +56,10 @@ bool wrapperNeedsExecBit(const QString &dir, const QString &name);
 QString venvBinDir();
 QString venvProgram(const QString &venv, const QString &name);
 
+// Whether files have an exec bit QODE should offer to set (chmod +x). Unix: true. Windows: false (a file runs by its
+// extension, and QFileInfo::isExecutable only reports that).
+bool hasExecBit();
+
 // The git executable, empty when there is none. PATH first; on Windows also Git for Windows' usual install folders,
 // for an install that did not add itself to PATH.
 QString gitExecutable();

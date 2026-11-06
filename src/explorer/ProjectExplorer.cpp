@@ -1,4 +1,5 @@
 #include "ProjectExplorer.h"
+#include "platform/Platform.h"
 
 #include "cpp/CppTools.h"
 
@@ -399,7 +400,7 @@ void ProjectExplorer::showContextMenu(const QPoint &pos)
             menu.addAction(tr("New File"), this, [this, dir] { createFileIn(dir); });
             if (m_newMenuHook)
                 m_newMenuHook(&menu, dir);
-            if (FileManager::isScript(path))
+            if (Platform::hasExecBit() && FileManager::isScript(path)) // chmod +x: Unix only
                 addScriptActions(&menu, path);
         }
         menu.addSeparator();

@@ -198,6 +198,11 @@ QString Platform::venvProgram(const QString &venv, const QString &name)
     return fi.isFile() ? fi.absoluteFilePath() : QString();
 }
 
+bool Platform::hasExecBit()
+{
+    return false;
+}
+
 QString Platform::gitExecutable()
 {
     const QString onPath = QStandardPaths::findExecutable(QStringLiteral("git"));

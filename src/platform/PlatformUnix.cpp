@@ -1,12 +1,19 @@
 #include "platform/Platform.h"
 
 #include <QByteArray>
+#include <QCoreApplication>
 #include <QFile>
 #include <QList>
+#include <QProcess>
 
 #include <csignal>
 #include <cstdio>
 #include <unistd.h>
+
+bool Platform::runIfHelper(int, char *[])
+{
+    return false;
+}
 
 void Platform::initProcess()
 {
@@ -45,4 +52,16 @@ bool Platform::replaceSymlink(const QString &target, const QString &link)
         return false;
     }
     return true;
+}
+
+void Platform::setShellCommand(QProcess *process, const QString &command)
+{
+    process->setProgram(QStringLiteral("/bin/sh"));
+    process->setArguments({QStringLiteral("-c"), command});
+}
+
+void Platform::restartSelf()
+{
+    QProcess::startDetached(QStringLiteral("/bin/sh"),
+                            {QStringLiteral("-c"), QStringLiteral("sleep 1; exec \"$0\""), QCoreApplication::applicationFilePath()});
 }

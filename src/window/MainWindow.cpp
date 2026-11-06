@@ -31,6 +31,7 @@
 #include "media/MarkdownPreview.h"
 #include "media/MediaPanel.h"
 #include "palette/PalettePopup.h"
+#include "platform/Platform.h"
 #include "project/JvmProject.h"
 #include "project/ProjectFiles.h"
 #include "project/ProjectManager.h"
@@ -720,8 +721,7 @@ void MainWindow::restartApplication()
 {
     if (!close())
         return;
-    QProcess::startDetached(QStringLiteral("/bin/sh"),
-                            {QStringLiteral("-c"), QStringLiteral("sleep 1; exec \"$0\""), QCoreApplication::applicationFilePath()});
+    Platform::restartSelf();
 }
 
 // Every window is its own process: no shared state, and one crashing or closing never affects another.

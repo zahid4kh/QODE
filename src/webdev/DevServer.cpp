@@ -1,6 +1,7 @@
 #include "DevServer.h"
 
 #include "lsp/LspServers.h"
+#include "platform/Platform.h"
 #include "platform/ProcessTree.h"
 
 #include <QDir>
@@ -95,7 +96,8 @@ void DevServer::start(const QString &command, const QString &workDir, int port)
     m_proc->setWorkingDirectory(workDir);
     ++m_starts;
     setState(State::Starting);
-    m_proc->start(QStringLiteral("/bin/sh"), {QStringLiteral("-c"), command});
+    Platform::setShellCommand(m_proc, command);
+    m_proc->start();
 }
 
 void DevServer::adjustEnvironment(QProcessEnvironment &)

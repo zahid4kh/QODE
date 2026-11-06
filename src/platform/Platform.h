@@ -2,9 +2,15 @@
 
 #include <QString>
 
+class QProcess;
+
 // Small OS services that have one implementation per OS: PlatformUnix.cpp (Linux, later macOS) and PlatformWin.cpp.
 // No OS headers here; callers never #ifdef on the OS themselves.
 namespace Platform {
+
+// Called first in main(), with the watchdog check: true when this process was started as one of QODE's helpers (see
+// restartSelf) and has done its job, so main returns at once. Unix: no helpers, always false.
+bool runIfHelper(int argc, char *argv[]);
 
 // First thing in main(), before Qt starts. Unix: writing to a child process that already exited (git, the shell)
 // fails with EPIPE instead of killing QODE with SIGPIPE. Windows: nothing to do.
@@ -22,5 +28,14 @@ QString userKey();
 // when it could not. Windows: always false for now (creating symlinks needs Developer Mode or admin rights; the
 // installers that use it get a Windows layout in Phase 5 of the port).
 bool replaceSymlink(const QString &target, const QString &link);
+
+// Sets `process` up to run a command line through the system shell; start() it afterwards. Unix: /bin/sh -c. Windows:
+// cmd.exe /d /s /c, with the line handed to cmd as it is (cmd's own quoting rules apply, and npm / npx resolve to their
+// .cmd wrappers).
+void setShellCommand(QProcess *process, const QString &command);
+
+// Starts QODE again once this process has ended; call it after the window closed (the project claim goes with the
+// process). Unix: a shell that waits a second, then execs QODE. Windows: a helper that waits for this process to exit.
+void restartSelf();
 
 } // namespace Platform

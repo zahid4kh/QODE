@@ -82,8 +82,8 @@ void DevServer::start(const QString &command, const QString &workDir, int port)
         extra << QFileInfo(node).absolutePath();
     const QString home = QDir::homePath();
     extra << home + QStringLiteral("/.bun/bin") << home + QStringLiteral("/.local/share/pnpm") << home + QStringLiteral("/.yarn/bin")
-          << home + QStringLiteral("/.local/bin") << home + QStringLiteral("/.npm-global/bin");
-    env.insert(QStringLiteral("PATH"), extra.join(QLatin1Char(':')) + QLatin1Char(':') + env.value(QStringLiteral("PATH")));
+          << home + QStringLiteral("/.local/bin") << home + QStringLiteral("/.npm-global/bin") << Platform::extraBinDirs();
+    env.insert(QStringLiteral("PATH"), extra.join(QDir::listSeparator()) + QDir::listSeparator() + env.value(QStringLiteral("PATH")));
     env.insert(QStringLiteral("NO_COLOR"), QStringLiteral("1"));
     env.remove(QStringLiteral("FORCE_COLOR"));
     env.insert(QStringLiteral("BROWSER"), QStringLiteral("none")); // create-react-app would otherwise open a tab itself

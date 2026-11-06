@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 
 class QProcess;
 
@@ -33,6 +34,11 @@ bool replaceSymlink(const QString &target, const QString &link);
 // cmd.exe /d /s /c, with the line handed to cmd as it is (cmd's own quoting rules apply, and npm / npx resolve to their
 // .cmd wrappers).
 void setShellCommand(QProcess *process, const QString &command);
+
+// Folders where per-user tools land that a desktop-launched QODE may lack on PATH, beyond the home-relative ones the
+// callers add themselves (~/.local/bin, ~/.bun/bin, ~/.cargo/bin …, the same on every OS). Unix: none. Windows: npm's
+// global folder, pnpm's, Node.js's, WinGet's links and Scoop's shims. Only folders that exist.
+QStringList extraBinDirs();
 
 // Starts QODE again once this process has ended; call it after the window closed (the project claim goes with the
 // process). Unix: a shell that waits a second, then execs QODE. Windows: a helper that waits for this process to exit.

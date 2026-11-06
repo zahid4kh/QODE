@@ -1,5 +1,7 @@
 #include "platform/Platform.h"
 
+#include <QDir>
+#include <QFileInfo>
 #include <QProcess>
 #include <QtGlobal>
 
@@ -118,6 +120,27 @@ void Platform::setShellCommand(QProcess *process, const QString &command)
     process->setProgram(qEnvironmentVariable("ComSpec", QStringLiteral("cmd.exe")));
     process->setArguments({});
     process->setNativeArguments(QStringLiteral("/d /s /c \"") + command + QLatin1Char('"'));
+}
+
+QStringList Platform::extraBinDirs()
+{
+    QStringList out;
+    const auto add = [&out](const QString &dir) {
+        if (!dir.isEmpty() && QFileInfo(dir).isDir())
+            out << QDir::toNativeSeparators(dir);
+    };
+    const QString appData = qEnvironmentVariable("APPDATA"), local = qEnvironmentVariable("LOCALAPPDATA");
+    const QString programFiles = qEnvironmentVariable("ProgramFiles", QStringLiteral("C:\\Program Files"));
+    if (!appData.isEmpty())
+        add(appData + QStringLiteral("\\npm")); // npm install -g
+    if (!local.isEmpty()) {
+        add(local + QStringLiteral("\\pnpm"));
+        add(local + QStringLiteral("\\Microsoft\\WinGet\\Links"));
+        add(local + QStringLiteral("\\Volta\\bin"));
+    }
+    add(programFiles + QStringLiteral("\\nodejs"));
+    add(QDir::homePath() + QStringLiteral("/scoop/shims"));
+    return out;
 }
 
 void Platform::restartSelf()

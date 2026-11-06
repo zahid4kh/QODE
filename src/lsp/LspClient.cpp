@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QDesktopServices>
+#include <QDir>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -163,7 +164,7 @@ LspClient::~LspClient()
 void LspClient::prependToPath(const QString &dir)
 {
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert(QStringLiteral("PATH"), dir + QLatin1Char(':') + env.value(QStringLiteral("PATH")));
+    env.insert(QStringLiteral("PATH"), QDir::toNativeSeparators(dir) + QDir::listSeparator() + env.value(QStringLiteral("PATH")));
     m_proc->setProcessEnvironment(env);
 }
 

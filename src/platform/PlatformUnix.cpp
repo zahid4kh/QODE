@@ -60,6 +60,11 @@ void Platform::setShellCommand(QProcess *process, const QString &command)
     process->setArguments({QStringLiteral("-c"), command});
 }
 
+QStringList Platform::extraBinDirs()
+{
+    return {};
+}
+
 void Platform::restartSelf()
 {
     QProcess::startDetached(QStringLiteral("/bin/sh"),

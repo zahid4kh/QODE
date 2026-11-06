@@ -69,7 +69,7 @@ void NpmInstaller::start()
     m_proc->setProcessChannelMode(QProcess::MergedChannels);
     // npm is a "#!/usr/bin/env node" script: make sure that finds the node it was found next to.
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert(QStringLiteral("PATH"), QFileInfo(node).absolutePath() + QLatin1Char(':') + env.value(QStringLiteral("PATH")));
+    env.insert(QStringLiteral("PATH"), QDir::toNativeSeparators(QFileInfo(node).absolutePath()) + QDir::listSeparator() + env.value(QStringLiteral("PATH")));
     m_proc->setProcessEnvironment(env);
     connect(m_proc, &QProcess::readyRead, this, [this] { emit output(QString::fromLocal8Bit(m_proc->readAll())); });
     connect(m_proc, &QProcess::errorOccurred, this, [this](QProcess::ProcessError e) {

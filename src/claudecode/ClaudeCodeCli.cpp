@@ -38,8 +38,9 @@ QString tail(const QString &output, const QString &skip)
 // often lacks it, and would then find an older npm copy in /usr/local/bin instead of the one the terminal runs.
 QStringList searchPath()
 {
-    const QString local = QDir::homePath() + QStringLiteral("/.local/bin");
-    QStringList path = qEnvironmentVariable("PATH").split(QLatin1Char(':'), Qt::SkipEmptyParts);
+    // Windows: the native installer uses %USERPROFILE%\.local\bin too. Native separators, so the check below matches.
+    const QString local = QDir::toNativeSeparators(QDir::homePath() + QStringLiteral("/.local/bin"));
+    QStringList path = qEnvironmentVariable("PATH").split(QDir::listSeparator(), Qt::SkipEmptyParts);
     if (!path.contains(local))
         path.prepend(local);
     return path;
@@ -80,7 +81,7 @@ void setAuthMode(AuthMode mode)
 QProcessEnvironment environment(const QString &projectRoot)
 {
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert(QStringLiteral("PATH"), searchPath().join(QLatin1Char(':')));
+    env.insert(QStringLiteral("PATH"), searchPath().join(QDir::listSeparator()));
     if (authMode() == AuthMode::ApiKey) {
         const QString key = AiEnv::apiKey(AiEnv::Provider::Claude, projectRoot);
         if (!key.isEmpty())

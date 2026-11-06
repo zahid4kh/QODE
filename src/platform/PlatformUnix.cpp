@@ -3,6 +3,7 @@
 #include <QByteArray>
 #include <QCoreApplication>
 #include <QFile>
+#include <QFileInfo>
 #include <QList>
 #include <QProcess>
 
@@ -58,6 +59,32 @@ void Platform::setShellCommand(QProcess *process, const QString &command)
 {
     process->setProgram(QStringLiteral("/bin/sh"));
     process->setArguments({QStringLiteral("-c"), command});
+}
+
+void Platform::setCommand(QProcess *process, const QString &program, const QStringList &args)
+{
+    process->setProgram(program);
+    process->setArguments(args);
+}
+
+QString Platform::wrapperCommand(const QString &dir, const QString &name)
+{
+    const QFileInfo fi(dir + QLatin1Char('/') + name);
+    if (!fi.exists())
+        return {};
+    return fi.isExecutable() ? QStringLiteral("./") + name : QStringLiteral("sh ") + name;
+}
+
+QString Platform::wrapperFile(const QString &dir, const QString &name)
+{
+    const QString path = dir + QLatin1Char('/') + name;
+    return QFileInfo(path).isExecutable() ? path : QString();
+}
+
+bool Platform::wrapperNeedsExecBit(const QString &dir, const QString &name)
+{
+    const QFileInfo fi(dir + QLatin1Char('/') + name);
+    return fi.exists() && !fi.isExecutable();
 }
 
 QStringList Platform::extraBinDirs()

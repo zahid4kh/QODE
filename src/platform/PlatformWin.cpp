@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QProcess>
+#include <QStandardPaths>
 #include <QtGlobal>
 
 #include <cstdlib>
@@ -120,6 +121,70 @@ void Platform::setShellCommand(QProcess *process, const QString &command)
     process->setProgram(qEnvironmentVariable("ComSpec", QStringLiteral("cmd.exe")));
     process->setArguments({});
     process->setNativeArguments(QStringLiteral("/d /s /c \"") + command + QLatin1Char('"'));
+}
+
+namespace {
+
+// One argument for a cmd.exe command line: quoted when it holds a space or a character cmd treats specially, with
+// embedded quotes doubled (what batch files expect).
+QString cmdQuote(const QString &arg)
+{
+    if (arg.isEmpty())
+        return QStringLiteral("\"\"");
+    static const QString special = QStringLiteral(" \t\"&|<>^(),;=");
+    bool plain = true;
+    for (const QChar c : arg)
+        if (special.contains(c)) {
+            plain = false;
+            break;
+        }
+    if (plain)
+        return arg;
+    QString q = arg;
+    q.replace(QLatin1Char('"'), QStringLiteral("\"\""));
+    return QLatin1Char('"') + q + QLatin1Char('"');
+}
+
+} // namespace
+
+void Platform::setCommand(QProcess *process, const QString &program, const QStringList &args)
+{
+    QString exe = program;
+    if (!exe.contains(QLatin1Char('/')) && !exe.contains(QLatin1Char('\\'))) {
+        const QString found = QStandardPaths::findExecutable(exe); // adds PATHEXT: gradle -> gradle.bat
+        if (!found.isEmpty())
+            exe = found;
+    }
+    const QString suffix = QFileInfo(exe).suffix().toLower();
+    if (suffix != QLatin1String("bat") && suffix != QLatin1String("cmd")) {
+        process->setProgram(exe);
+        process->setArguments(args);
+        return;
+    }
+    QString line = cmdQuote(QDir::toNativeSeparators(exe));
+    for (const QString &a : args)
+        line += QLatin1Char(' ') + cmdQuote(a);
+    setShellCommand(process, line);
+}
+
+QString Platform::wrapperCommand(const QString &dir, const QString &name)
+{
+    return wrapperFile(dir, name).isEmpty() ? QString() : QStringLiteral(".\\") + name;
+}
+
+QString Platform::wrapperFile(const QString &dir, const QString &name)
+{
+    for (const char *ext : {".bat", ".cmd"}) {
+        const QString path = dir + QLatin1Char('/') + name + QLatin1String(ext);
+        if (QFileInfo(path).isFile())
+            return path;
+    }
+    return {};
+}
+
+bool Platform::wrapperNeedsExecBit(const QString &, const QString &)
+{
+    return false;
 }
 
 QStringList Platform::extraBinDirs()

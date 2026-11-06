@@ -1,4 +1,5 @@
 #include "project/GradleProject.h"
+#include "platform/Platform.h"
 
 #include <QDir>
 #include <QFile>
@@ -64,9 +65,9 @@ GradleProject GradleProject::detect(const QString &root)
     if (!wrapper && buildFile(root).isEmpty() && !QFileInfo::exists(root + QStringLiteral("/settings.gradle.kts"))
         && !QFileInfo::exists(root + QStringLiteral("/settings.gradle")))
         return g;
-    const QString tool = wrapper ? (QFileInfo(root + QStringLiteral("/gradlew")).isExecutable() ? QStringLiteral("./gradlew")
-                                                                                              : QStringLiteral("sh gradlew"))
-                                 : QStringLiteral("gradle");
+    QString tool = Platform::wrapperCommand(root, QStringLiteral("gradlew"));
+    if (tool.isEmpty())
+        tool = QStringLiteral("gradle");
 
     Kind best;
     QString module;

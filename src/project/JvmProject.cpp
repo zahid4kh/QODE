@@ -1,4 +1,5 @@
 #include "project/JvmProject.h"
+#include "platform/Platform.h"
 #include "platform/AppPaths.h"
 
 #include <QDir>
@@ -203,11 +204,13 @@ BuildOf buildOf(const QString &root, const QString &file)
             b.module = first;
     }
     if (b.gradle) {
-        b.tool = wrapper ? (QFileInfo(root + QStringLiteral("/gradlew")).isExecutable() ? QStringLiteral("./gradlew") : QStringLiteral("sh gradlew"))
-                         : QStringLiteral("gradle");
+        b.tool = Platform::wrapperCommand(root, QStringLiteral("gradlew"));
+        if (b.tool.isEmpty())
+            b.tool = QStringLiteral("gradle");
     } else {
-        const QString w = root + QStringLiteral("/mvnw");
-        b.tool = QFileInfo::exists(w) ? (QFileInfo(w).isExecutable() ? QStringLiteral("./mvnw") : QStringLiteral("sh mvnw")) : QStringLiteral("mvn");
+        b.tool = Platform::wrapperCommand(root, QStringLiteral("mvnw"));
+        if (b.tool.isEmpty())
+            b.tool = QStringLiteral("mvn");
         if (!b.module.isEmpty())
             b.tool += QStringLiteral(" -f ") + shellQuote(b.module + QStringLiteral("/pom.xml"));
     }
@@ -297,11 +300,13 @@ JvmProject JvmProject::detect(const QString &root)
 
     QString tool;
     if (gradle) {
-        tool = wrapper ? (QFileInfo(root + QStringLiteral("/gradlew")).isExecutable() ? QStringLiteral("./gradlew") : QStringLiteral("sh gradlew"))
-                       : QStringLiteral("gradle");
+        tool = Platform::wrapperCommand(root, QStringLiteral("gradlew"));
+        if (tool.isEmpty())
+            tool = QStringLiteral("gradle");
     } else {
-        const QString w = root + QStringLiteral("/mvnw");
-        tool = QFileInfo::exists(w) ? (QFileInfo(w).isExecutable() ? QStringLiteral("./mvnw") : QStringLiteral("sh mvnw")) : QStringLiteral("mvn");
+        tool = Platform::wrapperCommand(root, QStringLiteral("mvnw"));
+        if (tool.isEmpty())
+            tool = QStringLiteral("mvn");
     }
 
     struct Scored { int score; Config c; QString kind; };

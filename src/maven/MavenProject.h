@@ -35,7 +35,8 @@ struct Pom {
 
 // The folder holding the Maven build: `root` with a pom.xml, else its first direct sub-folder with one. "" = none.
 QString buildDir(const QString &root);
-QString runner(const QString &dir);              // ./mvnw when it is executable, else mvn
+QString runner(const QString &dir);              // ./mvnw (.\mvnw on Windows) when it can run, else mvn
+QString runnerFile(const QString &dir);          // what to start for it: the wrapper file, else mvn
 bool wrapperNeedsExecBit(const QString &dir);    // mvnw exists without its exec bit
 QString wrapperVersion(const QString &dir);      // from .mvn/wrapper/maven-wrapper.properties, "" without a wrapper
 bool mavenAvailable(const QString &dir);         // an executable mvnw, or mvn on PATH

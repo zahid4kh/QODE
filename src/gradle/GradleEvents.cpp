@@ -100,7 +100,7 @@ QString initScript(const QString &root)
 
 bool runsGradle(const QString &command)
 {
-    static const QRegularExpression re(QStringLiteral(R"((?:^|[\s;&|(])(?:sh\s+)?(?:\./gradlew|gradlew|gradle)(?=\s|$))"));
+    static const QRegularExpression re(QStringLiteral(R"((?:^|[\s;&|(])(?:sh\s+)?(?:\./gradlew|\.\\gradlew|gradlew|gradle)(?=\s|$))"));
     return re.match(command).hasMatch();
 }
 
@@ -108,7 +108,7 @@ QString inject(const QString &command, const QString &root)
 {
     if (root.isEmpty() || (command.contains(QLatin1String("--init-script ")) && command.contains(QLatin1String("/events-"))))
         return command;
-    static const QRegularExpression re(QStringLiteral(R"((?:^|[\s;&|(])(?:sh\s+)?(?:\./gradlew|gradlew|gradle)(?=\s|$))"));
+    static const QRegularExpression re(QStringLiteral(R"((?:^|[\s;&|(])(?:sh\s+)?(?:\./gradlew|\.\\gradlew|gradlew|gradle)(?=\s|$))"));
     const QRegularExpressionMatch m = re.match(command);
     if (!m.hasMatch())
         return command;

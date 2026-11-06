@@ -1,6 +1,7 @@
 // MainWindow's language server side: the LSP menu and status, installing servers, Go to Definition, code actions,
 // workspace edits, rename, references and colour swatches.
 #include "MainWindow.h"
+#include "platform/Platform.h"
 #include "platform/AppPaths.h"
 
 #include "dialogs/CompilerFlagsDialog.h"
@@ -430,8 +431,8 @@ void MainWindow::goToDefinition(CodeEditor *editor, int line, int column, LspMan
 void MainWindow::fetchLibrarySources(const JarSource::Coordinates &coords, CodeEditor *editor, int line, int column)
 {
     const QString root = m_projects->project().root;
-    const QString wrapper = root + QStringLiteral("/gradlew");
-    const QString program = QFileInfo(wrapper).isExecutable() ? wrapper : QStandardPaths::findExecutable(QStringLiteral("gradle"));
+    const QString wrapper = Platform::wrapperFile(root, QStringLiteral("gradlew"));
+    const QString program = !wrapper.isEmpty() ? wrapper : QStandardPaths::findExecutable(QStringLiteral("gradle"));
     if (program.isEmpty()) {
         statusBar()->showMessage(tr("Gradle was not found (no gradlew in the project and no gradle on PATH)"), 6000);
         return;
@@ -476,7 +477,8 @@ void MainWindow::fetchLibrarySources(const JarSource::Coordinates &coords, CodeE
             proc->deleteLater();
         }
     });
-    proc->start(program, {QStringLiteral("-q"), QStringLiteral("-I"), script, QStringLiteral("-Pqode.sources=") + coords.text(), QStringLiteral("qodeLibrarySources")});
+    Platform::setCommand(proc, program, {QStringLiteral("-q"), QStringLiteral("-I"), script, QStringLiteral("-Pqode.sources=") + coords.text(), QStringLiteral("qodeLibrarySources")});
+    proc->start();
 }
 
 // Hover link on a gray import: let the user choose which unused imports go.

@@ -1,4 +1,5 @@
 #include "jvm/JvmTools.h"
+#include "platform/Platform.h"
 
 #include <QDir>
 #include <QFile>
@@ -581,8 +582,7 @@ Found wrapperVersion(const QString &dir)
 
 bool wrapperNeedsExecBit(const QString &dir)
 {
-    const QFileInfo fi(dir + QStringLiteral("/gradlew"));
-    return fi.exists() && !fi.isExecutable();
+    return Platform::wrapperNeedsExecBit(dir, QStringLiteral("gradlew"));
 }
 
 } // namespace JvmTools

@@ -35,6 +35,21 @@ bool replaceSymlink(const QString &target, const QString &link);
 // .cmd wrappers).
 void setShellCommand(QProcess *process, const QString &command);
 
+// Sets `process` up to run `program` with `args`; start() it afterwards. Unix: exactly that. Windows: a bare name is
+// looked up on PATH with PATHEXT (gradle -> gradle.bat), and a .bat / .cmd runs through cmd.exe with the arguments
+// quoted for it (CreateProcess cannot start those itself). Arguments must not contain '%' on Windows (cmd expands it).
+void setCommand(QProcess *process, const QString &program, const QStringList &args);
+
+// The wrapper scripts projects ship next to their build file (`gradlew`, `mvnw`), by base name:
+// - wrapperCommand: how a command line run in `dir` names it. Unix "./gradlew", or "sh gradlew" when the file lost its
+//   exec bit; Windows ".\gradlew" (cmd and PowerShell both find gradlew.bat / mvnw.cmd from that). Empty when none.
+// - wrapperFile: the file to start with setCommand (dir/gradlew, or dir/gradlew.bat on Windows); empty when there is
+//   none or (Unix) it is not executable.
+// - wrapperNeedsExecBit: Unix only, the script exists without its exec bit (a zip download, a checkout without modes).
+QString wrapperCommand(const QString &dir, const QString &name);
+QString wrapperFile(const QString &dir, const QString &name);
+bool wrapperNeedsExecBit(const QString &dir, const QString &name);
+
 // Folders where per-user tools land that a desktop-launched QODE may lack on PATH, beyond the home-relative ones the
 // callers add themselves (~/.local/bin, ~/.bun/bin, ~/.cargo/bin …, the same on every OS). Unix: none. Windows: npm's
 // global folder, pnpm's, Node.js's, WinGet's links and Scoop's shims. Only folders that exist.

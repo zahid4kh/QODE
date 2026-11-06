@@ -1,4 +1,5 @@
 #include "GradleTasks.h"
+#include "platform/Platform.h"
 
 #include <QDir>
 #include <QFile>
@@ -39,7 +40,8 @@ QString buildDir(const QString &root)
 
 QString runner(const QString &dir)
 {
-    return QFileInfo(dir + QStringLiteral("/gradlew")).isExecutable() ? QStringLiteral("./gradlew") : QStringLiteral("gradle");
+    const QString gradlew = QStringLiteral("gradlew");
+    return Platform::wrapperFile(dir, gradlew).isEmpty() ? QStringLiteral("gradle") : Platform::wrapperCommand(dir, gradlew);
 }
 
 QList<Group> parse(const QString &output)

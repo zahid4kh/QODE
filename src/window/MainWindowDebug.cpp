@@ -299,13 +299,13 @@ QString MainWindow::debugInitScript(int port, bool tests) const
 QString MainWindow::debugCommandFor(const QString &runCommand, int port) const
 {
     const QString agent = DebugSession::agentOption(port);
-    static const QRegularExpression gradle(QStringLiteral(R"((?:^|[\s;&|(])(?:sh\s+)?(?:\./gradlew|gradlew|gradle)(?=\s|$))"));
+    static const QRegularExpression gradle(QStringLiteral(R"((?:^|[\s;&|(])(?:sh\s+)?(?:\./gradlew|\.\\gradlew|gradlew|gradle)(?=\s|$))"));
     if (const QRegularExpressionMatch m = gradle.match(runCommand); m.hasMatch()) {
         QString out = runCommand;
         out.insert(m.capturedEnd(), QStringLiteral(" --init-script ") + JvmTools::shellQuote(debugInitScript(port)));
         return out;
     }
-    static const QRegularExpression maven(QStringLiteral(R"(^\s*(?:\./mvnw|sh\s+mvnw|mvn)\b)"));
+    static const QRegularExpression maven(QStringLiteral(R"(^\s*(?:\./mvnw|\.\\mvnw|sh\s+mvnw|mvn)\b)"));
     if (maven.match(runCommand).hasMatch())
         return QStringLiteral("MAVEN_OPTS=%1 %2").arg(JvmTools::shellQuote(agent), runCommand);
     static const QRegularExpression java(QStringLiteral(R"((^|[\s;&|(])java\s)"));

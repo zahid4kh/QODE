@@ -1,4 +1,5 @@
 #include "ktor/KtorReloader.h"
+#include "platform/Platform.h"
 
 #include "platform/ProcessTree.h"
 
@@ -108,8 +109,12 @@ void KtorReloader::launch(const QStringList &args)
     m_proc->setWorkingDirectory(m_project.workDir);
     m_pending.clear();
     m_stopping = false;
-    // The build tool as the server's command names it: "./gradlew" / "./mvnw" relative to the work folder.
-    m_proc->start(m_project.tool.startsWith(QLatin1String("./")) ? m_project.workDir + m_project.tool.mid(1) : m_project.tool, args);
+    // The build tool as the server's command names it: "./gradlew" / "./mvnw" (".\gradlew" on Windows) relative to the
+    // work folder, else gradle / mvn from PATH.
+    const QString &tool = m_project.tool;
+    const bool wrapper = tool.startsWith(QLatin1String("./")) || tool.startsWith(QLatin1String(".\\"));
+    Platform::setCommand(m_proc, wrapper ? Platform::wrapperFile(m_project.workDir, tool.mid(2)) : tool, args);
+    m_proc->start();
 }
 
 void KtorReloader::stop()

@@ -1,4 +1,5 @@
 #include "GradlePanel.h"
+#include "platform/Platform.h"
 
 #include "gradle/GradleBuildView.h"
 #include "jvm/JvmTools.h"
@@ -348,8 +349,9 @@ void GradlePanel::reload()
     QStringList args = {QStringLiteral("-q"), QStringLiteral("--console=plain"), QStringLiteral("tasks")};
     if (m_all)
         args << QStringLiteral("--all");
-    const QString runner = GradleTasks::runner(m_dir);
-    proc->start(runner == QLatin1String("./gradlew") ? m_dir + QStringLiteral("/gradlew") : runner, args);
+    const QString wrapper = Platform::wrapperFile(m_dir, QStringLiteral("gradlew"));
+    Platform::setCommand(proc, wrapper.isEmpty() ? QStringLiteral("gradle") : wrapper, args);
+    proc->start();
 }
 
 void GradlePanel::showState(const QString &title, const QString &text, bool retry)

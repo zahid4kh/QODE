@@ -1,4 +1,5 @@
 #include "MavenPanel.h"
+#include "platform/Platform.h"
 #include "platform/AppPaths.h"
 
 #include "jvm/JvmTools.h"
@@ -687,8 +688,8 @@ void MavenPanel::loadEffectivePom(bool open)
         args.prepend(QStringLiteral("-o"));
     if (!m_profiles.isEmpty())
         args << QStringLiteral("-P") + m_profiles.join(QLatin1Char(','));
-    const QString r = MavenProject::runner(m_dir);
-    proc->start(r == QLatin1String("./mvnw") ? m_dir + QStringLiteral("/mvnw") : r, args);
+    Platform::setCommand(proc, MavenProject::runnerFile(m_dir), args);
+    proc->start();
 }
 
 void MavenPanel::loadDependencyTree()
@@ -736,8 +737,8 @@ void MavenPanel::loadDependencyTree()
         args.prepend(QStringLiteral("-o"));
     if (!m_profiles.isEmpty())
         args << QStringLiteral("-P") + m_profiles.join(QLatin1Char(','));
-    const QString r = MavenProject::runner(m_dir);
-    proc->start(r == QLatin1String("./mvnw") ? m_dir + QStringLiteral("/mvnw") : r, args);
+    Platform::setCommand(proc, MavenProject::runnerFile(m_dir), args);
+    proc->start();
 }
 
 QTreeWidget *MavenPanel::currentTree() const
@@ -829,7 +830,7 @@ void MavenPanel::executeGoal()
     if (!ok || line.trimmed().isEmpty())
         return;
     QString goals = line.trimmed();
-    for (const QString &r : {QStringLiteral("./mvnw "), QStringLiteral("mvn ")})
+    for (const QString &r : {QStringLiteral("./mvnw "), QStringLiteral(".\\mvnw "), QStringLiteral("mvn ")})
         if (goals.startsWith(r))
             goals = goals.mid(r.size());
     emit runRequested(commandFor({goals}), m_dir);

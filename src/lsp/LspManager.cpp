@@ -180,6 +180,9 @@ LspManager::LspManager(QObject *parent) : QObject(parent), m_changeTimer(new QTi
 
 LspManager::~LspManager()
 {
+    // The window deletes this as a child from ~QWidget, after its own members are gone: a statusChanged() /
+    // diagnosticsChanged() from here would run MainWindow slots on freed widgets (a crash on every close on Windows).
+    blockSignals(true);
     shutdown();
 }
 

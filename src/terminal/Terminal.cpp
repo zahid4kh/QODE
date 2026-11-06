@@ -368,9 +368,11 @@ void Terminal::onShellMark(const QString &mark)
 
 void Terminal::commandEnded(int exitCode)
 {
-    // Not failures worth fixing: Ctrl+C, a kill or Ctrl+Z, and commands whose non-zero code only answers a question.
-    static const QList<int> stopped{130, 137, 143, 146, 148};
-    static const QStringList answers{"grep", "egrep", "fgrep", "rg", "ag", "diff", "cmp", "test", "[", "[[", "false", "true", "which", "type", "command", "exit"};
+    // Not failures worth fixing: Ctrl+C, a kill or Ctrl+Z (-1073741510 = STATUS_CONTROL_C_EXIT, Ctrl+C on Windows), and
+    // commands whose non-zero code only answers a question.
+    static const QList<int> stopped{130, 137, 143, 146, 148, -1073741510};
+    static const QStringList answers{"grep", "egrep", "fgrep", "rg", "ag", "diff", "cmp", "test", "[", "[[", "false", "true", "which", "type", "command", "exit",
+                                     "where", "where.exe", "findstr", "fc"};
     const QString first = m_commandText.section(QLatin1Char(' '), 0, 0, QString::SectionSkipEmpty);
     if (exitCode == 0 || stopped.contains(exitCode) || answers.contains(first))
         return;

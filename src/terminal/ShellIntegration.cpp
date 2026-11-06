@@ -13,7 +13,7 @@ namespace {
 // the start of each command (not for an empty line), PROMPT_COMMAND before each prompt: ours goes first so it sees the
 // command's $? and hands it on unchanged. The command line comes from the history; one kept out of it (a leading space
 // with ignorespace, a repeat with ignoredups) leaves HISTCMD where the prompt saw it, and is sent as "".
-const char *const kBash = R"(# QODE shell integration (bash): marks each command's start and exit code for the terminal.
+const char *const kBash = R"QODE(# QODE shell integration (bash): marks each command's start and exit code for the terminal.
 if [ -r ~/.bashrc ]; then . ~/.bashrc; fi
 __qode_preexec() {
     local c=
@@ -26,12 +26,13 @@ __qode_preexec() {
 __qode_precmd() {
     local s=$?
     builtin printf '\e]133;D;%s\a' "$s"
+    [[ $OSTYPE == msys || $OSTYPE == cygwin ]] && builtin printf '\e]633;P;Cwd=%s\a' "$(builtin pwd -W 2>/dev/null || cygpath -m "$PWD")"
     __qode_histcmd=$HISTCMD
     return $s
 }
 PS0='$(__qode_preexec)'"${PS0-}"
 PROMPT_COMMAND="__qode_precmd${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
-)";
+)QODE";
 
 // zsh: ZDOTDIR points here, so these two files are read instead of the user's; each reads the user's own first (from
 // their ZDOTDIR, or $HOME) and .zshrc gives ZDOTDIR back, so shells started later read only the user's files.
@@ -63,6 +64,35 @@ function __qode_postexec --on-event fish_postexec
 end
 )";
 
+// PowerShell (Windows PowerShell 5.1 and pwsh 7): handed over with -EncodedCommand, which runs after the user's profile;
+// a .ps1 file would need an execution policy that allows scripts. The prompt function is wrapped (its first statement
+// takes $? before anything changes it), and PSReadLine's PSConsoleHostReadLine reports the accepted line. A failed
+// native command reports its own exit code, a failed cmdlet 1. The prompt also reports the folder (633;P), which
+// Windows cannot tell QODE. 5.1 knows no `e, hence [char]27.
+const char *const kPowerShell = R"QODE(# QODE shell integration (PowerShell): marks each command's start and exit code, and the folder, for the terminal.
+$global:__qodePrompt = $function:prompt
+function global:prompt {
+    $failed = -not $global:?
+    $code = $global:LASTEXITCODE
+    $e = [char]27; $b = [char]7
+    $status = 0
+    if ($failed) { $status = 1; if ($code -is [int] -and $code -ne 0) { $status = $code } }
+    $marks = "$e]133;D;$status$b"
+    if ($PWD.Provider.Name -eq 'FileSystem') { $marks += "$e]633;P;Cwd=$($PWD.ProviderPath)$b" }
+    [Console]::Write($marks)
+    & $global:__qodePrompt
+}
+if (Test-Path Function:\PSConsoleHostReadLine) {
+    $global:__qodeReadLine = $function:PSConsoleHostReadLine
+    function global:PSConsoleHostReadLine {
+        $line = & $global:__qodeReadLine
+        $e = [char]27; $b = [char]7
+        [Console]::Write("$e]133;C$b$e]633;E;$($line -replace '[\x00-\x1f]', ' ')$b")
+        $line
+    }
+}
+)QODE";
+
 // Writes `text` to `path` unless it already holds it.
 bool ensureFile(const QString &path, const char *text)
 {
@@ -71,6 +101,7 @@ bool ensureFile(const QString &path, const char *text)
     if (current.open(QIODevice::ReadOnly) && current.readAll() == want)
         return true;
     current.close(); // Windows cannot replace a file that is still open
+
     if (!QDir().mkpath(QFileInfo(path).absolutePath()))
         return false;
     QSaveFile f(path);
@@ -87,7 +118,18 @@ namespace ShellIntegration {
 bool apply(const QString &shell, QStringList *args, QProcessEnvironment *env)
 {
     const QString dir = AppPaths::cache(QStringLiteral("shell"));
-    const QString name = QFileInfo(shell).fileName();
+    QString name = QFileInfo(shell).fileName();
+    if (name.endsWith(QLatin1String(".exe"), Qt::CaseInsensitive)) // Windows: bash.exe (Git Bash), pwsh.exe
+        name.chop(4);
+    if (name.compare(QLatin1String("pwsh"), Qt::CaseInsensitive) == 0
+        || name.compare(QLatin1String("powershell"), Qt::CaseInsensitive) == 0) {
+        const QString script = QString::fromUtf8(kPowerShell);
+        // -EncodedCommand takes base64 of UTF-16LE.
+        const QByteArray utf16(reinterpret_cast<const char *>(script.utf16()), script.size() * 2);
+        *args = {QStringLiteral("-NoLogo"), QStringLiteral("-NoExit"), QStringLiteral("-EncodedCommand"),
+                 QString::fromLatin1(utf16.toBase64())};
+        return true;
+    }
     if (name == QLatin1String("bash")) {
         const QString rc = dir + QStringLiteral("/bashrc");
         if (!ensureFile(rc, kBash))

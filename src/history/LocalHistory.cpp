@@ -1,4 +1,5 @@
 #include "LocalHistory.h"
+#include "platform/AppPaths.h"
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -76,7 +77,7 @@ bool isSkippedFolder(const QString &name)
 
 QString storageRoot()
 {
-    return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QStringLiteral("/QODE-AGENTIC/history");
+    return AppPaths::data(QStringLiteral("history"));
 }
 
 QString label(Kind kind)

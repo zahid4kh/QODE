@@ -1,4 +1,5 @@
 #include "WebPreview.h"
+#include "platform/AppPaths.h"
 
 #include "DevServer.h"
 #include "settings/Icons.h"
@@ -1027,9 +1028,8 @@ void WebPreview::ensureView()
     // Own profile so the previewed app's cookies and localStorage (logins, settings) survive restarts, kept apart
     // from anything else; the HTTP cache stays in memory so a dev server's files are never served stale from disk.
     m_profile = new QWebEngineProfile(QStringLiteral("preview"));
-    m_profile->setPersistentStoragePath(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
-                                        + QStringLiteral("/QODE-AGENTIC/web-preview"));
-    m_profile->setCachePath(QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE-AGENTIC/web-preview"));
+    m_profile->setPersistentStoragePath(AppPaths::data(QStringLiteral("web-preview")));
+    m_profile->setCachePath(AppPaths::cache(QStringLiteral("web-preview")));
     m_profile->setHttpCacheType(QWebEngineProfile::MemoryHttpCache);
     m_page = new PreviewPage(m_profile);
     m_page->onConsole = [this](const ConsoleEntry &e) {

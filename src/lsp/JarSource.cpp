@@ -1,4 +1,5 @@
 #include "JarSource.h"
+#include "platform/AppPaths.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -270,7 +271,7 @@ QString extract(const QString &uri, QString *error)
         return {};
     }
     const QString hash = QString::fromLatin1(QCryptographicHash::hash(jar.toUtf8(), QCryptographicHash::Md5).toHex().left(10));
-    const QString dir = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE-AGENTIC/lsp/library-sources/") +
+    const QString dir = AppPaths::cache(QStringLiteral("lsp/library-sources/")) +
                         hash + QLatin1Char('-') + QFileInfo(jar).completeBaseName();
     const QString target = QDir::cleanPath(dir + QLatin1Char('/') + entry);
     if (!target.startsWith(dir + QLatin1Char('/'))) { // "../" in a hostile entry name
@@ -300,7 +301,7 @@ QString storeText(const QString &uri, const QByteArray &text)
     if (name.isEmpty())
         return {};
     const QString hash = QString::fromLatin1(QCryptographicHash::hash(uri.toUtf8(), QCryptographicHash::Md5).toHex().left(12));
-    const QString dir = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE-AGENTIC/lsp/library-sources/jdt/") + hash;
+    const QString dir = AppPaths::cache(QStringLiteral("lsp/library-sources/jdt/")) + hash;
     const QString target = dir + QLatin1Char('/') + name + QStringLiteral(".java");
     QDir().mkpath(dir);
     QFile::remove(target); // earlier copies are read-only
@@ -323,7 +324,7 @@ bool readJarEntry(const QString &jarPath, const QString &entry, QByteArray *out)
 
 bool isLibraryPath(const QString &path)
 {
-    static const QString base = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE-AGENTIC/lsp/library-sources/");
+    static const QString base = AppPaths::cache(QStringLiteral("lsp/library-sources/"));
     return path.startsWith(base);
 }
 

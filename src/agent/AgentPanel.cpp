@@ -1,4 +1,5 @@
 #include "AgentPanel.h"
+#include "platform/AppPaths.h"
 #include "history/LocalHistory.h"
 
 #include "agent/AgentRun.h"
@@ -754,8 +755,7 @@ void AgentPanel::setProject(const QString &root)
     m_mcp->setProject(root, root.isEmpty() ? QString() : SettingsManager::instance().projectDataDir());
     const QString data = SettingsManager::instance().projectDataDir();
     m_index->setProject(root, root.isEmpty() || data.isEmpty() ? QString()
-                                                               : QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation)
-                                                                     + QStringLiteral("/QODE-AGENTIC/code-index/") + QFileInfo(data).fileName() + QStringLiteral(".vec"));
+                                                               : AppPaths::cache(QStringLiteral("code-index/")) + QFileInfo(data).fileName() + QStringLiteral(".vec"));
     const auto sessions = m_store.list();
     Session loaded;
     if (!sessions.isEmpty() && m_store.load(sessions.first().id, &loaded))

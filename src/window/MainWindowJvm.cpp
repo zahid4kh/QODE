@@ -2,6 +2,7 @@
 // functions, the package-vs-folder fix, the dependency manager, the project JDK, the version buttons in the status bar
 // and the task timings of the Gradle builds QODE starts.
 #include "MainWindow.h"
+#include "platform/AppPaths.h"
 
 #include "debug/DebugSession.h"
 #include "dialogs/RunConfigDialog.h"
@@ -264,7 +265,7 @@ void MainWindow::runMain(Document *doc, const QString &cls, bool debug)
         // The classes go to the cache, never next to the file; javac -g keeps the local variables for the debugger.
         const QString agent = debug ? DebugSession::agentOption(port) + QLatin1Char(' ') : QString();
         const QString file = JvmTools::shellQuote(path);
-        const QString dir = QDir::homePath() + QStringLiteral("/.cache/QODE-AGENTIC/run");
+        const QString dir = AppPaths::cache(QStringLiteral("run"));
         QDir().mkpath(dir);
         const QString mainCls = cls.contains(QLatin1Char('$')) ? JvmTools::shellQuote(cls) : cls;
         if (path.endsWith(QLatin1String(".java"))) {

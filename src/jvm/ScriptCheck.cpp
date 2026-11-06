@@ -1,4 +1,5 @@
 #include "jvm/ScriptCheck.h"
+#include "platform/AppPaths.h"
 
 #include "jvm/JvmTools.h"
 
@@ -55,7 +56,7 @@ void ScriptCheck::forget(const QString &path)
 void ScriptCheck::run(const QString &path)
 {
     const QString hash = QString::fromLatin1(QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha1).toHex().left(12));
-    const QString out = QDir::homePath() + QStringLiteral("/.cache/QODE-AGENTIC/kts/check-") + hash;
+    const QString out = AppPaths::cache(QStringLiteral("kts/check-")) + hash;
     QDir().mkpath(out);
     QStringList args;
     if (JvmTools::isMainKts(path)) {

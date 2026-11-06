@@ -1,4 +1,5 @@
 #include "MavenPanel.h"
+#include "platform/AppPaths.h"
 
 #include "jvm/JvmTools.h"
 #include "settings/Icons.h"
@@ -294,7 +295,7 @@ QTreeWidget *MavenPanel::makeTree()
 
 QString MavenPanel::cacheFile(const QString &name) const
 {
-    const QString dir = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE-AGENTIC/maven");
+    const QString dir = AppPaths::cache(QStringLiteral("maven"));
     QDir().mkpath(dir);
     const QString hash = QString::fromLatin1(QCryptographicHash::hash(m_dir.toUtf8(), QCryptographicHash::Sha1).toHex().left(10));
     return dir + QLatin1Char('/') + name + QLatin1Char('-') + hash + QStringLiteral(".xml");

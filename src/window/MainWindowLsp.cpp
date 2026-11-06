@@ -1,6 +1,7 @@
 // MainWindow's language server side: the LSP menu and status, installing servers, Go to Definition, code actions,
 // workspace edits, rename, references and colour swatches.
 #include "MainWindow.h"
+#include "platform/AppPaths.h"
 
 #include "dialogs/CompilerFlagsDialog.h"
 #include "dialogs/IncludePathsDialog.h"
@@ -435,7 +436,7 @@ void MainWindow::fetchLibrarySources(const JarSource::Coordinates &coords, CodeE
         statusBar()->showMessage(tr("Gradle was not found (no gradlew in the project and no gradle on PATH)"), 6000);
         return;
     }
-    const QString dir = QDir::homePath() + QStringLiteral("/.cache/QODE-AGENTIC/run");
+    const QString dir = AppPaths::cache(QStringLiteral("run"));
     QDir().mkpath(dir);
     const QString script = dir + QStringLiteral("/library-sources.init.gradle");
     QFile f(script);

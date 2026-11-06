@@ -1,4 +1,5 @@
 #include "gradle/GradleEvents.h"
+#include "platform/AppPaths.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -13,7 +14,7 @@ namespace {
 
 QString cacheDir()
 {
-    const QString dir = QDir::homePath() + QStringLiteral("/.cache/QODE-AGENTIC/gradle");
+    const QString dir = AppPaths::cache(QStringLiteral("gradle"));
     QDir().mkpath(dir);
     return dir;
 }

@@ -1,4 +1,5 @@
 #include "AiEnv.h"
+#include "platform/AppPaths.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -88,7 +89,7 @@ QString apiKey(Provider provider, const QString &projectRoot, QString *source)
         if (!exe.cdUp())
             break;
     }
-    dirs << QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + QStringLiteral("/QODE-AGENTIC");
+    dirs << AppPaths::config();
 
     for (const QString &dir : std::as_const(dirs)) {
         for (const QString &name : {QStringLiteral(".env.local"), QStringLiteral(".env")}) {
@@ -108,8 +109,7 @@ QString apiKey(Provider provider, const QString &projectRoot, QString *source)
 
 QString storedKeyPath(Provider provider)
 {
-    return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
-           + (provider == Provider::Claude ? QStringLiteral("/QODE-AGENTIC/claude.key") : QStringLiteral("/QODE-AGENTIC/gemini.key"));
+    return AppPaths::config(provider == Provider::Claude ? QStringLiteral("claude.key") : QStringLiteral("gemini.key"));
 }
 
 bool hasStoredKey(Provider provider)

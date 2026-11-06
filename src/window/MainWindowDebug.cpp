@@ -1,6 +1,7 @@
 // MainWindow's JVM debugger: the actions and their shortcuts, the debug panel, breakpoints in the editors, the current
 // line while paused, and turning a run command into one whose JVM waits for the debugger (see dev-docs/jvm.md).
 #include "MainWindow.h"
+#include "platform/AppPaths.h"
 
 #include "app/StartupProfile.h"
 #include "debug/DebugPanel.h"
@@ -266,7 +267,7 @@ QString MainWindow::resolveSource(const QString &pkgPath, const QString &sourceN
 
 QString MainWindow::debugInitScript(int port, bool tests) const
 {
-    const QString dir = QDir::homePath() + QStringLiteral("/.cache/QODE-AGENTIC/debug");
+    const QString dir = AppPaths::cache(QStringLiteral("debug"));
     QDir().mkpath(dir);
     const QString path = dir + (tests ? QStringLiteral("/debug-test.init.gradle") : QStringLiteral("/debug.init.gradle"));
     // Only the program's JVMs (JavaExec: run, qodeRun, bootRun, …) wait for the debugger, not Gradle's own. For tests it

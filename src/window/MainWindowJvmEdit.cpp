@@ -1,6 +1,7 @@
 // Java / Kotlin editing extras: Copy Reference, New Kotlin / Java class, Kotlin scratch files, and the completions that
 // need no language server (gradle.properties & co., @file: annotations with Maven coordinates).
 #include "MainWindow.h"
+#include "platform/AppPaths.h"
 
 #include "dialogs/NewJvmClassDialog.h"
 #include "editor/CodeEditor.h"
@@ -135,7 +136,7 @@ void MainWindow::newJvmClass(const QString &dir, bool kotlin)
 
 QString MainWindow::scratchDir() const
 {
-    return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QStringLiteral("/QODE-AGENTIC/scratches");
+    return AppPaths::data(QStringLiteral("scratches"));
 }
 
 void MainWindow::newScratchFile(const QString &kind)

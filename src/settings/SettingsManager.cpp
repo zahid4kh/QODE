@@ -1,4 +1,5 @@
 #include "SettingsManager.h"
+#include "platform/AppPaths.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -12,7 +13,9 @@
 #include <QSaveFile>
 
 SettingsManager::SettingsManager()
-    : m_settings(QStringLiteral("QODE-AGENTIC"), QStringLiteral("QODE")) // ~/.config/QODE-AGENTIC/QODE.conf
+    // ~/.config/QODE-AGENTIC/QODE.conf (the same file QSettings("QODE-AGENTIC", "QODE") uses on Unix), or
+    // %APPDATA%\QODE-AGENTIC\QODE.ini on Windows, where that constructor would use the registry.
+    : m_settings(AppPaths::settingsFile(), QSettings::IniFormat)
 {
 }
 
@@ -833,7 +836,7 @@ QString SettingsManager::projectFilePath() const
     QString name = QFileInfo(m_projectRoot).fileName();
     name.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9._-]")), QStringLiteral("_"));
     const QString hash = QString::fromLatin1(QCryptographicHash::hash(m_projectRoot.toUtf8(), QCryptographicHash::Sha1).toHex().left(8));
-    const QString dir = QFileInfo(m_settings.fileName()).absolutePath() + QStringLiteral("/projects");
+    const QString dir = AppPaths::config(QStringLiteral("projects"));
     return dir + QLatin1Char('/') + name + QLatin1Char('-') + hash + QStringLiteral(".json");
 }
 

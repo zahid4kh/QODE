@@ -1,4 +1,5 @@
 #include "McpConfig.h"
+#include "platform/AppPaths.h"
 
 #include <QDir>
 #include <QFile>
@@ -15,7 +16,7 @@ namespace mcp {
 namespace {
 QString globalFile()
 {
-    return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + QStringLiteral("/QODE-AGENTIC/mcp.json");
+    return AppPaths::config(QStringLiteral("mcp.json"));
 }
 
 QString projectFile(const QString &dataDir)

@@ -1,4 +1,5 @@
 #include "ktor/KtorProject.h"
+#include "platform/AppPaths.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -322,7 +323,7 @@ QStringList KtorProject::jvmOptions(const Options &o, int debugPort) const
 QString KtorProject::runScriptPath() const
 {
     const QByteArray key = QCryptographicHash::hash((workDir + QLatin1Char('|') + moduleDir).toUtf8(), QCryptographicHash::Sha1).toHex().left(12);
-    return QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE-AGENTIC/ktor/run-")
+    return AppPaths::cache(QStringLiteral("ktor/run-"))
            + QString::fromLatin1(key) + QStringLiteral(".gradle");
 }
 

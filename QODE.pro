@@ -308,6 +308,7 @@ HEADERS += \
     src/webdev/EnvDialog.h \
     src/webdev/WebPreview.h \
     src/app/Application.h \
+    src/platform/AppPaths.h \
     src/platform/Platform.h \
     src/platform/ProcessTree.h \
     src/app/DesktopNotify.h \
@@ -511,7 +512,8 @@ HEADERS += \
     src/window/SideSections.h \
     src/window/MainWindow.h
 
-# The OS layer (src/platform/): one implementation per OS behind the same headers.
+# The OS layer (src/platform/): one implementation per OS behind the same headers (AppPaths: one file for both).
+SOURCES += src/platform/AppPaths.cpp
 unix: SOURCES += src/platform/PlatformUnix.cpp src/platform/ProcessTreeUnix.cpp
 win32: SOURCES += src/platform/PlatformWin.cpp src/platform/ProcessTreeWin.cpp
 win32: LIBS += -ladvapi32 # PlatformWin: the user's SID

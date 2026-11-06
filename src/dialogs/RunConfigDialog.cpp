@@ -1,4 +1,5 @@
 #include "RunConfigDialog.h"
+#include "platform/AppPaths.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -51,7 +52,7 @@ QList<QPair<QString, QString>> RunConfigDialog::presets(const QString &filePath)
                 P(QStringLiteral("g++ with warnings (-Wall -Wextra)"), QStringLiteral("g++ -std=c++17 -Wall -Wextra {file} -o {dir}/{name} && {dir}/{name}")),
                 P(QStringLiteral("Compile with clang++ and run"), QStringLiteral("clang++ -std=c++17 {file} -o {dir}/{name} && {dir}/{name}"))};
     // Kotlin scripts run as they are; compiled Kotlin / Java goes to the cache, never next to the file.
-    const QString cache = shellQuote(QDir::homePath() + QStringLiteral("/.cache/QODE-AGENTIC/run"));
+    const QString cache = shellQuote(AppPaths::cache(QStringLiteral("run")));
     if (key == QLatin1String("kts"))
         return {P(QStringLiteral("Run with kotlinc -script"), QStringLiteral("kotlinc -script {file}")),
                 P(QStringLiteral("Run with kotlin (Kotlin 2.x)"), QStringLiteral("kotlin {file}")),

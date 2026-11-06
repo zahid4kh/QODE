@@ -1,4 +1,5 @@
 #include "ShellIntegration.h"
+#include "platform/AppPaths.h"
 
 #include <QDir>
 #include <QFile>
@@ -84,7 +85,7 @@ namespace ShellIntegration {
 
 bool apply(const QString &shell, QStringList *args, QProcessEnvironment *env)
 {
-    const QString dir = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE-AGENTIC/shell");
+    const QString dir = AppPaths::cache(QStringLiteral("shell"));
     const QString name = QFileInfo(shell).fileName();
     if (name == QLatin1String("bash")) {
         const QString rc = dir + QStringLiteral("/bashrc");

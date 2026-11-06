@@ -70,6 +70,7 @@ bool ensureFile(const QString &path, const char *text)
     QFile current(path);
     if (current.open(QIODevice::ReadOnly) && current.readAll() == want)
         return true;
+    current.close(); // Windows cannot replace a file that is still open
     if (!QDir().mkpath(QFileInfo(path).absolutePath()))
         return false;
     QSaveFile f(path);

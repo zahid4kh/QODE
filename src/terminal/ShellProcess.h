@@ -4,12 +4,14 @@
 #include <QObject>
 #include <QProcess>
 
+class ConPty;
 class QSocketNotifier;
 class QTimer;
 
 // Runs the user's shell attached to a pseudo-terminal. The child is a normal QProcess;
 // a child-process modifier makes it a session leader on the pty slave, and we talk to
-// the master side directly.
+// the master side directly. Windows: a ConPTY console instead (platform/ConPty), which
+// a create-process modifier puts the QProcess on.
 class ShellProcess : public QObject
 {
     Q_OBJECT
@@ -38,6 +40,7 @@ private:
     void onReadable();
     void onWritable();
     void onProcessFinished(int exitCode, QProcess::ExitStatus status);
+    void drain(); // the shell has exited: read what it printed last
     void closeMaster();
 
     QProcess *m_process;
@@ -50,4 +53,5 @@ private:
     QStringList m_args;
     QProcessEnvironment m_extraEnv;
     int m_master = -1;
+    ConPty *m_pty = nullptr; // Windows
 };

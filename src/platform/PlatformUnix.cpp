@@ -114,6 +114,24 @@ QStringList Platform::extraBinDirs()
     return {};
 }
 
+QString Platform::processCwd(qint64 pid)
+{
+    return pid > 0 ? QFileInfo(QStringLiteral("/proc/%1/cwd").arg(pid)).symLinkTarget() : QString();
+}
+
+bool Platform::shellInForeground(qint64 pid)
+{
+    if (pid <= 0)
+        return false;
+    QFile f(QStringLiteral("/proc/%1/stat").arg(pid));
+    if (!f.open(QIODevice::ReadOnly))
+        return false;
+    // "pid (comm) state ppid pgrp session tty_nr tpgid ...": comm may hold spaces, so split after the last ')'.
+    const QByteArray stat = f.readAll();
+    const QList<QByteArray> fields = stat.mid(stat.lastIndexOf(')') + 2).split(' ');
+    return fields.size() > 5 && fields.at(2).toLongLong() == fields.at(5).toLongLong();
+}
+
 void Platform::restartSelf()
 {
     QProcess::startDetached(QStringLiteral("/bin/sh"),

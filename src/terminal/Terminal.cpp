@@ -4,6 +4,7 @@
 #include "TerminalScreen.h"
 #include "TerminalView.h"
 #include "filesystem/FileManager.h"
+#include "platform/Platform.h"
 #include "settings/Icons.h"
 
 #include <QDir>
@@ -80,11 +81,8 @@ Terminal::Terminal(QWidget *parent)
     // Relative paths in compiler output are relative to where the command ran: the shell's current folder, else the project.
     auto folders = [this] {
         QStringList folders;
-        if (const qint64 pid = m_shell->pid(); pid > 0) {
-            const QString cwd = QFileInfo(QStringLiteral("/proc/%1/cwd").arg(pid)).symLinkTarget();
-            if (!cwd.isEmpty())
-                folders << cwd;
-        }
+        if (const QString cwd = shellDirectory(); !cwd.isEmpty())
+            folders << cwd;
         folders << m_cwd;
         return folders;
     };
@@ -177,6 +175,7 @@ void Terminal::startShell()
     m_awaitPrompt = true;
     m_promptLine = -1;
     m_written.clear();
+    m_shellCwd.clear();
     QString err;
     m_view->setShellActive(true);
     if (!m_shell->start(m_cwd, s->cols(), s->rows(), &err)) {
@@ -285,16 +284,15 @@ void Terminal::newCommand()
 // True while the shell itself owns the terminal (at its prompt), not a program it started.
 bool Terminal::shellInForeground() const
 {
-    const qint64 pid = m_shell->pid();
-    if (pid <= 0)
-        return false;
-    QFile f(QStringLiteral("/proc/%1/stat").arg(pid));
-    if (!f.open(QIODevice::ReadOnly))
-        return false;
-    // "pid (comm) state ppid pgrp session tty_nr tpgid ...": comm may hold spaces, so split after the last ')'.
-    const QByteArray stat = f.readAll();
-    const QList<QByteArray> fields = stat.mid(stat.lastIndexOf(')') + 2).split(' ');
-    return fields.size() > 5 && fields.at(2).toLongLong() == fields.at(5).toLongLong();
+    return Platform::shellInForeground(m_shell->pid());
+}
+
+// The shell's current folder: from the OS where it can tell (Unix), else the last one the shell integration reported
+// (OSC 633;P;Cwd=, PowerShell on Windows). Empty when neither knows.
+QString Terminal::shellDirectory() const
+{
+    const QString cwd = Platform::processCwd(m_shell->pid());
+    return cwd.isEmpty() ? m_shellCwd : cwd;
 }
 
 void Terminal::clear()
@@ -327,14 +325,14 @@ QString Terminal::recentOutput(int lines) const
 
 QString Terminal::currentDirectory() const
 {
-    const qint64 pid = m_shell->pid();
-    const QString cwd = pid > 0 ? QFileInfo(QStringLiteral("/proc/%1/cwd").arg(pid)).symLinkTarget() : QString();
+    const QString cwd = shellDirectory();
     return cwd.isEmpty() ? m_cwd : cwd;
 }
 
 // Marks from the shell integration, sent while the screen's cursor is where the shell wrote them: "C" = a command's
 // output starts here, "E;<line>" = its command line, "D;<code>" = it ended (also sent at a prompt after an empty line,
-// or by prompts with their own integration: only a D after our C counts).
+// or by prompts with their own integration: only a D after our C counts), "P;Cwd=<folder>" = the shell's folder (sent
+// at each prompt where the OS cannot tell it: PowerShell on Windows).
 void Terminal::onShellMark(const QString &mark)
 {
     if (mark == QLatin1String("C")) {
@@ -350,6 +348,8 @@ void Terminal::onShellMark(const QString &mark)
             m_commandFallback = screen->textInRange(from, m_promptCol, to, screen->cols() - 1).simplified();
         m_written.clear();
         m_promptLine = -1;
+    } else if (mark.startsWith(QLatin1String("P;Cwd="))) {
+        m_shellCwd = QDir::fromNativeSeparators(mark.mid(6));
     } else if (mark.startsWith(QLatin1String("E;")) && m_inCommand) {
         m_commandText = mark.mid(2).trimmed();
     } else if (mark.startsWith(QLatin1String("D"))) {

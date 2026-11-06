@@ -76,6 +76,7 @@ private:
     void updateHeader();
     void newCommand();
     bool shellInForeground() const;
+    QString shellDirectory() const;
     void onShellMark(const QString &mark);
     void commandEnded(int exitCode);
     void setFailure(const FailedCommand &failure); // exitCode 0 = none: hides the button
@@ -87,6 +88,7 @@ private:
     QWidget *m_header = nullptr;
     QToolButton *m_restartBtn;
     QString m_cwd;
+    QString m_shellCwd; // the folder the shell integration last reported (633;P;Cwd=), "" if none
     std::function<QString(const QString &)> m_startupProvider;
     QString m_pendingCommand;
     QTimer *m_pendingTimer;

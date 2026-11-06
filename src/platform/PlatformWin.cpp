@@ -19,6 +19,7 @@
 #endif
 #include <windows.h>
 #include <sddl.h>
+#include <tlhelp32.h>
 
 namespace {
 
@@ -241,6 +242,50 @@ QStringList Platform::extraBinDirs()
     add(programFiles + QStringLiteral("\\nodejs"));
     add(QDir::homePath() + QStringLiteral("/scoop/shims"));
     return out;
+}
+
+QString Platform::processCwd(qint64)
+{
+    return {};
+}
+
+namespace {
+
+// When process `pid` started (100 ns units), 0 when it cannot be asked.
+qint64 creationTime(DWORD pid)
+{
+    const HANDLE h = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!h)
+        return 0;
+    FILETIME created, exited, kernel, user;
+    const bool ok = ::GetProcessTimes(h, &created, &exited, &kernel, &user);
+    ::CloseHandle(h);
+    return ok ? fileTimeTo100ns(created) : 0;
+}
+
+} // namespace
+
+bool Platform::shellInForeground(qint64 pid)
+{
+    if (pid <= 0)
+        return false;
+    const HANDLE snap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE)
+        return false;
+    // A console has no foreground process group: anything the shell started counts, as long as it is newer than the
+    // shell (a parent id is only a number, and an older process can carry one that was reused).
+    const qint64 shellStart = creationTime(DWORD(pid));
+    bool child = false;
+    PROCESSENTRY32W e;
+    e.dwSize = sizeof e;
+    for (BOOL ok = ::Process32FirstW(snap, &e); ok && !child; ok = ::Process32NextW(snap, &e)) {
+        if (e.th32ParentProcessID != DWORD(pid) || e.th32ProcessID == DWORD(pid))
+            continue;
+        const qint64 started = creationTime(e.th32ProcessID);
+        child = shellStart == 0 || started == 0 || started >= shellStart;
+    }
+    ::CloseHandle(snap);
+    return !child;
 }
 
 void Platform::restartSelf()

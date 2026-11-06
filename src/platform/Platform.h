@@ -69,6 +69,14 @@ QString gitExecutable();
 // global folder, pnpm's, Node.js's, WinGet's links and Scoop's shims. Only folders that exist.
 QStringList extraBinDirs();
 
+// The current folder of process `pid`, empty when unknown. Unix: from /proc. Windows: always empty (another process's
+// folder cannot be read reliably); the terminal gets it from its shell integration instead.
+QString processCwd(qint64 pid);
+
+// True while the terminal shell `pid` itself owns its terminal (it is at its prompt), not a program it started.
+// Unix: the shell's process group is the terminal's foreground group (/proc). Windows: the shell has no child process.
+bool shellInForeground(qint64 pid);
+
 // Starts QODE again once this process has ended; call it after the window closed (the project claim goes with the
 // process). Unix: a shell that waits a second, then execs QODE. Windows: a helper that waits for this process to exit.
 void restartSelf();

@@ -515,7 +515,8 @@ HEADERS += \
 # The OS layer (src/platform/): one implementation per OS behind the same headers (AppPaths: one file for both).
 SOURCES += src/platform/AppPaths.cpp
 unix: SOURCES += src/platform/PlatformUnix.cpp src/platform/ProcessTreeUnix.cpp
-win32: SOURCES += src/platform/PlatformWin.cpp src/platform/ProcessTreeWin.cpp
+win32: SOURCES += src/platform/PlatformWin.cpp src/platform/ProcessTreeWin.cpp src/platform/ConPtyWin.cpp
+win32: HEADERS += src/platform/ConPty.h # the terminal's pseudo console (Windows only)
 win32: LIBS += -ladvapi32 # PlatformWin: the user's SID
 
 RESOURCES += resources/qode.qrc

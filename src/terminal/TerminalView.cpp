@@ -166,7 +166,7 @@ void TerminalView::paintEvent(QPaintEvent *)
             if ((cell.attr & TerminalScreen::Bold) && (fgc & 0x02000000u) && (fgc & 0xff) < 8)
                 fg = m_ansi[(fgc & 0xff) + 8]; // bold brightens the base colours
             if (cell.attr & TerminalScreen::Dim)
-                fg.setAlphaF(0.6);
+                fg.setAlphaF(0.6f);
 
             bool selected = false;
             if (hasSel) {

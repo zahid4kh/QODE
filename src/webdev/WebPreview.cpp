@@ -197,7 +197,7 @@ public:
         p.setRenderHint(QPainter::Antialiasing);
         if (!hull.isEmpty()) {
             QColor c = shadow;
-            c.setAlphaF(0.05);
+            c.setAlphaF(0.05f);
             p.setPen(Qt::NoPen);
             p.setBrush(c);
             for (int i = 1; i <= 8; ++i)

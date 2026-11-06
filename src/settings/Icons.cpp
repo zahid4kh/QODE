@@ -36,7 +36,7 @@ QIcon tinted(const QString &resource, const QColor &color, const QColor &disable
     QColor dis = disabled;
     if (!dis.isValid()) {
         dis = color;
-        dis.setAlphaF(0.35);
+        dis.setAlphaF(0.35f);
     }
     QIcon icon;
     for (int size : {14, 16, 20, 24}) {

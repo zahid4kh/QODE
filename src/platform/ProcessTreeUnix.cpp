@@ -1,4 +1,4 @@
-#include "app/ChildReaper.h"
+#include "platform/ProcessTree.h"
 
 #include <QCoreApplication>
 #include <QProcess>
@@ -71,7 +71,7 @@ bool groupAlive(pid_t pgid)
 
 } // namespace
 
-bool ChildReaper::runIfReaper(int argc, char *argv[])
+bool ProcessTree::runIfWatchdog(int argc, char *argv[])
 {
     if (argc < 2 || std::strcmp(argv[1], kFlag) != 0)
         return false;
@@ -121,7 +121,7 @@ bool ChildReaper::runIfReaper(int argc, char *argv[])
     return true;
 }
 
-void ChildReaper::track(QProcess *process)
+void ProcessTree::track(QProcess *process)
 {
     process->setChildProcessModifier([] { ::setsid(); });
     // The group id is the leader's pid; processId() is 0 again once it finished, so it is kept here.
@@ -141,4 +141,16 @@ void ChildReaper::track(QProcess *process)
             send('-', *pgid);
         delete pgid;
     });
+}
+
+void ProcessTree::stop(qint64 pid)
+{
+    if (pid > 0)
+        ::kill(-static_cast<pid_t>(pid), SIGTERM);
+}
+
+void ProcessTree::kill(qint64 pid)
+{
+    if (pid > 0)
+        ::kill(-static_cast<pid_t>(pid), SIGKILL);
 }

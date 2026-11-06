@@ -1,6 +1,6 @@
 #include "McpClient.h"
 
-#include "app/ChildReaper.h"
+#include "platform/ProcessTree.h"
 
 #include <QCoreApplication>
 #include <QEventLoop>
@@ -9,7 +9,6 @@
 #include <QPointer>
 #include <QProcess>
 #include <QTimer>
-#include <csignal>
 
 namespace mcp {
 
@@ -17,8 +16,8 @@ namespace {
 constexpr int kStartTimeoutMs = 180000; // uvx / npx may download the server on its first start; some wait for their app
 constexpr const char *kProtocol = "2025-06-18";
 
-// Ends a server's process group without waiting for it: SIGTERM, SIGKILL two seconds later if it is still there. The
-// process leaves its client (whose destructor would otherwise kill only the main process and wait for it).
+// Ends a server's process tree without waiting for it: ProcessTree::stop, kill two seconds later if it is still there.
+// The process leaves its client (whose destructor would otherwise kill only the main process and wait for it).
 void endProcess(QProcess *p, QObject *owner)
 {
     p->disconnect(owner);
@@ -28,15 +27,15 @@ void endProcess(QProcess *p, QObject *owner)
         return;
     }
     p->closeWriteChannel(); // stdio servers end when their input does
-    const pid_t pid = pid_t(p->processId());
+    const qint64 pid = p->processId();
     QObject::connect(p, &QProcess::finished, p, &QObject::deleteLater);
     QTimer::singleShot(500, p, [p, pid] {
-        if (p->state() != QProcess::NotRunning && pid > 0)
-            ::kill(-pid, SIGTERM);
+        if (p->state() != QProcess::NotRunning)
+            ProcessTree::stop(pid);
     });
     QTimer::singleShot(2500, p, [p, pid] {
-        if (p->state() != QProcess::NotRunning && pid > 0)
-            ::kill(-pid, SIGKILL);
+        if (p->state() != QProcess::NotRunning)
+            ProcessTree::kill(pid);
     });
 }
 } // namespace
@@ -101,7 +100,7 @@ void Client::start()
         p->setWorkingDirectory(cwd);
     p->setProgram(expand(m_config.command, env));
     p->setArguments(args);
-    ChildReaper::track(p); // own process group: stop() ends what it started too, and so does QODE ending
+    ProcessTree::track(p); // own process group: stop() ends what it started too, and so does QODE ending
     connect(p, &QProcess::readyReadStandardOutput, this, &Client::readOut);
     connect(p, &QProcess::readyReadStandardError, this, [this, p] {
         m_stderr += p->readAllStandardError();

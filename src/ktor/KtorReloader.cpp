@@ -1,6 +1,6 @@
 #include "ktor/KtorReloader.h"
 
-#include "app/ChildReaper.h"
+#include "platform/ProcessTree.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -8,14 +8,11 @@
 #include <QRegularExpression>
 #include <QTimer>
 
-#include <csignal>
-#include <unistd.h>
-
 KtorReloader::KtorReloader(QObject *parent)
     : QObject(parent), m_proc(new QProcess(this)), m_killTimer(new QTimer(this)), m_debounce(new QTimer(this))
 {
     m_proc->setProcessChannelMode(QProcess::MergedChannels);
-    ChildReaper::track(m_proc); // own process group, stopped by the watchdog if QODE ends abruptly
+    ProcessTree::track(m_proc); // own process group, stopped by the watchdog if QODE ends abruptly
     connect(m_proc, &QProcess::readyRead, this, &KtorReloader::onOutput);
     connect(m_proc, &QProcess::finished, this, [this](int code, QProcess::ExitStatus status) {
         m_killTimer->stop();
@@ -43,7 +40,7 @@ KtorReloader::KtorReloader(QObject *parent)
     });
     m_killTimer->setSingleShot(true);
     m_killTimer->setInterval(3000);
-    connect(m_killTimer, &QTimer::timeout, this, [this] { signalGroup(SIGKILL); });
+    connect(m_killTimer, &QTimer::timeout, this, [this] { killTree(); });
     m_debounce->setSingleShot(true);
     m_debounce->setInterval(400);
     connect(m_debounce, &QTimer::timeout, this, [this] {
@@ -67,9 +64,9 @@ KtorReloader::~KtorReloader()
 {
     if (m_proc->state() != QProcess::NotRunning) {
         m_stopping = true;
-        signalGroup(SIGTERM);
+        stopTree();
         if (!m_proc->waitForFinished(1500))
-            signalGroup(SIGKILL);
+            killTree();
         m_proc->waitForFinished(500);
     }
 }
@@ -124,7 +121,7 @@ void KtorReloader::stop()
     m_failure.clear();
     if (m_proc->state() != QProcess::NotRunning) {
         m_stopping = true;
-        signalGroup(SIGTERM);
+        stopTree();
         m_killTimer->start();
     }
     if (was)
@@ -137,11 +134,14 @@ void KtorReloader::compileSoon()
         m_debounce->start();
 }
 
-void KtorReloader::signalGroup(int sig)
+void KtorReloader::stopTree()
 {
-    const qint64 pid = m_proc->processId();
-    if (pid > 0)
-        ::kill(-static_cast<pid_t>(pid), sig);
+    ProcessTree::stop(m_proc->processId());
+}
+
+void KtorReloader::killTree()
+{
+    ProcessTree::kill(m_proc->processId());
 }
 
 void KtorReloader::onOutput()

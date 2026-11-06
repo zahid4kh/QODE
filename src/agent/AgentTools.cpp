@@ -3,8 +3,8 @@
 #include "history/LocalHistory.h"
 
 #include "ai/AiEnv.h"
-#include "app/ChildReaper.h"
 #include "palette/FuzzyMatcher.h"
+#include "platform/ProcessTree.h"
 
 #include <QDir>
 #include <QDirIterator>
@@ -18,8 +18,6 @@
 #include <QRegularExpression>
 #include <QTimer>
 #include <algorithm>
-#include <csignal>
-#include <unistd.h>
 
 namespace agent {
 
@@ -1220,7 +1218,7 @@ ToolResult AgentTools::runCommand(const QJsonObject &a)
     env.insert(QStringLiteral("GIT_PAGER"), QStringLiteral("cat"));
     env.insert(QStringLiteral("NO_COLOR"), QStringLiteral("1"));
     proc.setProcessEnvironment(env);
-    ChildReaper::track(&proc); // own process group, so a timeout or Stop kills the whole tree (and so does QODE ending)
+    ProcessTree::track(&proc); // own process group, so a timeout or Stop kills the whole tree (and so does QODE ending)
     QElapsedTimer clock;
     clock.start();
     proc.start(QStringLiteral("/bin/bash"), {QStringLiteral("-c"), command});
@@ -1249,10 +1247,10 @@ ToolResult AgentTools::runCommand(const QJsonObject &a)
         loop.exec();
 
     if (proc.state() != QProcess::NotRunning) {
-        const pid_t pid = pid_t(proc.processId());
-        ::kill(-pid, SIGTERM);
+        const qint64 pid = proc.processId();
+        ProcessTree::stop(pid);
         if (!proc.waitForFinished(2000)) {
-            ::kill(-pid, SIGKILL);
+            ProcessTree::kill(pid);
             proc.waitForFinished(1000);
         }
     }

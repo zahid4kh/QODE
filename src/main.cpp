@@ -1,6 +1,6 @@
 #include "app/Application.h"
-#include "app/ChildReaper.h"
 #include "app/StartupProfile.h"
+#include "platform/ProcessTree.h"
 #include "window/MainWindow.h"
 
 #include <QCommandLineParser>
@@ -10,7 +10,7 @@
 int main(int argc, char *argv[])
 {
     // The watchdog that stops QODE's servers when QODE itself ends abruptly is this same binary.
-    if (ChildReaper::runIfReaper(argc, argv))
+    if (ProcessTree::runIfWatchdog(argc, argv))
         return 0;
     StartupProfile::begin();
     // Writing to a child process (git, the shell) that already exited must fail with an error, not kill the editor.

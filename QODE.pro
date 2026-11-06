@@ -58,7 +58,6 @@ SOURCES += \
     src/webdev/WebPreview.cpp \
     src/main.cpp \
     src/app/Application.cpp \
-    src/app/ChildReaper.cpp \
     src/app/DesktopNotify.cpp \
     src/app/InstanceRegistry.cpp \
     src/app/StartupProfile.cpp \
@@ -306,7 +305,7 @@ HEADERS += \
     src/webdev/EnvDialog.h \
     src/webdev/WebPreview.h \
     src/app/Application.h \
-    src/app/ChildReaper.h \
+    src/platform/ProcessTree.h \
     src/app/DesktopNotify.h \
     src/app/InstanceRegistry.h \
     src/app/StartupProfile.h \
@@ -507,6 +506,10 @@ HEADERS += \
     src/window/Island.h \
     src/window/SideSections.h \
     src/window/MainWindow.h
+
+# The OS layer (src/platform/): one implementation per OS behind the same headers.
+unix: SOURCES += src/platform/ProcessTreeUnix.cpp
+win32: SOURCES += src/platform/ProcessTreeWin.cpp
 
 RESOURCES += resources/qode.qrc
 

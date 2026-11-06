@@ -43,7 +43,8 @@ private:
     void scan(const QString &line);
     void finishCycle(bool ok, bool wroteClasses);
     void setState(State s);
-    void signalGroup(int sig);
+    void stopTree(); // ProcessTree::stop / kill on the running process
+    void killTree();
 
     QProcess *m_proc;
     QTimer *m_killTimer, *m_debounce;

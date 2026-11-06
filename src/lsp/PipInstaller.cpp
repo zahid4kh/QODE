@@ -1,4 +1,5 @@
 #include "PipInstaller.h"
+#include "platform/Platform.h"
 
 #include "LspServers.h"
 
@@ -37,7 +38,7 @@ QString PipInstaller::installedVersion()
         return {};
     QProcess p;
     p.setProcessChannelMode(QProcess::MergedChannels);
-    p.start(installRoot() + QStringLiteral("/bin/python"),
+    p.start(Platform::venvProgram(installRoot(), QStringLiteral("python")),
             {QStringLiteral("-c"), QStringLiteral("import importlib.metadata as m; print(m.version('basedpyright'))")});
     if (!p.waitForFinished(4000)) {
         p.kill();
@@ -49,9 +50,12 @@ QString PipInstaller::installedVersion()
 QList<PythonTools::Command> PipInstaller::buildSteps(bool useUv) const
 {
     QList<PythonTools::Command> steps;
-    const QString python = installRoot() + QStringLiteral("/bin/python");
-    if (!QFileInfo(python).isExecutable())
+    QString python = Platform::venvProgram(installRoot(), QStringLiteral("python"));
+    if (python.isEmpty()) {
         steps << PythonTools::createVenv(installRoot(), useUv, LspServers::pythonExecutable());
+        // Where the venv about to be made puts it (bin/python, Scripts\python.exe on Windows).
+        python = installRoot() + QLatin1Char('/') + Platform::venvBinDir() + QStringLiteral("/python");
+    }
     steps << PythonTools::install(python, packages(), true, useUv);
     return steps;
 }
@@ -92,7 +96,7 @@ void PipInstaller::start()
         return;
     }
     m_retriedWithPip = false;
-    m_createdVenv = !QFileInfo(installRoot() + QStringLiteral("/bin/python")).isExecutable();
+    m_createdVenv = Platform::venvProgram(installRoot(), QStringLiteral("python")).isEmpty();
     m_steps = buildSteps(m_useUv);
     m_next = 0;
     runNext();
@@ -155,7 +159,7 @@ void PipInstaller::fail(const QString &error)
         emit output(tr("uv did not succeed — trying again with python3 and pip."));
         if (m_createdVenv)
             QDir(installRoot()).removeRecursively();
-        m_createdVenv = !QFileInfo(installRoot() + QStringLiteral("/bin/python")).isExecutable();
+        m_createdVenv = Platform::venvProgram(installRoot(), QStringLiteral("python")).isEmpty();
         m_steps = buildSteps(false);
         m_next = 0;
         runNext();

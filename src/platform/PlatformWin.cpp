@@ -187,6 +187,17 @@ bool Platform::wrapperNeedsExecBit(const QString &, const QString &)
     return false;
 }
 
+QString Platform::venvBinDir()
+{
+    return QStringLiteral("Scripts");
+}
+
+QString Platform::venvProgram(const QString &venv, const QString &name)
+{
+    const QFileInfo fi(venv + QStringLiteral("/Scripts/") + name + QStringLiteral(".exe"));
+    return fi.isFile() ? fi.absoluteFilePath() : QString();
+}
+
 QStringList Platform::extraBinDirs()
 {
     QStringList out;

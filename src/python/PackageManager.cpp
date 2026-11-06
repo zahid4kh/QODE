@@ -1,4 +1,5 @@
 #include "PackageManager.h"
+#include "platform/Platform.h"
 
 #include "lsp/LspServers.h"
 #include "project/PythonEnv.h"
@@ -49,7 +50,7 @@ QString PackageManager::python() const
 void PackageManager::refresh()
 {
     if (python().isEmpty()) {
-        emit listFailed(tr("This environment has no Python interpreter (%1/bin/python is missing).").arg(m_venv));
+        emit listFailed(tr("This environment has no Python interpreter (%1/%2/python is missing).").arg(m_venv, Platform::venvBinDir()));
         return;
     }
     listInto(false);

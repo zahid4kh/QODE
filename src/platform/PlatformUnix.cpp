@@ -87,6 +87,17 @@ bool Platform::wrapperNeedsExecBit(const QString &dir, const QString &name)
     return fi.exists() && !fi.isExecutable();
 }
 
+QString Platform::venvBinDir()
+{
+    return QStringLiteral("bin");
+}
+
+QString Platform::venvProgram(const QString &venv, const QString &name)
+{
+    const QFileInfo fi(venv + QStringLiteral("/bin/") + name);
+    return fi.exists() && fi.isExecutable() ? fi.absoluteFilePath() : QString();
+}
+
 QStringList Platform::extraBinDirs()
 {
     return {};

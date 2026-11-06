@@ -1,5 +1,6 @@
 #include "PythonEnv.h"
 
+#include "platform/Platform.h"
 #include "settings/SettingsManager.h"
 
 #include <QDir>
@@ -13,7 +14,7 @@ namespace PythonEnv {
 static bool isVenv(const QDir &root, const QString &name)
 {
     return QFileInfo::exists(root.filePath(name + QStringLiteral("/pyvenv.cfg")))
-        && QFileInfo::exists(root.filePath(name + QStringLiteral("/bin/activate")));
+        && QFileInfo::exists(root.filePath(name + QLatin1Char('/') + Platform::venvBinDir() + QStringLiteral("/activate")));
 }
 
 QString findVenv(const QString &projectRoot)
@@ -63,9 +64,9 @@ QString venvPython(const QString &projectRoot, const QString &venv)
     if (venv.isEmpty())
         return {};
     for (const char *name : {"python", "python3"}) {
-        const QFileInfo fi(QDir(projectRoot).filePath(venv + QStringLiteral("/bin/") + QString::fromLatin1(name)));
-        if (fi.exists() && fi.isExecutable())
-            return fi.absoluteFilePath();
+        const QString exe = Platform::venvProgram(QDir(projectRoot).filePath(venv), QString::fromLatin1(name));
+        if (!exe.isEmpty())
+            return exe;
     }
     return {};
 }

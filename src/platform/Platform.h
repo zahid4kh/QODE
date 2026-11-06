@@ -50,6 +50,12 @@ QString wrapperCommand(const QString &dir, const QString &name);
 QString wrapperFile(const QString &dir, const QString &name);
 bool wrapperNeedsExecBit(const QString &dir, const QString &name);
 
+// Python virtual environments: the folder that holds their programs ("bin" on Unix, "Scripts" on Windows), and one
+// of them by base name (python, pip, ruff): venv/bin/<name> on Unix, venv/Scripts/<name>.exe on Windows. Empty when it
+// is missing (or, on Unix, not executable).
+QString venvBinDir();
+QString venvProgram(const QString &venv, const QString &name);
+
 // Folders where per-user tools land that a desktop-launched QODE may lack on PATH, beyond the home-relative ones the
 // callers add themselves (~/.local/bin, ~/.bun/bin, ~/.cargo/bin …, the same on every OS). Unix: none. Windows: npm's
 // global folder, pnpm's, Node.js's, WinGet's links and Scoop's shims. Only folders that exist.

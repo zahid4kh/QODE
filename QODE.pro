@@ -17,7 +17,8 @@ qtHaveModule(multimedia) {
 }
 
 # Desktop notifications (Claude Code finished or waiting) go over D-Bus; without it only the taskbar entry is flagged.
-qtHaveModule(dbus) {
+# Not on Windows: its Qt kit ships QtDBus, but there is no session bus to talk to.
+!win32:qtHaveModule(dbus) {
     QT += dbus
     DEFINES += QODE_HAS_DBUS
 }
@@ -28,7 +29,9 @@ CONFIG -= app_bundle
 TEMPLATE = app
 TARGET = qode
 VERSION = 2.0.0
-LIBS += -lz # JarSource reads library source jars
+# JarSource reads library source jars with zlib: the system's on Unix, the copy inside Qt Core on Windows.
+unix: LIBS += -lz
+win32: QT += zlib-private
 DEFINES += QT_DEPRECATED_WARNINGS QT_NO_CAST_TO_ASCII QT_NO_CAST_FROM_BYTEARRAY
 DEFINES += QODE_VERSION=\\\"$$VERSION\\\"
 
@@ -521,19 +524,37 @@ MOC_DIR = $$OUT_PWD/.moc
 RCC_DIR = $$OUT_PWD/.rcc
 UI_DIR = $$OUT_PWD/.ui
 
-# make install
-isEmpty(PREFIX): PREFIX = /usr/local
-target.path = $$PREFIX/bin
-desktop.files = resources/qode.desktop
-desktop.path = $$PREFIX/share/applications
-icon.files = resources/icons/qode.svg
-icon.path = $$PREFIX/share/icons/hicolor/scalable/apps
-INSTALLS += target desktop icon
-# Each PNG size is installed as hicolor/<size>/apps/qode.png, the name the desktop entry's Icon= looks up.
-for(sz, $$list(16 32 48 64 128 256 512)) {
-    pngicon = icon$${sz}
-    $${pngicon}.path = $$PREFIX/share/icons/hicolor/$${sz}x$${sz}/apps
-    $${pngicon}.extra = $(INSTALL_FILE) $$PWD/resources/icons/qode-$${sz}.png $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/$${sz}x$${sz}/apps/qode.png
-    $${pngicon}.uninstall = -$(DEL_FILE) $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/$${sz}x$${sz}/apps/qode.png
-    INSTALLS += $$pngicon
+win32 {
+    # qode.exe: icon, version resource (Properties > Details) and a manifest (UTF-8 code page, long paths).
+    # Qt's win32-msvc mkspec already passes -utf-8 -permissive- -Zc:__cplusplus -MP and links as a GUI app.
+    RC_ICONS = resources/icons/qode.ico
+    QMAKE_TARGET_PRODUCT = QODE
+    QMAKE_TARGET_DESCRIPTION = QODE
+    QMAKE_TARGET_COMPANY = QODE
+    QMAKE_TARGET_COPYRIGHT = QODE
+    # Merged by the linker into the manifest it embeds anyway (Common Controls 6, asInvoker). Not QMAKE_MANIFEST:
+    # with RC_ICONS that also puts the file into the generated .rc, and the link fails on a duplicate MANIFEST resource.
+    QMAKE_LFLAGS += /MANIFESTINPUT:$$shell_quote($$system_path($$PWD/resources/windows/qode.manifest))
+    # Absolute paths in the Makefile: with relative ones qmake writes header dependencies one "..\" too deep
+    # (..\..\..\qt from build-win\). nmake does not notice, because Windows stops ".." at the drive root, but jom does.
+    QMAKE_PROJECT_DEPTH = 0
+}
+
+# make install (Linux; Windows is packaged with windeployqt and an installer instead)
+unix {
+    isEmpty(PREFIX): PREFIX = /usr/local
+    target.path = $$PREFIX/bin
+    desktop.files = resources/qode.desktop
+    desktop.path = $$PREFIX/share/applications
+    icon.files = resources/icons/qode.svg
+    icon.path = $$PREFIX/share/icons/hicolor/scalable/apps
+    INSTALLS += target desktop icon
+    # Each PNG size is installed as hicolor/<size>/apps/qode.png, the name the desktop entry's Icon= looks up.
+    for(sz, $$list(16 32 48 64 128 256 512)) {
+        pngicon = icon$${sz}
+        $${pngicon}.path = $$PREFIX/share/icons/hicolor/$${sz}x$${sz}/apps
+        $${pngicon}.extra = $(INSTALL_FILE) $$PWD/resources/icons/qode-$${sz}.png $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/$${sz}x$${sz}/apps/qode.png
+        $${pngicon}.uninstall = -$(DEL_FILE) $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/$${sz}x$${sz}/apps/qode.png
+        INSTALLS += $$pngicon
+    }
 }

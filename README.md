@@ -13,6 +13,7 @@ A native C++/Qt 6 code editor for Linux with a coding chat built in. QODE opens 
 - **Web, Expo and Python**: dev server strip, `.env` editor, a live web / Expo preview (phone and tablet mockups), Python venvs and packages.
 - **HTTP client** for `.http` / `.rest` files, with variables, environments and chained requests.
 - **Git**: Version Control panel with a diff pane and inline blame.
+- **Game panel** (`Ctrl+Alt+P`): a neon block-stacking game beside the chat, for while QODE or Claude Code works. It pauses when you click away, and keeps your high score, top 10 and play time.
 
 QODE never writes into your project folder. Settings and per-project data live in `~/.config/QODE-AGENTIC`, downloads (language servers, local history) in `~/.local/share/QODE-AGENTIC` and caches in `~/.cache/QODE-AGENTIC`.
 

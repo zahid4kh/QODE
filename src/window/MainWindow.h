@@ -34,6 +34,7 @@ class MarkdownPreview;
 class GradlePanel;
 class MavenCentral;
 class MavenPanel;
+class GamePanel;
 class SpringBar;
 class SpringPanel;
 class KtorBar;
@@ -301,6 +302,12 @@ private:
     MavenPanel *m_maven = nullptr;
     QAction *m_mavenAct = nullptr;
 
+    // Game panel (MainWindowGame.cpp)
+    GamePanel *gamePanel();
+    void toggleGamePanel();
+    GamePanel *m_gamePanel = nullptr;
+    QAction *m_gameAct = nullptr;
+
     // Debugger (MainWindowDebug.cpp)
     void setupDebugger();
     DebugPanel *debugPanel();
@@ -472,7 +479,7 @@ private:
     int m_editorColWidth = 0;      // width of the editor column beside the agent; 0 = not chosen yet
     bool m_editorHiddenByUser = false; // the editor column was closed by hand: files the agent opens do not bring it back
     bool m_launching = false;          // opening the startup paths / last session: the chat stays closed whatever the layout says
-    QStackedWidget *m_rightStack; // media panel | markdown preview | Gradle tasks | Spring Boot | Ktor | web preview | HTTP client
+    QStackedWidget *m_rightStack; // media panel | markdown preview | Gradle tasks | Spring Boot | Ktor | web preview | HTTP client | game
     QPointer<Document> m_previewDoc; // the Markdown / SVG file the right panel is previewing live
     QMetaObject::Connection m_previewConn;
     QMetaObject::Connection m_previewScrollConn;

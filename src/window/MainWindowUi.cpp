@@ -122,6 +122,8 @@ void MainWindow::createActions()
     m_editorPaneAct->setToolTip(tr("Show or hide the editor and terminal beside the QODE chat (Ctrl+Alt+E)"));
     m_editorPaneAct->setCheckable(true);
     m_editorPaneAct->setChecked(true); // QODE starts on the editor column (the welcome page)
+    m_gameAct = make(tr("Game Panel"), QKeySequence(C | A | K::Key_P), QStringLiteral(":/new-icons/gamepad-2.svg"));
+    m_gameAct->setToolTip(tr("Play a game while QODE or Claude Code works (Ctrl+Alt+P)"));
     m_gradleAct = make(tr("Gradle Tasks"), {}, QStringLiteral(":/new-icons/gradle.svg"));
     m_gradleAct->setToolTip(tr("Show the Gradle tasks of this project (build, test, package, …) and run them"));
     m_mavenAct = make(tr("Maven"), {}, QStringLiteral(":/new-icons/apachemaven.svg"));
@@ -309,6 +311,7 @@ void MainWindow::createActions()
     connect(m_pythonPkgAct, &QAction::triggered, this, &MainWindow::showPythonPackages);
     connect(m_gradleAct, &QAction::triggered, this, &MainWindow::toggleGradlePanel);
     connect(m_mavenAct, &QAction::triggered, this, &MainWindow::toggleMavenPanel);
+    connect(m_gameAct, &QAction::triggered, this, &MainWindow::toggleGamePanel);
     connect(m_springAct, &QAction::triggered, this, &MainWindow::toggleSpringPanel);
     connect(m_springStarterAct, &QAction::triggered, this, &MainWindow::addSpringStarters);
     connect(m_ktorAct, &QAction::triggered, this, &MainWindow::toggleKtorPanel);
@@ -521,6 +524,7 @@ void MainWindow::createMenus()
     view->addAction(m_claudeCodeAct);
     view->addAction(m_mcpAct);
     view->addAction(m_editorPaneAct);
+    view->addAction(m_gameAct);
     view->addSeparator();
     view->addAction(m_splitRightAct);
     view->addAction(m_splitDownAct);
@@ -639,6 +643,7 @@ void MainWindow::createToolBar()
     tb->addAction(m_aiAct);
     tb->addAction(m_claudeCodeAct);
     tb->addAction(m_editorPaneAct);
+    tb->addAction(m_gameAct);
     tb->addSeparator();
     m_mainToolBar = tb;
     // A web project runs its dev server instead of single files: the server controls replace the two run buttons.

@@ -255,6 +255,12 @@ SOURCES += \
     src/editor/EditorConfig.cpp \
     src/history/LocalHistory.cpp \
     src/history/LocalHistoryDialog.cpp \
+    src/game/GamePanel.cpp \
+    src/game/GameStore.cpp \
+    src/game/TeqrisGame.cpp \
+    src/game/TeqrisWidget.cpp \
+    src/game/Tetromino.cpp \
+    src/window/MainWindowGame.cpp \
     src/git/DiffPane.cpp \
     src/window/MainWindowEditing.cpp \
     src/window/MainWindowLens.cpp \
@@ -489,6 +495,11 @@ HEADERS += \
     src/editor/EditorConfig.h \
     src/history/LocalHistory.h \
     src/history/LocalHistoryDialog.h \
+    src/game/GamePanel.h \
+    src/game/GameStore.h \
+    src/game/TeqrisGame.h \
+    src/game/TeqrisWidget.h \
+    src/game/Tetromino.h \
     src/git/DiffPane.h \
     src/editor/CompletionPopup.h \
     src/editor/HoverRender.h \

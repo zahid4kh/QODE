@@ -9,6 +9,9 @@ debian-staging-script
 docs/node_modules
 docs/.next
 /run.sh
+/run.bat
+# Local Claude Code skills and settings
+/.claude/
 
 # Planning notes
 plans/

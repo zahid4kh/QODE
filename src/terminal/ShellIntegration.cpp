@@ -67,12 +67,14 @@ end
 // PowerShell (Windows PowerShell 5.1 and pwsh 7): handed over with -EncodedCommand, which runs after the user's profile;
 // a .ps1 file would need an execution policy that allows scripts. The prompt function is wrapped (its first statement
 // takes $? before anything changes it), and PSReadLine's PSConsoleHostReadLine reports the accepted line. A failed
-// native command reports its own exit code, a failed cmdlet 1. The prompt also reports the folder (633;P), which
+// native command reports its own exit code, a failed cmdlet 1. A line QODE typed that restores something in a finally
+// block (ShellSyntax.h) leaves its result in $__qodeOk instead of $?. The prompt also reports the folder (633;P), which
 // Windows cannot tell QODE. 5.1 knows no `e, hence [char]27.
 const char *const kPowerShell = R"QODE(# QODE shell integration (PowerShell): marks each command's start and exit code, and the folder, for the terminal.
 $global:__qodePrompt = $function:prompt
 function global:prompt {
     $failed = -not $global:?
+    if ($null -ne $global:__qodeOk) { $failed = -not $global:__qodeOk; $global:__qodeOk = $null }
     $code = $global:LASTEXITCODE
     $e = [char]27; $b = [char]7
     $status = 0

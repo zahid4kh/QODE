@@ -241,6 +241,16 @@ void TerminalPanel::newSessionWith(const QString &program)
     notifyTabs();
 }
 
+QString TerminalPanel::currentShellName() const
+{
+    if (const Terminal *t = current())
+        return t->shellName();
+    QString name = QFileInfo(m_defaultShell.isEmpty() ? ShellProcess::defaultShell() : m_defaultShell).fileName();
+    if (name.endsWith(QLatin1String(".exe"), Qt::CaseInsensitive))
+        name.chop(4);
+    return name;
+}
+
 void TerminalPanel::setDefaultShell(const QString &program)
 {
     m_defaultShell = !program.isEmpty() && QFileInfo(program).isFile() ? program : QString();

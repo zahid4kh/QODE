@@ -26,6 +26,7 @@
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
+#include "terminal/ShellSyntax.h"
 #include "terminal/TerminalPanel.h"
 
 #include <QAction>
@@ -522,8 +523,15 @@ QString MainWindow::jdkStartupCommand(const QString &shell) const
     if (!m_projects->hasProject())
         return {};
     const QString home = SettingsManager::instance().projectJdk();
-    if (home.isEmpty() || !QFileInfo::exists(home + QStringLiteral("/bin/java")))
+    if (home.isEmpty() || (!QFileInfo::exists(home + QStringLiteral("/bin/java")) && !QFileInfo::exists(home + QStringLiteral("/bin/java.exe"))))
         return {};
+    const ShellSyntax::Dialect dialect = ShellSyntax::dialectOf(shell);
+    if (dialect == ShellSyntax::Dialect::PowerShell)
+        return QStringLiteral("$env:JAVA_HOME = %1; $env:PATH = %2 + ';' + $env:PATH")
+            .arg(ShellSyntax::quote(dialect, QDir::toNativeSeparators(home)),
+                 ShellSyntax::quote(dialect, QDir::toNativeSeparators(home + QStringLiteral("/bin"))));
+    if (dialect == ShellSyntax::Dialect::Cmd) // %PATH% is expanded when cmd reads the line
+        return QStringLiteral("set \"JAVA_HOME=%1\" & set \"PATH=%1\\bin;%PATH%\"").arg(QDir::toNativeSeparators(home));
     const QString q = JvmTools::shellQuote(home);
     const QString bin = JvmTools::shellQuote(home + QStringLiteral("/bin"));
     if (shell == QLatin1String("fish"))

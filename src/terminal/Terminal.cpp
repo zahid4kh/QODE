@@ -1,6 +1,7 @@
 #include "Terminal.h"
 
 #include "ShellProcess.h"
+#include "ShellSyntax.h"
 #include "TerminalScreen.h"
 #include "TerminalView.h"
 #include "filesystem/FileManager.h"
@@ -198,7 +199,7 @@ void Terminal::startShell()
         m_booting = true;
         m_pendingTimer->start(1500); // fallback if the shell prints nothing
         if (m_startupProvider)
-            m_pendingCommand = m_startupProvider(QFileInfo(m_shell->shell()).fileName());
+            m_pendingCommand = m_startupProvider(shellName());
     }
     updateHeader();
 }
@@ -246,12 +247,13 @@ void Terminal::restart()
     startShell();
 }
 
-void Terminal::runCommand(const QString &command)
+void Terminal::runCommand(const QString &shCommand)
 {
     const bool wasRunning = m_shell->isRunning();
     ensureStarted();
     if (!m_shell->isRunning())
         return;
+    const QString command = ShellSyntax::translate(shCommand, m_shell->shell()); // for PowerShell / cmd on Windows
     m_view->scrollToBottom();
     if (m_booting) { // a fresh shell (or its startup command) is still coming up: run after it
         if (!m_pendingCommand.isEmpty())

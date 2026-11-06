@@ -49,6 +49,7 @@
 #include "spring/SpringProperties.h"
 #include "spring/SpringScaffold.h"
 #include "tasks/TasksPanel.h"
+#include "terminal/ShellSyntax.h"
 #include "terminal/TerminalPanel.h"
 #include "webdev/DevServerBar.h"
 #include "webdev/WebPreview.h"
@@ -195,7 +196,7 @@ MainWindow::MainWindow(QWidget *parent)
             commands << PythonEnv::activationCommand(m_projects->project().root, shell);
         commands << jdkStartupCommand(shell);
         commands.removeAll(QString());
-        return commands.join(QStringLiteral("; "));
+        return ShellSyntax::sequence(ShellSyntax::dialectOf(shell), commands);
     });
 
     connect(m_terminal, &TerminalPanel::tabsChanged, this, [](const QStringList &names) { SettingsManager::instance().setTerminalTabs(names); });

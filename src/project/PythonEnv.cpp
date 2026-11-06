@@ -2,6 +2,7 @@
 
 #include "platform/Platform.h"
 #include "settings/SettingsManager.h"
+#include "terminal/ShellSyntax.h"
 
 #include <QDir>
 #include <QFile>
@@ -87,12 +88,24 @@ QString activationCommand(const QString &projectRoot, const QString &shellName)
     const QString venv = activeVenv(projectRoot);
     if (venv.isEmpty())
         return {};
+    const ShellSyntax::Dialect dialect = ShellSyntax::dialectOf(shellName);
+    const QString abs = QDir::toNativeSeparators(QDir(projectRoot).filePath(venv));
+    const QString scripts = abs + QDir::separator() + Platform::venvBinDir();
+    if (dialect == ShellSyntax::Dialect::PowerShell) {
+        // What Activate.ps1 does that matters, without running a script (the default execution policy forbids it).
+        return QStringLiteral("$env:VIRTUAL_ENV = %1; $env:PATH = %2 + ';' + $env:PATH")
+            .arg(ShellSyntax::quote(dialect, abs), ShellSyntax::quote(dialect, scripts));
+    }
+    if (dialect == ShellSyntax::Dialect::Cmd) {
+        const QString bat = scripts + QStringLiteral("\\activate.bat");
+        return QFileInfo::exists(bat) ? ShellSyntax::quote(dialect, bat) : QString();
+    }
     QString script = QStringLiteral("activate");
     if (shellName == QLatin1String("fish"))
         script = QStringLiteral("activate.fish");
     else if (shellName == QLatin1String("csh") || shellName == QLatin1String("tcsh"))
         script = QStringLiteral("activate.csh");
-    const QString rel = venv + QStringLiteral("/bin/") + script;
+    const QString rel = venv + QLatin1Char('/') + Platform::venvBinDir() + QLatin1Char('/') + script;
     if (!QFileInfo::exists(QDir(projectRoot).filePath(rel)))
         return {};
     // Single-quote so names with spaces or shell metacharacters survive.

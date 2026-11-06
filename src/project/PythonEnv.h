@@ -22,8 +22,9 @@ QString venvPython(const QString &projectRoot, const QString &venv);
 // "3.12.3" from the venv's pyvenv.cfg; empty when unknown.
 QString venvVersion(const QString &projectRoot, const QString &venv);
 
-// Shell command that activates the venv for `shellName` (bash, zsh, fish, ...), or "" when the
-// project has no venv or the venv has no activation script for that shell.
+// Shell command that activates the venv for `shellName` (bash, zsh, fish, pwsh, cmd, ...), or "" when the
+// project has no venv or the venv has no activation script for that shell. PowerShell gets VIRTUAL_ENV and PATH set
+// directly (Activate.ps1 needs an execution policy that allows scripts).
 QString activationCommand(const QString &projectRoot, const QString &shellName);
 
 } // namespace PythonEnv

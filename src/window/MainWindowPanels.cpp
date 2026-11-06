@@ -290,14 +290,12 @@ void MainWindow::showPythonPackages()
         updatePythonUi();
         restartPythonServer();
         statusBar()->showMessage(tr("Created the virtual environment %1").arg(name), 6000);
-        const QString shell = QFileInfo(qEnvironmentVariable("SHELL", QStringLiteral("/bin/bash"))).fileName();
-        const QString cmd = PythonEnv::activationCommand(m_projects->project().root, shell);
-        if (cmd.isEmpty())
+        if (PythonEnv::activationCommand(m_projects->project().root, m_terminal->currentShellName()).isEmpty())
             return;
         if (QMessageBox::question(m_pkgDialog, tr("Activate it?"),
                                   tr("Activate %1 in the terminal now? New terminals activate it automatically.").arg(name)) == QMessageBox::Yes) {
-            showTerminal();
-            m_terminal->runCommand(cmd);
+            showTerminal(); // may start the first pane: its shell decides the command
+            m_terminal->runCommand(PythonEnv::activationCommand(m_projects->project().root, m_terminal->currentShellName()));
         }
     });
     m_pkgDialog->show();

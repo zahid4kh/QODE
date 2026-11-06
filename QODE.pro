@@ -264,6 +264,7 @@ SOURCES += \
     src/terminal/TerminalScreen.cpp \
     src/terminal/ShellProcess.cpp \
     src/terminal/ShellIntegration.cpp \
+    src/terminal/ShellSyntax.cpp \
     src/terminal/TerminalView.cpp \
     src/terminal/ProblemScanner.cpp \
     src/terminal/Terminal.cpp \
@@ -492,6 +493,7 @@ HEADERS += \
     src/terminal/TerminalScreen.h \
     src/terminal/ShellProcess.h \
     src/terminal/ShellIntegration.h \
+    src/terminal/ShellSyntax.h \
     src/terminal/TerminalView.h \
     src/terminal/ProblemScanner.h \
     src/terminal/Terminal.h \

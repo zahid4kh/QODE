@@ -439,14 +439,18 @@ QString TerminalView::lineText(int absoluteLine, QVector<int> *columns) const
     return text;
 }
 
-// gcc / clang / rustc / tsc style "path:line[:column]" (the path needs an extension), and Python's `File "path", line N`.
+// gcc / clang / rustc / tsc style "path:line[:column]" (the path needs an extension), MSVC / tsc / C# "path(line[,column])",
+// and Python's `File "path", line N`. A path may start with a Windows drive and use backslashes.
 TerminalView::Link TerminalView::linkAt(const QPoint &cell) const
 {
-    static const QRegularExpression location(QStringLiteral("((?:~|\\.{1,2})?[\\w./+@-]*[\\w+-]\\.[A-Za-z0-9+]{1,8}):(\\d+)(?::(\\d+))?"));
+    static const QRegularExpression location(
+        QStringLiteral("((?:[A-Za-z]:(?=[\\\\/])|~|\\.{1,2})?[\\w./\\\\+@-]*[\\w+-]\\.[A-Za-z0-9+]{1,8}):(\\d+)(?::(\\d+))?"));
+    static const QRegularExpression msvc(
+        QStringLiteral("((?:[A-Za-z]:(?=[\\\\/])|\\.{1,2})?[\\w./\\\\+@-]*[\\w+-]\\.[A-Za-z0-9+]{1,8})\\((\\d+)(?:,(\\d+))?\\)"));
     static const QRegularExpression python(QStringLiteral("File \"([^\"]+)\", line (\\d+)"));
     QVector<int> columns;
     const QString text = lineText(cell.y(), &columns);
-    for (const QRegularExpression *re : {&location, &python}) {
+    for (const QRegularExpression *re : {&location, &msvc, &python}) {
         for (auto it = re->globalMatch(text); it.hasNext();) {
             const QRegularExpressionMatch m = it.next();
             const int from = columns.value(m.capturedStart(), -1), to = columns.value(m.capturedEnd() - 1, -1) + 1;
@@ -461,7 +465,7 @@ TerminalView::Link TerminalView::linkAt(const QPoint &cell) const
             link.end = to;
             link.path = path;
             link.row = m.captured(2).toInt();
-            link.column = re == &location ? m.captured(3).toInt() : 0;
+            link.column = re != &python ? m.captured(3).toInt() : 0;
             return link;
         }
     }
@@ -473,6 +477,9 @@ QString TerminalView::resolveLink(const QString &raw, int line) const
     QString path = raw;
     if (path.startsWith(QLatin1String("~/")))
         path = QDir::homePath() + path.mid(1);
+    static const QRegularExpression slashDrive(QStringLiteral("^/[A-Za-z]:[\\\\/]")); // "/C:/x" (a file URI's path)
+    if (slashDrive.match(path).hasMatch())
+        path.remove(0, 1);
     if (QFileInfo(path).isAbsolute())
         return QFileInfo(path).isFile() ? QDir::cleanPath(path) : QString();
     QStringList folders;

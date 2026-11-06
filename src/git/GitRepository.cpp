@@ -1,4 +1,5 @@
 #include "GitRepository.h"
+#include "platform/Platform.h"
 
 #include <QDir>
 #include <QFile>
@@ -38,7 +39,7 @@ QString messageOf(const GitRepository::Result &r)
 GitRepository::GitRepository(QObject *parent)
     : QObject(parent)
 {
-    m_gitExe = QStandardPaths::findExecutable(QStringLiteral("git"));
+    m_gitExe = Platform::gitExecutable();
     m_timer = new QTimer(this);
     m_timer->setSingleShot(true);
     m_timer->setInterval(350);

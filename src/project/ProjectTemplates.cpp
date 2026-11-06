@@ -1,4 +1,5 @@
 #include "ProjectTemplates.h"
+#include "platform/Platform.h"
 
 #include <QBuffer>
 #include <QByteArray>
@@ -350,7 +351,7 @@ QString ProjectTemplates::gitIdentity()
     done = true;
     auto get = [](const QString &key) {
         QProcess p;
-        p.start(QStringLiteral("git"), {QStringLiteral("config"), key});
+        p.start(Platform::gitExecutable(), {QStringLiteral("config"), key});
         if (!p.waitForFinished(1500) || p.exitCode() != 0)
             return QString();
         return QString::fromUtf8(p.readAllStandardOutput()).trimmed();

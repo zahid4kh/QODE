@@ -1,4 +1,5 @@
 #include "ProjectFiles.h"
+#include "platform/Platform.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -24,7 +25,7 @@ const QSet<QString> &skippedDirs()
 
 bool gitList(const QString &root, QStringList *out)
 {
-    const QString git = QStandardPaths::findExecutable(QStringLiteral("git"));
+    const QString git = Platform::gitExecutable();
     if (git.isEmpty())
         return false;
     QProcess p;

@@ -1,4 +1,5 @@
 #include "AgentTools.h"
+#include "platform/Platform.h"
 #include "AgentToolHelpers.h"
 #include "history/LocalHistory.h"
 
@@ -864,7 +865,7 @@ ToolResult AgentTools::gitTool(const QString &what, const QJsonObject &a)
     env.insert(QStringLiteral("GIT_EDITOR"), QStringLiteral("true"));
     env.insert(QStringLiteral("LC_ALL"), QStringLiteral("C"));
     p.setProcessEnvironment(env);
-    p.start(QStringLiteral("git"), args);
+    p.start(Platform::gitExecutable(), args);
     if (!p.waitForFinished(30000)) {
         p.kill();
         return fail(QStringLiteral("git did not finish"));

@@ -6,6 +6,7 @@
 #include <QFileInfo>
 #include <QList>
 #include <QProcess>
+#include <QStandardPaths>
 
 #include <csignal>
 #include <cstdio>
@@ -96,6 +97,11 @@ QString Platform::venvProgram(const QString &venv, const QString &name)
 {
     const QFileInfo fi(venv + QStringLiteral("/bin/") + name);
     return fi.exists() && fi.isExecutable() ? fi.absoluteFilePath() : QString();
+}
+
+QString Platform::gitExecutable()
+{
+    return QStandardPaths::findExecutable(QStringLiteral("git"));
 }
 
 QStringList Platform::extraBinDirs()

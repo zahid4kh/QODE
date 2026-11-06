@@ -761,7 +761,7 @@ void MainWindow::newProject()
     if (dlg.initGit()) {
         QProcess git;
         git.setWorkingDirectory(dest);
-        git.start(QStringLiteral("git"), {QStringLiteral("init"), QStringLiteral("-q")});
+        git.start(Platform::gitExecutable(), {QStringLiteral("init"), QStringLiteral("-q")});
         if (!git.waitForFinished(5000) || git.exitCode() != 0)
             QMessageBox::warning(this, tr("Git"), tr("The project was created, but \"git init\" failed."));
     }

@@ -198,6 +198,25 @@ QString Platform::venvProgram(const QString &venv, const QString &name)
     return fi.isFile() ? fi.absoluteFilePath() : QString();
 }
 
+QString Platform::gitExecutable()
+{
+    const QString onPath = QStandardPaths::findExecutable(QStringLiteral("git"));
+    if (!onPath.isEmpty())
+        return onPath;
+    // Git for Windows: all users (Program Files), or per user (LocalAppData\Programs).
+    QStringList roots{qEnvironmentVariable("ProgramW6432"), qEnvironmentVariable("ProgramFiles")};
+    if (const QString local = qEnvironmentVariable("LOCALAPPDATA"); !local.isEmpty())
+        roots << local + QStringLiteral("\\Programs");
+    for (const QString &root : std::as_const(roots)) {
+        if (root.isEmpty())
+            continue;
+        const QString git = QDir::fromNativeSeparators(root) + QStringLiteral("/Git/cmd/git.exe");
+        if (QFileInfo(git).isFile())
+            return git;
+    }
+    return {};
+}
+
 QStringList Platform::extraBinDirs()
 {
     QStringList out;

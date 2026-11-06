@@ -56,6 +56,10 @@ bool wrapperNeedsExecBit(const QString &dir, const QString &name);
 QString venvBinDir();
 QString venvProgram(const QString &venv, const QString &name);
 
+// The git executable, empty when there is none. PATH first; on Windows also Git for Windows' usual install folders,
+// for an install that did not add itself to PATH.
+QString gitExecutable();
+
 // Folders where per-user tools land that a desktop-launched QODE may lack on PATH, beyond the home-relative ones the
 // callers add themselves (~/.local/bin, ~/.bun/bin, ~/.cargo/bin …, the same on every OS). Unix: none. Windows: npm's
 // global folder, pnpm's, Node.js's, WinGet's links and Scoop's shims. Only folders that exist.

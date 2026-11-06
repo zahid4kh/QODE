@@ -45,6 +45,8 @@ public:
     void setInsertFinalNewline(bool on);
     bool autoActivateVenv() const; // activate a project's Python venv in new terminals
     void setAutoActivateVenv(bool on);
+    QString terminalShell() const; // the program new terminals run, "" = the default (Windows: chosen in the + menu)
+    void setTerminalShell(const QString &program);
     bool formatOnSave() const;
     void setFormatOnSave(bool on);
     // Language server actions run before a save (Edit > Source Actions), per project like Format on Save.

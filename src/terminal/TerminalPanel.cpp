@@ -1,10 +1,14 @@
 #include "TerminalPanel.h"
 
 #include "Terminal.h"
+#include "platform/Platform.h"
 #include "settings/Icons.h"
+#include "terminal/ShellProcess.h"
 
 #include <QAction>
+#include <QActionGroup>
 #include <QDir>
+#include <QFileInfo>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QMenu>
@@ -44,6 +48,14 @@ TerminalPanel::TerminalPanel(QWidget *parent)
     Icons::bind(addBtn, QStringLiteral(":/new-icons/plus.svg"));
     addBtn->setToolTip(tr("New terminal (Ctrl+Shift+T)"));
     addBtn->setAutoRaise(true);
+    // Where there is a choice of shells (Windows), the button's arrow opens a tab with another one or sets the default.
+    if (!Platform::terminalShells().isEmpty()) {
+        auto *shellMenu = new QMenu(addBtn);
+        connect(shellMenu, &QMenu::aboutToShow, this, [this, shellMenu] { fillShellMenu(shellMenu); });
+        addBtn->setMenu(shellMenu);
+        addBtn->setPopupMode(QToolButton::MenuButtonPopup);
+        addBtn->setToolTip(tr("New terminal (Ctrl+Shift+T); the arrow picks the shell"));
+    }
 
     auto *splitBtn = makeBtn(tr("Split"), tr("Split the current terminal"));
     splitBtn->setPopupMode(QToolButton::InstantPopup);
@@ -168,10 +180,11 @@ QVector<TerminalPanel::Pane> TerminalPanel::panes() const
     return out;
 }
 
-Terminal *TerminalPanel::createPane()
+Terminal *TerminalPanel::createPane(const QString &program)
 {
     auto *t = new Terminal(this);
     t->setHeaderVisible(false);
+    t->setShellProgram(program);
     t->setWorkingDirectory(m_cwd);
     if (m_startupProvider)
         t->setStartupCommandProvider(m_startupProvider);
@@ -194,12 +207,12 @@ Terminal *TerminalPanel::createPane()
     return t;
 }
 
-int TerminalPanel::createSession(const QString &customName)
+int TerminalPanel::createSession(const QString &customName, const QString &program)
 {
     auto *page = new QSplitter(Qt::Horizontal, m_stack);
     page->setChildrenCollapsible(false);
     page->setHandleWidth(1);
-    Terminal *t = createPane();
+    Terminal *t = createPane(program.isEmpty() ? m_defaultShell : program);
     page->addWidget(t);
     m_active.insert(page, t);
     m_stack->addWidget(page);
@@ -214,7 +227,12 @@ int TerminalPanel::createSession(const QString &customName)
 
 void TerminalPanel::newSession()
 {
-    createSession(QString());
+    newSessionWith(QString());
+}
+
+void TerminalPanel::newSessionWith(const QString &program)
+{
+    createSession(QString(), program);
     if (Terminal *t = current()) {
         t->ensureStarted();
         t->focusTerminal();
@@ -223,13 +241,41 @@ void TerminalPanel::newSession()
     notifyTabs();
 }
 
+void TerminalPanel::setDefaultShell(const QString &program)
+{
+    m_defaultShell = !program.isEmpty() && QFileInfo(program).isFile() ? program : QString();
+}
+
+// "New <shell>" for each shell there is, and the default for new tabs (the + button and Ctrl+Shift+T).
+void TerminalPanel::fillShellMenu(QMenu *menu)
+{
+    menu->clear();
+    const QList<Platform::Shell> shells = Platform::terminalShells();
+    for (const Platform::Shell &s : shells)
+        connect(menu->addAction(tr("New %1").arg(s.name)), &QAction::triggered, this, [this, program = s.program] { newSessionWith(program); });
+    menu->addSeparator();
+    QMenu *defaults = menu->addMenu(tr("Default Shell"));
+    auto *group = new QActionGroup(defaults);
+    const QFileInfo current(m_defaultShell.isEmpty() ? ShellProcess::defaultShell() : m_defaultShell);
+    for (const Platform::Shell &s : shells) {
+        QAction *a = defaults->addAction(s.name);
+        a->setCheckable(true);
+        a->setChecked(QFileInfo(s.program) == current);
+        group->addAction(a);
+        connect(a, &QAction::triggered, this, [this, program = s.program] {
+            m_defaultShell = program;
+            emit defaultShellChanged(program);
+        });
+    }
+}
+
 void TerminalPanel::splitCurrent(Qt::Orientation orientation)
 {
     Terminal *t = current();
     auto *parent = t ? qobject_cast<QSplitter *>(t->parentWidget()) : nullptr;
     if (!parent)
         return;
-    Terminal *fresh = createPane();
+    Terminal *fresh = createPane(t->shellProgram()); // the same shell as the pane it splits
     if (parent->orientation() == orientation || parent->count() == 1) {
         parent->setOrientation(orientation);
         parent->insertWidget(parent->indexOf(t) + 1, fresh);

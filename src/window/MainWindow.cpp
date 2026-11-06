@@ -199,6 +199,8 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     connect(m_terminal, &TerminalPanel::tabsChanged, this, [](const QStringList &names) { SettingsManager::instance().setTerminalTabs(names); });
+    m_terminal->setDefaultShell(SettingsManager::instance().terminalShell());
+    connect(m_terminal, &TerminalPanel::defaultShellChanged, this, [](const QString &program) { SettingsManager::instance().setTerminalShell(program); });
     terminalIsland->setContent(m_terminal);
     connect(m_terminal, &TerminalPanel::maximizeToggled, this, [this](bool maximized) {
         const int total = m_vsplit->height();

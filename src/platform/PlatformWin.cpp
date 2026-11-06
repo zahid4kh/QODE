@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QProcess>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QtGlobal>
 
@@ -241,6 +242,33 @@ QStringList Platform::extraBinDirs()
     }
     add(programFiles + QStringLiteral("\\nodejs"));
     add(QDir::homePath() + QStringLiteral("/scoop/shims"));
+    return out;
+}
+
+QList<Platform::Shell> Platform::terminalShells()
+{
+    QList<Shell> out;
+    const auto add = [&out](const QString &name, const QString &program) {
+        if (!program.isEmpty() && QFileInfo(program).isFile())
+            out.append({name, QDir::toNativeSeparators(program)});
+    };
+    const QString system = qEnvironmentVariable("SystemRoot", QStringLiteral("C:\\Windows")) + QStringLiteral("\\System32");
+    add(QStringLiteral("PowerShell"), QStandardPaths::findExecutable(QStringLiteral("pwsh")));
+    add(QStringLiteral("Windows PowerShell"), system + QStringLiteral("\\WindowsPowerShell\\v1.0\\powershell.exe"));
+    add(QStringLiteral("Command Prompt"), qEnvironmentVariable("ComSpec", system + QStringLiteral("\\cmd.exe")));
+    // Git Bash is bin\bash.exe in Git's folder; git.exe sits in cmd\, bin\ or mingw64\bin\ of it.
+    if (const QString git = gitExecutable(); !git.isEmpty()) {
+        QDir dir = QFileInfo(git).dir();
+        for (int up = 0; up < 2 && dir.cdUp(); ++up)
+            if (QFileInfo(dir.filePath(QStringLiteral("bin/bash.exe"))).isFile()) {
+                add(QStringLiteral("Git Bash"), dir.filePath(QStringLiteral("bin/bash.exe")));
+                break;
+            }
+    }
+    // Without a distribution wsl.exe only explains how to install one.
+    const QSettings lxss(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Lxss"), QSettings::NativeFormat);
+    if (!lxss.childGroups().isEmpty())
+        add(QStringLiteral("WSL"), system + QStringLiteral("\\wsl.exe"));
     return out;
 }
 

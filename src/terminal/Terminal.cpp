@@ -132,11 +132,22 @@ void Terminal::setHeaderVisible(bool on)
     m_header->setVisible(on);
 }
 
+void Terminal::setShellProgram(const QString &program)
+{
+    m_program = program;
+    m_shell->setLaunch(program, {});
+}
+
 QString Terminal::shellName() const
 {
     // Never empty: a tab whose shell has not (re)started yet would otherwise flash a placeholder name.
-    const QString path = m_shell->shell().isEmpty() ? ShellProcess::defaultShell() : m_shell->shell();
-    return QFileInfo(path).fileName();
+    QString path = m_shell->shell();
+    if (path.isEmpty())
+        path = m_program.isEmpty() ? ShellProcess::defaultShell() : m_program;
+    QString name = QFileInfo(path).fileName();
+    if (name.endsWith(QLatin1String(".exe"), Qt::CaseInsensitive)) // Windows: "pwsh", not "pwsh.exe"
+        name.chop(4);
+    return name;
 }
 
 void Terminal::updateHeader()

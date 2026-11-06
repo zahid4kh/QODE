@@ -130,6 +130,13 @@ bool apply(const QString &shell, QStringList *args, QProcessEnvironment *env)
                  QString::fromLatin1(utf16.toBase64())};
         return true;
     }
+    if (name.compare(QLatin1String("cmd"), Qt::CaseInsensitive) == 0) {
+        // cmd has no hooks: its prompt can only send the folder ($E = ESC, $P = the folder, ESC \ ends the OSC).
+        const QString prompt = env->value(QStringLiteral("PROMPT"), QStringLiteral("$P$G"));
+        env->insert(QStringLiteral("PROMPT"), QStringLiteral("$E]633;P;Cwd=$P$E\\") + prompt);
+        args->clear();
+        return true;
+    }
     if (name == QLatin1String("bash")) {
         const QString rc = dir + QStringLiteral("/bashrc");
         if (!ensureFile(rc, kBash))

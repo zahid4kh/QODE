@@ -114,6 +114,11 @@ QStringList Platform::extraBinDirs()
     return {};
 }
 
+QList<Platform::Shell> Platform::terminalShells()
+{
+    return {};
+}
+
 QString Platform::processCwd(qint64 pid)
 {
     return pid > 0 ? QFileInfo(QStringLiteral("/proc/%1/cwd").arg(pid)).symLinkTarget() : QString();

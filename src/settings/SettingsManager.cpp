@@ -493,6 +493,16 @@ void SettingsManager::setExplorerWidth(int w)
     m_settings.setValue(QStringLiteral("window/explorerWidth"), w);
 }
 
+QString SettingsManager::terminalShell() const
+{
+    return m_settings.value(QStringLiteral("terminal/shell")).toString();
+}
+
+void SettingsManager::setTerminalShell(const QString &program)
+{
+    m_settings.setValue(QStringLiteral("terminal/shell"), program);
+}
+
 int SettingsManager::terminalHeight() const
 {
     return m_settings.value(QStringLiteral("window/terminalHeight"), 240).toInt();

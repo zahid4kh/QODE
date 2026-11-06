@@ -77,6 +77,15 @@ QString processCwd(qint64 pid);
 // Unix: the shell's process group is the terminal's foreground group (/proc). Windows: the shell has no child process.
 bool shellInForeground(qint64 pid);
 
+// The shells the terminal offers in its New Terminal menu: the name shown and the program. Unix: none (the terminal
+// runs $SHELL, and the panel shows no menu). Windows: PowerShell 7, Windows PowerShell, Command Prompt, Git Bash and
+// WSL (only with a distribution installed), those that are there.
+struct Shell {
+    QString name;
+    QString program;
+};
+QList<Shell> terminalShells();
+
 // Starts QODE again once this process has ended; call it after the window closed (the project claim goes with the
 // process). Unix: a shell that waits a second, then execs QODE. Windows: a helper that waits for this process to exit.
 void restartSelf();

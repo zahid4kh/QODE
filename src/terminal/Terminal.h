@@ -31,6 +31,9 @@ public:
 
     // The panel with several sessions supplies its own header.
     void setHeaderVisible(bool on);
+    // The shell this pane runs ("" = ShellProcess::defaultShell()); takes effect at the next (re)start.
+    void setShellProgram(const QString &program);
+    QString shellProgram() const { return m_program; }
     QString shellName() const;
     void setWorkingDirectory(const QString &dir);
     QString workingDirectory() const { return m_cwd; }
@@ -88,6 +91,7 @@ private:
     QWidget *m_header = nullptr;
     QToolButton *m_restartBtn;
     QString m_cwd;
+    QString m_program;
     QString m_shellCwd; // the folder the shell integration last reported (633;P;Cwd=), "" if none
     std::function<QString(const QString &)> m_startupProvider;
     QString m_pendingCommand;

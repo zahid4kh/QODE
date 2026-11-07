@@ -228,6 +228,18 @@ void ProcessTree::stop(qint64 pid)
         kill(pid);
 }
 
+void ProcessTree::stop(QProcess *process)
+{
+    if (!process || process->state() == QProcess::NotRunning)
+        return;
+    stop(process->processId());
+    // Waits in the pipe until the batch asks; the program the batch ran is ending on the Ctrl+C and does not read it.
+    if (process->openMode() & QIODevice::WriteOnly) {
+        process->write("Y\r\n");
+        process->closeWriteChannel();
+    }
+}
+
 void ProcessTree::kill(qint64 pid)
 {
     if (pid <= 0)

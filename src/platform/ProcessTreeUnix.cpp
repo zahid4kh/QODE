@@ -149,6 +149,12 @@ void ProcessTree::stop(qint64 pid)
         ::kill(-static_cast<pid_t>(pid), SIGTERM);
 }
 
+void ProcessTree::stop(QProcess *process)
+{
+    if (process)
+        stop(process->processId());
+}
+
 void ProcessTree::kill(qint64 pid)
 {
     if (pid > 0)

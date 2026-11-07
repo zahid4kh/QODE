@@ -30,6 +30,12 @@ void track(QProcess *process);
 // Windows. Callers follow up with kill() after a timeout.
 void stop(qint64 pid);
 
+// stop() for a process whose input QODE does not use (a dev server, the auto-reload build). On Windows it also answers
+// cmd's "Terminate batch job (Y/N)?" (a .bat / .cmd such as npm.cmd or gradlew.bat asks it after Ctrl+C): "Y", then the
+// end of input, which ends the batch on a Windows in another language too (the prompt takes the end of input as No, and
+// the batch then runs to its end). Unix: the same as stop(pid).
+void stop(QProcess *process);
+
 // Ends the tree started as `pid` at once: SIGKILL to its group on Unix, TerminateJobObject on Windows.
 void kill(qint64 pid);
 

@@ -125,7 +125,7 @@ void DevServer::restart()
 
 void DevServer::stopTree()
 {
-    ProcessTree::stop(m_proc->processId());
+    ProcessTree::stop(m_proc);
 }
 
 void DevServer::killTree()

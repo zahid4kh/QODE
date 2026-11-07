@@ -141,7 +141,7 @@ void KtorReloader::compileSoon()
 
 void KtorReloader::stopTree()
 {
-    ProcessTree::stop(m_proc->processId());
+    ProcessTree::stop(m_proc);
 }
 
 void KtorReloader::killTree()

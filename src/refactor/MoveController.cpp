@@ -1,4 +1,5 @@
 #include "MoveController.h"
+#include "platform/Platform.h"
 #include "history/LocalHistory.h"
 
 #include "editor/CodeEditor.h"
@@ -155,7 +156,8 @@ void MoveController::execute(const QVector<PathMove> &moves, const MoveRefactor:
     // 1. the files themselves
     QVector<PathMove> done;
     for (const PathMove &m : moves) {
-        if (QFileInfo::exists(m.to) || !QFile::rename(m.from, m.to)) {
+        const bool caseOnly = m.from != m.to && Platform::samePath(m.from, m.to); // Windows: Foo.kt -> foo.kt
+        if ((QFileInfo::exists(m.to) && !caseOnly) || !QFile::rename(m.from, m.to)) {
             for (int i = done.size() - 1; i >= 0; --i) {
                 QFile::rename(done.at(i).to, done.at(i).from);
                 m_explorer->notifyMoved(done.at(i).to, done.at(i).from);

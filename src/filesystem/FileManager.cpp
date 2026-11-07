@@ -1,4 +1,5 @@
 #include "FileManager.h"
+#include "platform/Platform.h"
 
 #include "history/LocalHistory.h"
 
@@ -74,7 +75,8 @@ bool createFolder(const QString &path, QString *error)
 
 bool renamePath(const QString &from, const QString &to, QString *error)
 {
-    if (QFileInfo::exists(to)) {
+    // On Windows a rename that only changes case (Foo.kt -> foo.kt) finds the file itself at `to`: no clash.
+    if (QFileInfo::exists(to) && !(from != to && Platform::samePath(from, to))) {
         if (error)
             *error = QStringLiteral("\"%1\" already exists.").arg(QFileInfo(to).fileName());
         return false;

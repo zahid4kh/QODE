@@ -864,6 +864,61 @@ QList<Platform::JdkPlace> Platform::jdkHomes()
     return out;
 }
 
+QStringList Platform::systemIncludeDirs()
+{
+    static const QStringList dirs = [] {
+        // The highest-versioned subfolder of `parent` ("14.51.36014", "10.0.26100.0", "15.2.0"), empty when none.
+        const auto newest = [](const QString &parent) {
+            QString best;
+            QVersionNumber bestVersion;
+            for (const QString &name : QDir(parent).entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+                const QVersionNumber v = QVersionNumber::fromString(name);
+                if (!v.isNull() && (best.isEmpty() || v > bestVersion)) {
+                    best = parent + QLatin1Char('/') + name;
+                    bestVersion = v;
+                }
+            }
+            return best;
+        };
+        QStringList out;
+        // MSVC: <VS>\VC\Tools\MSVC\<version>\include, plus the Windows SDK's headers.
+        if (const QString bat = vcvars64(); !bat.isEmpty()) {
+            const QString vc = QDir::cleanPath(QFileInfo(bat).absolutePath() + QStringLiteral("/../.."));
+            if (const QString tools = newest(vc + QStringLiteral("/Tools/MSVC")); !tools.isEmpty())
+                out << tools + QStringLiteral("/include");
+            const QSettings kits(QStringLiteral("HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots"), QSettings::NativeFormat);
+            QString root = QDir::fromNativeSeparators(kits.value(QStringLiteral("KitsRoot10")).toString());
+            if (root.isEmpty())
+                root = QDir::fromNativeSeparators(qEnvironmentVariable("ProgramFiles(x86)", QStringLiteral("C:\\Program Files (x86)"))) +
+                       QStringLiteral("/Windows Kits/10");
+            if (const QString sdk = newest(QDir::cleanPath(root) + QStringLiteral("/Include")); !sdk.isEmpty())
+                for (const char *sub : {"ucrt", "um", "shared", "winrt"})
+                    out << sdk + QLatin1Char('/') + QLatin1String(sub);
+        }
+        // MinGW-w64 from MSYS2: <env>\include\c++\<version> (+ its target folder) and <env>\include.
+        if (out.isEmpty()) {
+            QString msys = QDir::fromNativeSeparators(qEnvironmentVariable("MSYS2_ROOT"));
+            if (msys.isEmpty())
+                msys = QStringLiteral("C:/msys64");
+            for (const char *env : {"ucrt64", "clang64", "mingw64"}) {
+                const QString inc = msys + QLatin1Char('/') + QLatin1String(env) + QStringLiteral("/include");
+                if (!QFileInfo(inc).isDir())
+                    continue;
+                if (const QString cxx = newest(inc + QStringLiteral("/c++")); !cxx.isEmpty())
+                    out << cxx << cxx + QStringLiteral("/x86_64-w64-mingw32");
+                out << inc;
+                break;
+            }
+        }
+        QStringList existing;
+        for (const QString &d : std::as_const(out))
+            if (QFileInfo(d).isDir())
+                existing << d;
+        return existing;
+    }();
+    return dirs;
+}
+
 QString Platform::gitExecutable()
 {
     const QString onPath = QStandardPaths::findExecutable(QStringLiteral("git"));

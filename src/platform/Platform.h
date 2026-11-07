@@ -193,6 +193,12 @@ struct JdkPlace {
 QList<JdkPlace> jdkFolders();
 QList<JdkPlace> jdkHomes();
 
+// The folders the C / C++ compiler searches for <headers> (#include completion), those that exist. Unix: the newest
+// /usr/include/c++/<n>, the multiarch folders, /usr/local/include, /usr/include. Windows: MSVC's include folder and the
+// Windows SDK's ucrt / um / shared / winrt when Visual Studio's C++ tools are installed, else MSYS2's MinGW headers
+// (ucrt64, clang64 or mingw64, with its libstdc++ folders).
+QStringList systemIncludeDirs();
+
 // The git executable, empty when there is none. PATH first; on Windows also Git for Windows' usual install folders,
 // for an install that did not add itself to PATH.
 QString gitExecutable();

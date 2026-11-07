@@ -1,4 +1,5 @@
 #include "CppTools.h"
+#include "platform/Platform.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -857,39 +858,7 @@ bool atIncludeOpener(const QString &lineBeforeCaret)
 
 QStringList systemIncludeDirs()
 {
-    static const QStringList dirs = [] {
-        QStringList out;
-        // The newest numbered folder below `parent` ("/usr/include/c++/13"), with `suffix` appended.
-        auto newest = [](const QString &parent) {
-            int best = -1;
-            QString found;
-            for (const QString &v : QDir(parent).entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
-                const int n = v.section(QLatin1Char('.'), 0, 0).toInt();
-                if (n > best) {
-                    best = n;
-                    found = parent + QLatin1Char('/') + v;
-                }
-            }
-            return found;
-        };
-        const QString cxx = newest(QStringLiteral("/usr/include/c++"));
-        if (!cxx.isEmpty())
-            out << cxx;
-        for (const QString &arch : QDir(QStringLiteral("/usr/include")).entryList({QStringLiteral("*-linux-gnu*")}, QDir::Dirs)) {
-            const QString archDir = QStringLiteral("/usr/include/") + arch;
-            const QString archCxx = newest(archDir + QStringLiteral("/c++"));
-            if (!archCxx.isEmpty())
-                out << archCxx;
-            out << archDir;
-        }
-        out << QStringLiteral("/usr/local/include") << QStringLiteral("/usr/include");
-        QStringList existing;
-        for (const QString &d : std::as_const(out))
-            if (QFileInfo(d).isDir())
-                existing << d;
-        return existing;
-    }();
-    return dirs;
+    return Platform::systemIncludeDirs(); // Unix: /usr/include and the compiler's folders; Windows: MSVC + SDK, or MinGW
 }
 
 QVector<PathEntry> includeEntries(const QStringList &folders, const QString &subfolder)

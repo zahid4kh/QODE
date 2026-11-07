@@ -253,6 +253,11 @@ QString Platform::bashProgram()
     return QStringLiteral("bash");
 }
 
+QString Platform::gitBashExecutable()
+{
+    return {};
+}
+
 QStringList Platform::qmakeCandidates()
 {
     return {};

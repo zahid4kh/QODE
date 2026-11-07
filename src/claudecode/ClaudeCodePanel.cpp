@@ -514,8 +514,7 @@ void ClaudeCodePanel::showSetup(Setup state, const QString &message)
         m_setupText->setText(tr("Checking Claude Code…"));
         break;
     case Setup::NotInstalled:
-        m_setupText->setText(tr("<p>Claude Code is not installed. QODE runs the <code>claude</code> command line tool for you, "
-                                "so install it first: run this in a terminal (it goes to <code>~/.local/bin</code>), then check again.</p>"));
+        m_setupText->setText(installHint()); // Windows: also says when Git for Windows is missing
         break;
     case Setup::SignIn: {
         m_setupText->setText(tr("<p>Sign in to use Claude Code. The sign-in belongs to Claude Code itself, so <code>claude</code> in a "

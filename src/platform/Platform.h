@@ -157,6 +157,8 @@ QString pythonCommand();
 // the Microsoft Store stub (WindowsApps), then the installers' folders (newest first).
 QString pythonInterpreter();
 QString bashProgram();
+// Git for Windows' bash.exe (what the Claude Code CLI needs on Windows), empty when there is none. Unix: always empty.
+QString gitBashExecutable();
 
 // qmake projects (QmakeProject):
 // - qmakeCandidates: qmake programs that are not on PATH, the best first. Unix: none. Windows: <drive>:\Qt\<version>\

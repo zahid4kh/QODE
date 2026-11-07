@@ -612,6 +612,11 @@ QString Platform::bashProgram()
     return bash.isEmpty() ? QStringLiteral("bash") : bash;
 }
 
+QString Platform::gitBashExecutable()
+{
+    return gitBash();
+}
+
 // --- qmake projects ---------------------------------------------------------------------------------------------------
 
 namespace {

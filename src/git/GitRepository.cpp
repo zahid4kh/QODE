@@ -368,9 +368,10 @@ void GitRepository::parseStatus(const QByteArray &out)
     m_folderKinds.clear();
     for (int i = 0; i < m_changes.size(); ++i) {
         const GitFileChange &c = m_changes.at(i);
-        m_changeIndex.insert(c.path, i);
+        // Keyed by Platform::pathKey: on Windows the explorer and git may spell a path in different case.
+        m_changeIndex.insert(Platform::pathKey(c.path), i);
         const GitKind k = c.kind();
-        QString d = c.path;
+        QString d = Platform::pathKey(c.path);
         while (true) {
             const int s = d.lastIndexOf(QLatin1Char('/'));
             if (s <= 0)
@@ -403,7 +404,7 @@ void GitRepository::loadIgnored()
                     QString rel = QString::fromUtf8(e);
                     while (rel.endsWith(QLatin1Char('/')))
                         rel.chop(1);
-                    m_ignored.insert(m_root + QLatin1Char('/') + rel);
+                    m_ignored.insert(Platform::pathKey(m_root + QLatin1Char('/') + rel));
                 }
             }
             loadBranches();
@@ -484,7 +485,7 @@ QList<GitFileChange> GitRepository::conflicts() const
 
 const GitFileChange *GitRepository::changeFor(const QString &absPath) const
 {
-    const int i = m_changeIndex.value(absPath, -1);
+    const int i = m_changeIndex.value(Platform::pathKey(absPath), -1);
     return i < 0 ? nullptr : &m_changes.at(i);
 }
 
@@ -492,7 +493,7 @@ bool GitRepository::isIgnored(const QString &absPath) const
 {
     if (m_ignored.isEmpty() || m_root.isEmpty())
         return false;
-    QString p = absPath;
+    QString p = Platform::pathKey(absPath);
     while (p.size() > m_root.size()) {
         if (m_ignored.contains(p))
             return true;
@@ -516,7 +517,7 @@ GitPathState GitRepository::stateOf(const QString &absPath) const
         s.untracked = c->untracked;
         return s;
     }
-    const auto it = m_folderKinds.constFind(absPath);
+    const auto it = m_folderKinds.constFind(Platform::pathKey(absPath));
     if (it != m_folderKinds.constEnd()) {
         s.kind = it.value();
         s.isFolder = true;

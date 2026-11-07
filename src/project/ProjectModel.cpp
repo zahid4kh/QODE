@@ -1,4 +1,5 @@
 #include "ProjectModel.h"
+#include "platform/Platform.h"
 
 #include "explorer/FileIcons.h"
 #include "git/GitRepository.h"
@@ -62,8 +63,8 @@ bool ProjectModel::filterAcceptsRow(int sourceRow, const QModelIndex &sourcePare
     const QModelIndex idx = fs->index(sourceRow, 0, sourceParent);
     const QString path = fs->filePath(idx);
     // Top level (children of the project's parent directory): only the project itself.
-    if (fs->filePath(sourceParent) == QFileInfo(m_root).absolutePath() && !path.isEmpty())
-        return path == m_root;
+    if (Platform::samePath(fs->filePath(sourceParent), QFileInfo(m_root).absolutePath()) && !path.isEmpty())
+        return Platform::samePath(path, m_root);
     const QString name = fs->fileName(idx);
     if (name == QLatin1String(".git"))
         return false;

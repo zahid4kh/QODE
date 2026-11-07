@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QKeyEvent>
 #include <QProcess>
 #include <QRegularExpression>
@@ -14,6 +15,7 @@
 #include <QSettings>
 #include <QStandardPaths>
 #include <QStringConverter>
+#include <QStyleHints>
 #include <QTemporaryFile>
 #include <QThread>
 #include <QUrl>
@@ -130,6 +132,18 @@ void Platform::initGui()
         qunsetenv("QT_QPA_PLATFORM");
     if (QCoreApplication *app = QCoreApplication::instance())
         app->installEventFilter(new AltGrFilter(app));
+}
+
+void Platform::setDarkTheme(bool dark)
+{
+    // Each request makes Qt refresh its theme (palettes, fonts), so only a change is sent. The first call (from the
+    // Application constructor, before any window exists) always is, which also stops the Windows setting from
+    // switching the title bars later.
+    static int requested = -1;
+    if (requested == int(dark) || !qobject_cast<QGuiApplication *>(QCoreApplication::instance()))
+        return;
+    requested = int(dark);
+    QGuiApplication::styleHints()->setColorScheme(dark ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
 }
 
 QString Platform::decodeOutput(const QByteArray &bytes)

@@ -1,5 +1,6 @@
 #include "Application.h"
 
+#include "platform/Platform.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
 
@@ -199,6 +200,7 @@ bool Application::eventFilter(QObject *watched, QEvent *event)
 void Application::applyTheme(const QString &name)
 {
     const Theme t = Theme::byName(name);
+    Platform::setDarkTheme(t.dark); // Windows: dark or light title bars; first, as it makes Qt refresh its theme
     QPalette p;
     p.setColor(QPalette::Window, t.window);
     p.setColor(QPalette::WindowText, t.editorFg);

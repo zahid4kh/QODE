@@ -29,6 +29,10 @@ void Platform::initGui()
 {
 }
 
+void Platform::setDarkTheme(bool)
+{
+}
+
 QString Platform::decodeOutput(const QByteArray &bytes)
 {
     return QString::fromLocal8Bit(bytes);

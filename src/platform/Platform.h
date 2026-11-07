@@ -29,6 +29,12 @@ void initProcess();
 // editor reads `{` typed with AltGr+7 as plain typing (auto-pairing, completion).
 void initGui();
 
+// QODE's theme is dark (or light); called before the theme's palette is set. Unix: nothing (the window manager draws
+// the title bars). Windows: Qt's colour scheme follows QODE's theme instead of the Windows setting
+// (QStyleHints::setColorScheme, Qt 6.8), so a dark theme gets dark title bars on every window and dialog, also when
+// Windows is set to light, and a light one light title bars.
+void setDarkTheme(bool dark);
+
 // Text a child process wrote (pip, npm, Gradle, an installer). Unix: QString::fromLocal8Bit, as before. Windows: UTF-8
 // when the bytes are valid UTF-8, else the system's ANSI code page (Java and many console tools write in it when their
 // output is a pipe; QODE's own code page is UTF-8, so fromLocal8Bit would not do).

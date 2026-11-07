@@ -115,7 +115,8 @@ QString pathToUri(const QString &path);
 void setShellCommand(QProcess *process, const QString &command);
 
 // Sets `process` up to run `program` with `args`; start() it afterwards. Unix: exactly that. Windows: a bare name is
-// looked up on PATH with PATHEXT (gradle -> gradle.bat), and a .bat / .cmd runs through cmd.exe with the arguments
+// looked up with PATHEXT (gradle -> gradle.bat, npx -> npx.cmd) on the PATH of the process environment already set on
+// `process`, else on QODE's own; a .bat / .cmd runs through cmd.exe with the arguments
 // quoted for it (CreateProcess cannot start those itself). Arguments must not contain '%' on Windows (cmd expands it).
 void setCommand(QProcess *process, const QString &program, const QStringList &args);
 

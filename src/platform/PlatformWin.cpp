@@ -372,7 +372,13 @@ void Platform::setCommand(QProcess *process, const QString &program, const QStri
 {
     QString exe = program;
     if (!exe.contains(QLatin1Char('/')) && !exe.contains(QLatin1Char('\\'))) {
-        const QString found = QStandardPaths::findExecutable(exe); // adds PATHEXT: gradle -> gradle.bat
+        // The PATH the process will get when one was set (MCP servers add folders), else QODE's own. findExecutable adds
+        // PATHEXT: gradle -> gradle.bat, npx -> npx.cmd.
+        const QProcessEnvironment env = process->processEnvironment();
+        const QStringList dirs = env.contains(QStringLiteral("PATH"))
+                                     ? env.value(QStringLiteral("PATH")).split(QDir::listSeparator(), Qt::SkipEmptyParts)
+                                     : QStringList();
+        const QString found = QStandardPaths::findExecutable(exe, dirs);
         if (!found.isEmpty())
             exe = found;
     }

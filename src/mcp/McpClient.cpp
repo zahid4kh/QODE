@@ -1,5 +1,6 @@
 #include "McpClient.h"
 
+#include "platform/Platform.h"
 #include "platform/ProcessTree.h"
 
 #include <QCoreApplication>
@@ -98,8 +99,7 @@ void Client::start()
     p->setProcessEnvironment(env);
     if (!cwd.isEmpty())
         p->setWorkingDirectory(cwd);
-    p->setProgram(expand(m_config.command, env));
-    p->setArguments(args);
+    Platform::setCommand(p, expand(m_config.command, env), args); // Windows: npx -> npx.cmd, through cmd
     ProcessTree::track(p); // own process group: stop() ends what it started too, and so does QODE ending
     connect(p, &QProcess::readyReadStandardOutput, this, &Client::readOut);
     connect(p, &QProcess::readyReadStandardError, this, [this, p] {

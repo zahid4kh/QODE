@@ -50,7 +50,7 @@ QString PackageManager::python() const
 void PackageManager::refresh()
 {
     if (python().isEmpty()) {
-        emit listFailed(tr("This environment has no Python interpreter (%1/%2/python is missing).").arg(m_venv, Platform::venvBinDir()));
+        emit listFailed(tr("This environment has no Python interpreter (%1/%2/python%3 is missing).").arg(m_venv, Platform::venvBinDir(), Platform::exeSuffix()));
         return;
     }
     listInto(false);

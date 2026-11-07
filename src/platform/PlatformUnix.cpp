@@ -233,6 +233,21 @@ QString Platform::pythonCommand()
     return QStringLiteral("python3");
 }
 
+QString Platform::pythonInterpreter()
+{
+    for (const char *name : {"python3", "python"}) {
+        const QString onPath = QStandardPaths::findExecutable(QString::fromLatin1(name));
+        if (!onPath.isEmpty())
+            return onPath;
+    }
+    for (const char *dir : {"/usr/bin", "/usr/local/bin", "/bin"}) {
+        const QFileInfo fi(QString::fromLatin1(dir) + QStringLiteral("/python3"));
+        if (fi.isFile() && fi.isExecutable())
+            return fi.absoluteFilePath();
+    }
+    return {};
+}
+
 QString Platform::bashProgram()
 {
     return QStringLiteral("bash");

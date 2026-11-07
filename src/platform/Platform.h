@@ -150,6 +150,11 @@ bool hasExecBit();
 // - bashProgram: Unix "bash"; Windows Git Bash's bash.exe when Git has one (a bare bash may be WSL's), else "bash".
 QString exeSuffix();
 QString pythonCommand();
+// The Python 3 interpreter QODE creates virtual environments with (the Python language tools, the package manager),
+// empty when there is none. Unix: python3 / python on PATH, then /usr/bin, /usr/local/bin, /bin. Windows: what the py
+// launcher runs (the python.org installer's or the Python install manager's), then a python.exe on PATH that is not
+// the Microsoft Store stub (WindowsApps), then the installers' folders (newest first).
+QString pythonInterpreter();
 QString bashProgram();
 
 // qmake projects (QmakeProject):

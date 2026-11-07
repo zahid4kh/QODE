@@ -54,7 +54,7 @@ QList<PythonTools::Command> PipInstaller::buildSteps(bool useUv) const
     if (python.isEmpty()) {
         steps << PythonTools::createVenv(installRoot(), useUv, LspServers::pythonExecutable());
         // Where the venv about to be made puts it (bin/python, Scripts\python.exe on Windows).
-        python = installRoot() + QLatin1Char('/') + Platform::venvBinDir() + QStringLiteral("/python");
+        python = installRoot() + QLatin1Char('/') + Platform::venvBinDir() + QStringLiteral("/python") + Platform::exeSuffix();
     }
     steps << PythonTools::install(python, packages(), true, useUv);
     return steps;
@@ -86,9 +86,13 @@ void PipInstaller::start()
         return;
     m_useUv = usesUv();
     if (!m_useUv && LspServers::pythonExecutable().isEmpty()) {
-        emit failed(tr("Python 3 was not found. The Python language server is installed into a virtual environment, so install "
-                       "Python first (Debian / Ubuntu: sudo apt install python3 python3-venv; Fedora: sudo dnf install python3; "
-                       "Arch: sudo pacman -S python; or https://www.python.org) and try again."));
+        emit failed(Platform::osTag() == QLatin1String("win")
+                        ? tr("Python 3 was not found. The Python language server is installed into a virtual environment, so "
+                             "install Python first (winget install Python.PythonInstallManager, or https://www.python.org), then "
+                             "try again.")
+                        : tr("Python 3 was not found. The Python language server is installed into a virtual environment, so install "
+                             "Python first (Debian / Ubuntu: sudo apt install python3 python3-venv; Fedora: sudo dnf install python3; "
+                             "Arch: sudo pacman -S python; or https://www.python.org) and try again."));
         return;
     }
     if (!QDir().mkpath(QFileInfo(installRoot()).absolutePath())) {

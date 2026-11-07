@@ -505,10 +505,82 @@ QString Platform::exeSuffix()
     return QStringLiteral(".exe");
 }
 
+namespace {
+
+QStringList programFilesRoots() // 64-bit first; the same folder twice when QODE is 64-bit is dropped
+{
+    QStringList out;
+    for (const char *var : {"ProgramW6432", "ProgramFiles"}) {
+        const QString dir = QDir::fromNativeSeparators(qEnvironmentVariable(var));
+        if (!dir.isEmpty() && !out.contains(dir, Qt::CaseInsensitive))
+            out << dir;
+    }
+    if (out.isEmpty())
+        out << QStringLiteral("C:/Program Files");
+    return out;
+}
+
+} // namespace
+
 QString Platform::pythonCommand()
 {
     // python.exe may be the Microsoft Store stub (WindowsApps), which opens the Store; py is only there when Python is.
     return QStandardPaths::findExecutable(QStringLiteral("py")).isEmpty() ? QStringLiteral("python") : QStringLiteral("py");
+}
+
+QString Platform::pythonInterpreter()
+{
+    static QString found; // asking py costs a process start; a found interpreter stays valid while it exists
+    if (!found.isEmpty() && QFileInfo::exists(found))
+        return found;
+    found.clear();
+    // 1. The py launcher knows the installed versions (and is never the Store stub).
+    if (const QString py = QStandardPaths::findExecutable(QStringLiteral("py")); !py.isEmpty()) {
+        QProcess p;
+        p.setStandardInputFile(QProcess::nullDevice()); // never wait for an answer (an install manager prompt)
+        p.start(py, {QStringLiteral("-3"), QStringLiteral("-c"), QStringLiteral("import sys; print(sys.executable)")});
+        if (p.waitForFinished(8000) && p.exitStatus() == QProcess::NormalExit && p.exitCode() == 0) {
+            const QString exe = QDir::fromNativeSeparators(decodeOutput(p.readAllStandardOutput()).trimmed());
+            if (QFileInfo(exe).isFile())
+                return found = exe;
+        } else {
+            killTree(&p);
+            p.waitForFinished(1000);
+        }
+    }
+    // 2. python.exe on PATH, except the Store's stubs (App Execution Aliases in WindowsApps), which open the Store.
+    for (const char *name : {"python3", "python"}) {
+        const QString exe = QStandardPaths::findExecutable(QString::fromLatin1(name));
+        if (!exe.isEmpty() && !exe.contains(QLatin1String("/WindowsApps/"), Qt::CaseInsensitive))
+            return found = exe;
+    }
+    // 3. The installers' folders: python.org per user / all users, and the install manager's runtimes.
+    QStringList candidates;
+    const auto addVersions = [&candidates](const QString &dir, const QString &pattern) {
+        QDir d(dir);
+        QStringList names = d.entryList({pattern}, QDir::Dirs | QDir::NoDotAndDotDot);
+        std::sort(names.begin(), names.end(), [](const QString &a, const QString &b) {
+            const auto version = [](const QString &n) { // Python313 / pythoncore-3.13-64 -> 3.13
+                static const QRegularExpression re(QStringLiteral("(\\d)\\.?(\\d+)"));
+                const auto m = re.match(n);
+                return m.hasMatch() ? m.captured(1).toInt() * 1000 + m.captured(2).toInt() : 0;
+            };
+            return version(a) > version(b);
+        });
+        for (const QString &n : std::as_const(names))
+            candidates << d.filePath(n) + QStringLiteral("/python.exe");
+    };
+    const QString local = QDir::fromNativeSeparators(qEnvironmentVariable("LOCALAPPDATA"));
+    if (!local.isEmpty()) {
+        addVersions(local + QStringLiteral("/Programs/Python"), QStringLiteral("Python3*"));
+        addVersions(local + QStringLiteral("/Python"), QStringLiteral("pythoncore-3*"));
+    }
+    for (const QString &root : programFilesRoots())
+        addVersions(root, QStringLiteral("Python3*"));
+    for (const QString &exe : std::as_const(candidates))
+        if (QFileInfo(exe).isFile())
+            return found = exe;
+    return {};
 }
 
 namespace {
@@ -702,23 +774,6 @@ QString Platform::qmakeRunCommand(const QString &qmake, const QString &projectRo
     quoted.replace(QLatin1Char('\''), QStringLiteral("'\\''"));
     return QLatin1Char('\'') + quoted + QLatin1Char('\'');
 }
-
-namespace {
-
-QStringList programFilesRoots() // 64-bit first; the same folder twice when QODE is 64-bit is dropped
-{
-    QStringList out;
-    for (const char *var : {"ProgramW6432", "ProgramFiles"}) {
-        const QString dir = QDir::fromNativeSeparators(qEnvironmentVariable(var));
-        if (!dir.isEmpty() && !out.contains(dir, Qt::CaseInsensitive))
-            out << dir;
-    }
-    if (out.isEmpty())
-        out << QStringLiteral("C:/Program Files");
-    return out;
-}
-
-} // namespace
 
 QString Platform::realPath(const QString &path)
 {

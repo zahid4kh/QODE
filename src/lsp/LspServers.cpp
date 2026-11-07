@@ -263,17 +263,7 @@ QString npmExecutable()
 
 QString pythonExecutable()
 {
-    for (const char *name : {"python3", "python"}) {
-        const QString onPath = QStandardPaths::findExecutable(QString::fromLatin1(name));
-        if (!onPath.isEmpty())
-            return onPath;
-    }
-    for (const char *dir : {"/usr/bin", "/usr/local/bin", "/bin"}) {
-        const QFileInfo fi(QString::fromLatin1(dir) + QStringLiteral("/python3"));
-        if (fi.isFile() && fi.isExecutable())
-            return fi.absoluteFilePath();
-    }
-    return {};
+    return Platform::pythonInterpreter(); // Windows: through py, never the Store stub
 }
 
 QString uvExecutable()
@@ -283,7 +273,7 @@ QString uvExecutable()
         return onPath;
     const QString home = QDir::homePath();
     for (const QString &dir : {home + QStringLiteral("/.local/bin"), home + QStringLiteral("/.cargo/bin"), QStringLiteral("/usr/local/bin")}) {
-        const QFileInfo fi(dir + QStringLiteral("/uv"));
+        const QFileInfo fi(dir + QStringLiteral("/uv") + Platform::exeSuffix()); // Windows' installer: ~\.local\bin\uv.exe
         if (fi.isFile() && fi.isExecutable())
             return fi.absoluteFilePath();
     }
@@ -570,9 +560,22 @@ const QList<LspServerSpec> &all()
         python.installer = LspServerSpec::Installer::Pip;
         python.installable = true;
         python.managedId = QStringLiteral("python");
-        python.managedBinary = QStringLiteral("bin/basedpyright-langserver");
+        python.managedBinary = Platform::venvBinDir() + QStringLiteral("/basedpyright-langserver") + Platform::exeSuffix(); // Scripts\*.exe on Windows
         python.wantsConfiguration = true; // pythonPath (the project's venv) and the analysis settings
-        python.installHelp = QStringLiteral(
+        python.installHelp = windows ? QStringLiteral(
+            "The Python language server is basedpyright, a fork of Microsoft's Pyright: syntax and type errors, undefined names, "
+            "hover, go to definition, completion, rename and find references. It needs Python 3 but no Node.js (it brings its "
+            "own).\n\n"
+            "Easiest: LSP > Python > Download and Set Up. QODE creates a private virtual environment in "
+            "%LOCALAPPDATA%\\QODE-AGENTIC\\lsp\\python and installs basedpyright and ruff into it (with uv when you have it, "
+            "otherwise pip). Nothing is installed globally.\n\n"
+            "By hand: pipx install basedpyright (or pip install basedpyright in any environment), then make sure "
+            "\"basedpyright-langserver\" is on your PATH, or point QODE at it with LSP > Set Server Path.\n\n"
+            "Python 3: winget install Python.PythonInstallManager (or the installer from https://www.python.org). The "
+            "\"python\" that opens the Microsoft Store is not Python; QODE ignores it.\n\n"
+            "Open a project that has a virtual environment (a folder with pyvenv.cfg, such as .venv) and the server resolves "
+            "imports from its installed packages.")
+                                     : QStringLiteral(
             "The Python language server is basedpyright, a fork of Microsoft's Pyright: syntax and type errors, undefined names, "
             "hover, go to definition, completion, rename and find references. It needs Python 3 but no Node.js (it brings its "
             "own).\n\n"
@@ -598,7 +601,7 @@ const QList<LspServerSpec> &all()
         ruff.installer = LspServerSpec::Installer::Pip;
         ruff.installable = true;
         ruff.managedId = QStringLiteral("python");
-        ruff.managedBinary = QStringLiteral("bin/ruff");
+        ruff.managedBinary = Platform::venvBinDir() + QStringLiteral("/ruff") + Platform::exeSuffix();
         ruff.companion = true;
         ruff.installHelp = QStringLiteral(
             "Ruff is an extremely fast Python linter and formatter. Next to basedpyright it reports lint problems as you type "

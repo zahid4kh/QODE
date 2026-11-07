@@ -463,7 +463,7 @@ void ProjectExplorer::addClipboardActions(QMenu *menu, const QString &path, cons
     QAction *paste = menu->addAction(tr("Paste"), this, [this, dir] { pasteInto(dir); });
     paste->setEnabled(clipboardHasContent());
     menu->addSeparator();
-    menu->addAction(copyIcon, tr("Copy Path"), this, [path] { QApplication::clipboard()->setText(path); });
+    menu->addAction(copyIcon, tr("Copy Path"), this, [path] { QApplication::clipboard()->setText(QDir::toNativeSeparators(path)); });
     const QString rel = QDir(m_root).relativeFilePath(path);
     menu->addAction(tr("Copy Relative Path"), this, [rel] { QApplication::clipboard()->setText(rel); });
     menu->addAction(tr("Copy Name"), this, [path] { QApplication::clipboard()->setText(QFileInfo(path).fileName()); });

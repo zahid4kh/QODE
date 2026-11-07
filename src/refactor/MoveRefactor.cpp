@@ -172,6 +172,8 @@ Emitter &Ctx::emitter(const QString &path)
 QString Ctx::dirOf(const QString &path)
 {
     const int i = path.lastIndexOf(QLatin1Char('/'));
+    if (i == 2 && path.at(1) == QLatin1Char(':')) // C:/x -> C:/ (a Unix path never has ':' second)
+        return path.left(3);
     return i <= 0 ? QStringLiteral("/") : path.left(i);
 }
 

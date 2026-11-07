@@ -339,9 +339,12 @@ bool AgentTools::resolve(const QString &input, QString *absolute, QString *error
     // Judge a not-yet-existing path by where it would really land (through symlinks of its existing part).
     QString tail;
     QFileInfo info(full);
-    while (!info.exists() && !info.isSymLink() && info.absoluteFilePath() != QLatin1String("/")) {
+    while (!info.exists() && !info.isSymLink()) {
+        const QString up = info.absolutePath();
+        if (up == info.absoluteFilePath()) // the root: / on Unix, C:/ (or a drive that is not there) on Windows
+            break;
         tail = QLatin1Char('/') + info.fileName() + tail;
-        info = QFileInfo(info.absolutePath());
+        info = QFileInfo(up);
     }
     const QString canonRoot = QFileInfo(m_root).canonicalFilePath();
     const QString canon = info.canonicalFilePath().isEmpty() ? info.absoluteFilePath() : info.canonicalFilePath();

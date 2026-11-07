@@ -1,4 +1,5 @@
 #include "ProjectExplorer.h"
+#include "filesystem/WatchGuard.h"
 #include "platform/Platform.h"
 
 #include "cpp/CppTools.h"
@@ -47,6 +48,14 @@ ProjectExplorer::ProjectExplorer(QWidget *parent)
     m_fsModel = new QFileSystemModel(this);
     m_fsModel->setFilter(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden);
     m_fsModel->setReadOnly(true);
+    // Windows: the model's watches on expanded folders pin their parents; let go around a folder rename or move, then
+    // rescan (watching again only covers folders fetched from then on).
+    WatchGuard::registerOwner(
+        this, [this](const QString &) { m_fsModel->setOption(QFileSystemModel::DontWatchForChanges, true); },
+        [this] {
+            m_fsModel->setOption(QFileSystemModel::DontWatchForChanges, false);
+            refresh();
+        });
 
     m_proxy = new ProjectModel(this);
     m_proxy->setSourceModel(m_fsModel);

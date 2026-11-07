@@ -1,4 +1,5 @@
 #include "AgentTools.h"
+#include "filesystem/WatchGuard.h"
 #include "platform/Platform.h"
 #include "AgentToolHelpers.h"
 #include "history/LocalHistory.h"
@@ -1148,6 +1149,7 @@ ToolResult AgentTools::movePath(const QJsonObject &a, bool copy)
     QDir().mkpath(QFileInfo(to).absolutePath());
     if (!copy) {
         flushEdits(); // the buffers follow the file, but the disk copy must hold the agent's edits
+        const WatchGuard::Scope guard(from); // Windows: nothing below a folder may be watched while it moves
         if (!QDir().rename(from, to))
             return fail(QStringLiteral("could not move '%1'").arg(relative(from)));
         m_gone.insert(from);

@@ -117,6 +117,11 @@ QString Platform::invalidFileName(const QString &)
     return {};
 }
 
+bool Platform::watchesBlockRenames()
+{
+    return false;
+}
+
 int Platform::busyFileRetries()
 {
     return 0;

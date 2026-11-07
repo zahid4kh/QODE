@@ -1,4 +1,5 @@
 #include "AgentPanel.h"
+#include "filesystem/WatchGuard.h"
 #include "platform/Platform.h"
 #include "platform/AppPaths.h"
 #include "history/LocalHistory.h"
@@ -483,6 +484,7 @@ AgentPanel::AgentPanel(QWidget *parent)
     };
     io.rename = [this](const QString &from, const QString &to) {
         QDir().mkpath(QFileInfo(to).absolutePath());
+        const WatchGuard::Scope guard(from); // Windows: nothing below a folder may be watched while it moves
         if (!QDir().rename(from, to))
             return false;
         LocalHistory::pathMoved(from, to);

@@ -1,4 +1,5 @@
 #include "app/InstanceRegistry.h"
+#include "filesystem/WatchGuard.h"
 #include "EditorManager.h"
 
 #include "CodeEditor.h"
@@ -163,6 +164,20 @@ EditorManager::EditorManager(QWidget *parent)
     m_changeTimer->setInterval(200);
     connect(m_changeTimer, &QTimer::timeout, this, &EditorManager::processPendingChanges);
     connect(m_watcher, &QFileSystemWatcher::fileChanged, this, &EditorManager::onWatchedFileChanged);
+    // Windows: a watched file pins its folder's parents; let go of those below a folder that is renamed or moved.
+    WatchGuard::registerOwner(
+        this,
+        [this](const QString &folder) {
+            const QStringList files = m_watcher->files();
+            for (const QString &f : files)
+                if (Platform::isUnder(f, folder))
+                    m_watcher->removePath(f);
+        },
+        [this] {
+            for (Document *d : documents())
+                if (!d->isUntitled() && d->existsOnDisk())
+                    watch(d->filePath());
+        });
     // A saved .editorconfig applies to the open files at once.
     connect(this, &EditorManager::documentSaved, this, [this](Document *saved) {
         if (QFileInfo(saved->filePath()).fileName() != QLatin1String(".editorconfig"))

@@ -1,4 +1,5 @@
 #include "FileManager.h"
+#include "filesystem/WatchGuard.h"
 #include "platform/Platform.h"
 
 #include "history/LocalHistory.h"
@@ -88,6 +89,7 @@ bool renamePath(const QString &from, const QString &to, QString *error)
             *error = QStringLiteral("\"%1\" already exists.").arg(QFileInfo(to).fileName());
         return false;
     }
+    const WatchGuard::Scope guard(from); // Windows: nothing below a folder may be watched while it is renamed
     if (!QFile::rename(from, to)) {
         if (error)
             *error = QStringLiteral("Could not rename \"%1\".").arg(QFileInfo(from).fileName());

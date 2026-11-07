@@ -1,5 +1,7 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import org.gradle.process.ExecOperations
 import java.util.Scanner
+import javax.inject.Inject
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
@@ -61,6 +63,12 @@ compose.desktop {
         }
     }
 }
+
+// Runs programs from task actions (Gradle 9 removed Project.exec there).
+interface InjectedExecOps {
+    @get:Inject val execOps: ExecOperations
+}
+val execOps = objects.newInstance<InjectedExecOps>().execOps
 
 val packageName = "{{nameId}}"
 val appDisplayName = "{{appName}}"
@@ -216,7 +224,7 @@ tasks.register("addStartupWMClassToDebDynamic") {
         workDir.mkdirs()
 
         // Step 1: Extracting generated debian package
-        exec {
+        execOps.exec {
             commandLine("dpkg-deb", "-R", originalDeb.absolutePath, workDir.absolutePath)
         }
 
@@ -374,12 +382,8 @@ exit 0"""
         println("Updated prerm script to remove terminal symlink")
 
         // Make sure scripts are executable
-        exec {
-            commandLine("chmod", "+x", postinstFile.absolutePath)
-        }
-        exec {
-            commandLine("chmod", "+x", prermFile.absolutePath)
-        }
+        postinstFile.setExecutable(true, false)
+        prermFile.setExecutable(true, false)
 
         println("\nFinal postinst script content:")
         println("--------------------------------")
@@ -392,7 +396,7 @@ exit 0"""
         println("--------------------------------\n")
 
         // Step 6: Repackaging the debian package back
-        exec {
+        execOps.exec {
             commandLine("dpkg-deb", "-b", workDir.absolutePath, modifiedDeb.absolutePath)
         }
 
@@ -416,8 +420,11 @@ tasks.register("packageDebWithWMClass") {
         println("Running: ${packagingTask}")
         gradle.includedBuilds.forEach { it.task(":${packagingTask}") } // just in case of composite builds
 
-        exec {
-            commandLine("./gradlew", packagingTask)
+        // The project's own wrapper: gradlew.bat on Windows (though .deb packages are only built on Linux).
+        val windows = System.getProperty("os.name").startsWith("Windows")
+        execOps.exec {
+            workingDir(rootDir)
+            commandLine(File(rootDir, if (windows) "gradlew.bat" else "gradlew").absolutePath, packagingTask)
         }
 
         tasks.named("addStartupWMClassToDebDynamic").get().actions.forEach { it.execute(this) }

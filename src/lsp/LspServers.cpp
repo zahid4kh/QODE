@@ -164,7 +164,9 @@ bool jdtlsCommand(const QString &launcher, const QString &workspaceDir, QString 
     QDir base(QFileInfo(QFileInfo(launcher).canonicalFilePath()).absolutePath());
     base.cdUp();
     const bool arm = QSysInfo::currentCpuArchitecture().startsWith(QLatin1String("arm64")) || QSysInfo::currentCpuArchitecture() == QLatin1String("aarch64");
-    const QString config = base.filePath(arm && base.exists(QStringLiteral("config_linux_arm")) ? QStringLiteral("config_linux_arm") : QStringLiteral("config_linux"));
+    // config_linux / config_linux_arm; Windows: config_win (no ARM variant is published).
+    const QString os = QStringLiteral("config_") + Platform::osTag();
+    const QString config = base.filePath(arm && base.exists(os + QStringLiteral("_arm")) ? os + QStringLiteral("_arm") : os);
     const QStringList jars = QDir(base.filePath(QStringLiteral("plugins"))).entryList({QStringLiteral("org.eclipse.equinox.launcher_*.jar")}, QDir::Files);
     if (!jars.isEmpty() && QFileInfo(config).isDir()) {
         *program = java.executable;
@@ -190,6 +192,22 @@ bool jdtlsCommand(const QString &launcher, const QString &workspaceDir, QString 
     *arguments = QStringList{QStringLiteral("--java-executable=") + java.executable,
                              QStringLiteral("--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=false")} + tail;
     return true;
+}
+
+QString jdtlsLauncherName()
+{
+    return Platform::osTag() == QLatin1String("win") ? QStringLiteral("bin/jdtls.bat") : QStringLiteral("bin/jdtls");
+}
+
+void removeVersionFolder(const QString &dir)
+{
+    const QString aside = dir.endsWith(QLatin1String(".old")) ? dir : dir + QStringLiteral(".old");
+    if (aside != dir) {
+        Platform::removeTree(aside); // a leftover of an earlier install
+        if (!QDir().rename(dir, aside))
+            return; // Windows: still in use
+    }
+    Platform::removeTree(aside);
 }
 
 QString nodeExecutable()
@@ -305,6 +323,8 @@ const QList<LspServerSpec> &all()
 {
     static const QList<LspServerSpec> specs = [] {
         QList<LspServerSpec> l;
+        // The install help names Windows' commands and folders there (winget, %LOCALAPPDATA%, .exe / .bat / .cmd).
+        const bool windows = Platform::osTag() == QLatin1String("win");
         LspServerSpec clangd;
         clangd.id = QStringLiteral("clangd");
         clangd.displayName = QStringLiteral("clangd (C/C++)");
@@ -338,8 +358,18 @@ const QList<LspServerSpec> &all()
         kotlin.installable = true;
         kotlin.wantsConfiguration = true; // inlay hint options (section "jetbrains.kotlin"), asked again for every request
         kotlin.managedId = QStringLiteral("kotlin");
-        kotlin.managedBinary = QStringLiteral("current/bin/intellij-server");
-        kotlin.installHelp = QStringLiteral(
+        kotlin.managedBinary = QStringLiteral("current/bin/intellij-server") + Platform::exeSuffix();
+        kotlin.installHelp = windows ? QStringLiteral(
+            "The Kotlin language server is JetBrains' official server (Alpha). It ships its own Java runtime, so you do "
+            "not need to install Java for it.\n\n"
+            "Easiest: LSP > Kotlin > Download and Set Up. QODE downloads the standalone Windows archive from "
+            "download.jetbrains.com (about 350 MB) and unpacks it to %LOCALAPPDATA%\\QODE-AGENTIC\\lsp\\kotlin. Nothing is "
+            "installed system-wide.\n\n"
+            "By hand: download the standalone archive (kotlin-server-<version>.win.zip) from "
+            "https://github.com/Kotlin/kotlin-lsp/releases, unpack it, and point QODE at its bin\\intellij-server.exe with "
+            "LSP > Set Server Path (or put the kotlin-lsp.cmd it contains on your PATH). Do not use the .vsix file: that is "
+            "the VS Code extension.\n\n")
+            : QStringLiteral(
             "The Kotlin language server is JetBrains' official server (Alpha). It ships its own Java runtime, so you do "
             "not need to install Java for it.\n\n"
             "Easiest: LSP > Kotlin > Download and Set Up. QODE downloads the standalone Linux archive from "
@@ -348,7 +378,8 @@ const QList<LspServerSpec> &all()
             "By hand: download the standalone archive (kotlin-server-<version>.tar.gz) from "
             "https://github.com/Kotlin/kotlin-lsp/releases, unpack it, and put bin/intellij-server on your PATH as "
             "\"kotlin-lsp\" (for example ln -s <folder>/bin/intellij-server ~/.local/bin/kotlin-lsp), or point QODE at it "
-            "with LSP > Set Server Path. Do not use the .vsix file: that is the VS Code extension.\n\n"
+            "with LSP > Set Server Path. Do not use the .vsix file: that is the VS Code extension.\n\n");
+        kotlin.installHelp += QStringLiteral(
             "Projects should be Gradle or Maven projects (a build.gradle(.kts) or pom.xml in the project folder) so the "
             "server can find your dependencies.");
         l.append(kotlin);
@@ -361,9 +392,18 @@ const QList<LspServerSpec> &all()
         java.installer = LspServerSpec::Installer::Jdtls;
         java.installable = true;
         java.managedId = QStringLiteral("jdtls");
-        java.managedBinary = QStringLiteral("current/bin/jdtls");
+        java.managedBinary = QStringLiteral("current/") + jdtlsLauncherName();
         java.resolvesCompletions = true;
-        java.installHelp = QStringLiteral(
+        java.installHelp = windows ? QStringLiteral(
+            "The Java language server is the Eclipse JDT Language Server (jdtls), the one VS Code, Neovim and Eclipse use. It "
+            "needs a Java runtime of version 21 or newer to run (any JDK; your projects can still target older Java versions).\n\n"
+            "Easiest: LSP > Java > Download and Set Up. QODE downloads the milestone build from download.eclipse.org "
+            "(about 50 MB) and unpacks it to %LOCALAPPDATA%\\QODE-AGENTIC\\lsp\\jdtls. Nothing is installed system-wide.\n\n"
+            "Java 21 or newer: winget install EclipseAdoptium.Temurin.21.JDK, or an installer from https://adoptium.net "
+            "(QODE finds JDKs in Program Files, the registry, Scoop and JAVA_HOME).\n\n"
+            "By hand: download and extract a build from https://download.eclipse.org/jdtls/milestones/ and point QODE at its "
+            "bin\\jdtls.bat with LSP > Set Server Path.\n\n")
+            : QStringLiteral(
             "The Java language server is the Eclipse JDT Language Server (jdtls), the one VS Code, Neovim and Eclipse use. It "
             "needs a Java runtime of version 21 or newer to run (any JDK; your projects can still target older Java versions).\n\n"
             "Easiest: LSP > Java > Download and Set Up. QODE downloads the milestone build from download.eclipse.org "
@@ -371,7 +411,8 @@ const QList<LspServerSpec> &all()
             "Java 21 or newer: sudo apt install openjdk-21-jdk (Debian / Ubuntu), sudo dnf install java-21-openjdk-devel (Fedora), "
             "sudo pacman -S jdk21-openjdk (Arch), or https://adoptium.net\n\n"
             "By hand: download and extract a build from https://download.eclipse.org/jdtls/milestones/ and point QODE at its "
-            "bin/jdtls with LSP > Set Server Path (a \"jdtls\" package from your distribution works too).\n\n"
+            "bin/jdtls with LSP > Set Server Path (a \"jdtls\" package from your distribution works too).\n\n");
+        java.installHelp += QStringLiteral(
             "Projects should be Maven or Gradle projects (pom.xml or build.gradle(.kts) in the project folder) so the server "
             "finds their dependencies; the first import can take a minute while Maven / Gradle download them.");
         l.append(java);

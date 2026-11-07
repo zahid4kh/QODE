@@ -69,6 +69,55 @@ bool Platform::removeTree(const QString &path)
     return QDir(path).removeRecursively();
 }
 
+QString Platform::removeCommandText(const QString &, const QString &shownPath, bool onlyFile)
+{
+    return (onlyFile ? QStringLiteral("rm %1") : QStringLiteral("rm -rf %1")).arg(shownPath);
+}
+
+void Platform::setRemoveCommand(QProcess *process, const QString &path, bool onlyFile)
+{
+    process->setProgram(QStringLiteral("rm"));
+    process->setArguments(onlyFile ? QStringList{QStringLiteral("--"), path} : QStringList{QStringLiteral("-rf"), QStringLiteral("--"), path});
+}
+
+bool Platform::setCurrentVersion(const QString &root, const QString &version)
+{
+    return replaceSymlink(version, root + QStringLiteral("/current"));
+}
+
+QString Platform::currentVersion(const QString &root)
+{
+    const QFileInfo cur(root + QStringLiteral("/current"));
+    return cur.isSymLink() ? QFileInfo(cur.symLinkTarget()).fileName() : QString();
+}
+
+QString Platform::commandLinkFile(const QString &link)
+{
+    return link;
+}
+
+bool Platform::writeCommandLink(const QString &target, const QString &file)
+{
+    return replaceSymlink(target, file);
+}
+
+QString Platform::commandLinkTarget(const QString &file)
+{
+    const QFileInfo fi(file);
+    return fi.isSymLink() ? fi.symLinkTarget() : QString();
+}
+
+void Platform::setUnpackCommand(QProcess *process, const QString &archive, const QString &dir)
+{
+    process->setProgram(QStringLiteral("tar"));
+    process->setArguments({QStringLiteral("-xzf"), archive, QStringLiteral("-C"), dir});
+}
+
+QString Platform::osTag()
+{
+    return QStringLiteral("linux");
+}
+
 void Platform::setShellCommand(QProcess *process, const QString &command)
 {
     process->setProgram(QStringLiteral("/bin/sh"));

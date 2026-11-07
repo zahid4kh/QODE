@@ -44,8 +44,7 @@ QString JdtlsInstaller::installRoot()
 
 QString JdtlsInstaller::installedVersion()
 {
-    const QFileInfo cur(installRoot() + QStringLiteral("/current"));
-    return cur.isSymLink() ? QFileInfo(cur.symLinkTarget()).fileName() : QString();
+    return Platform::currentVersion(installRoot());
 }
 
 QString JdtlsInstaller::workDir() const
@@ -84,7 +83,7 @@ void JdtlsInstaller::start(bool latest)
         abort(tr("Could not create %1").arg(workDir()));
         return;
     }
-    QDir(workDir()).removeRecursively(); // leftovers of an interrupted run
+    Platform::removeTree(workDir()); // leftovers of an interrupted run
     QDir().mkpath(workDir());
     if (latest)
         resolveLatest();
@@ -107,7 +106,7 @@ void JdtlsInstaller::cancel()
         m_proc = nullptr;
     }
     m_file.close();
-    QDir(workDir()).removeRecursively();
+    Platform::removeTree(workDir());
     emit failed(tr("Cancelled"));
 }
 
@@ -122,7 +121,7 @@ void JdtlsInstaller::abort(const QString &error)
         m_proc = nullptr;
     }
     m_file.close();
-    QDir(workDir()).removeRecursively();
+    Platform::removeTree(workDir());
     emit progress(-1, 0);
     emit failed(error);
 }
@@ -283,38 +282,45 @@ void JdtlsInstaller::extract()
         emit progress(-1, 0);
         finalize();
     });
-    m_proc->start(QStringLiteral("tar"), {QStringLiteral("-xzf"), m_file.fileName(), QStringLiteral("-C"), out});
+    Platform::setUnpackCommand(m_proc, m_file.fileName(), out); // Windows: System32\tar.exe
+    m_proc->start();
 }
 
 void JdtlsInstaller::finalize()
 {
     emit stageChanged(tr("Setting up…"));
     const QDir unpacked(workDir() + QStringLiteral("/unpacked"));
-    // The archive holds bin/, plugins/ and config_*/ directly (no top-level folder).
-    if (!unpacked.exists(QStringLiteral("bin/jdtls")) || unpacked.entryList({QStringLiteral("config_linux")}, QDir::Dirs).isEmpty() ||
+    // The archive holds bin/, plugins/ and config_*/ directly (no top-level folder), for every OS.
+    const QString launcherName = LspServers::jdtlsLauncherName(), config = QStringLiteral("config_") + Platform::osTag();
+    if (!unpacked.exists(launcherName) || unpacked.entryList({config}, QDir::Dirs).isEmpty() ||
         QDir(unpacked.filePath(QStringLiteral("plugins"))).entryList({QStringLiteral("org.eclipse.equinox.launcher_*.jar")}, QDir::Files).isEmpty()) {
-        abort(tr("The archive does not have the expected layout (no bin/jdtls, config_linux or equinox launcher)."));
+        abort(tr("The archive does not have the expected layout (no %1, %2 or equinox launcher).").arg(launcherName, config));
         return;
     }
     const QString target = installRoot() + QLatin1Char('/') + m_version;
-    QDir(target).removeRecursively();
+    if (QFileInfo::exists(target)) // the same version again: it may be the one running
+        LspServers::removeVersionFolder(target);
+    if (QFileInfo::exists(target)) {
+        abort(tr("Version %1 is installed and in use. Stop its language server (LSP menu), then try again.").arg(m_version));
+        return;
+    }
     if (!QDir().rename(unpacked.absolutePath(), target)) {
         abort(tr("Could not move the server to %1").arg(target));
         return;
     }
-    QFile launcher(target + QStringLiteral("/bin/jdtls"));
+    QFile launcher(target + QLatin1Char('/') + launcherName);
     launcher.setPermissions(launcher.permissions() | QFileDevice::ExeOwner | QFileDevice::ExeGroup | QFileDevice::ExeOther);
     QFile::remove(m_file.fileName());
-    if (!Platform::replaceSymlink(m_version, installRoot() + QStringLiteral("/current"))) {
+    if (!Platform::setCurrentVersion(installRoot(), m_version)) { // Windows: a junction
         abort(tr("Could not create the link %1/current").arg(installRoot()));
         return;
     }
     // Older versions are no longer needed once the new one is in place.
     const QDir root(installRoot());
     for (const QString &name : root.entryList(QDir::Dirs | QDir::NoDotAndDotDot))
-        if (name != m_version && QRegularExpression(QStringLiteral("^\\d[\\d.]*$")).match(name).hasMatch())
-            QDir(root.filePath(name)).removeRecursively();
-    QDir(workDir()).removeRecursively();
+        if (name != m_version && QRegularExpression(QStringLiteral("^\\d[\\d.]*(\\.old)?$")).match(name).hasMatch())
+            LspServers::removeVersionFolder(root.filePath(name));
+    Platform::removeTree(workDir());
 
     const LspServers::JavaRuntime java = LspServers::findJava(21);
     if (java.executable.isEmpty())

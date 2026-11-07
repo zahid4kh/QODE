@@ -2,8 +2,10 @@
 
 #include "lsp/JdtlsInstaller.h"
 #include "lsp/LspServers.h"
+#include "platform/Platform.h"
 
 #include <QCheckBox>
+#include <QDir>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLocale>
@@ -20,12 +22,14 @@ JdtlsInstallDialog::JdtlsInstallDialog(QWidget *parent) : QDialog(parent), m_ins
     const LspServers::JavaRuntime java = LspServers::findJava(21);
     QString javaLine;
     if (!java.executable.isEmpty())
-        javaLine = tr("<li>Java %1 found (%2): the server will run on it</li>").arg(java.major).arg(java.executable.toHtmlEscaped());
+        javaLine = tr("<li>Java %1 found (%2): the server will run on it</li>").arg(java.major).arg(QDir::toNativeSeparators(java.executable).toHtmlEscaped());
     else
         javaLine = tr("<li><b>%1</b> The server runs on a JDK, which is not installed by QODE: install one first "
-                      "(for example <i>sudo apt install openjdk-21-jdk</i>); you can still set the server up now.</li>")
+                      "(for example <i>%2</i>); you can still set the server up now.</li>")
                        .arg(java.major > 0 ? tr("Java 21 or newer is required, but the newest found is Java %1.").arg(java.major)
-                                           : tr("Java 21 or newer is required, and no Java was found."));
+                                           : tr("Java 21 or newer is required, and no Java was found."),
+                            Platform::osTag() == QLatin1String("win") ? QStringLiteral("winget install EclipseAdoptium.Temurin.21.JDK")
+                                                                      : QStringLiteral("sudo apt install openjdk-21-jdk"));
     auto *info = new QLabel(
         tr("QODE will download the <b>Eclipse JDT Language Server</b> (jdtls) and set it up for you:"
            "<ul>"
@@ -34,7 +38,7 @@ JdtlsInstallDialog::JdtlsInstallDialog(QWidget *parent) : QDialog(parent), m_ins
            "%2"
            "<li>Nothing outside your home folder is changed and no administrator rights are needed</li>"
            "</ul>")
-            .arg(JdtlsInstaller::installRoot().toHtmlEscaped(), javaLine),
+            .arg(QDir::toNativeSeparators(JdtlsInstaller::installRoot()).toHtmlEscaped(), javaLine),
         this);
     info->setWordWrap(true);
     info->setTextFormat(Qt::RichText);

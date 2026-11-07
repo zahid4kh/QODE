@@ -17,10 +17,14 @@
 #include <QTimer>
 #include <QUrl>
 
+#include <algorithm>
+
 namespace {
 const char *kPinnedVersion = "263.7084.0"; // JetBrains builds expire: 263.6379.0 stopped starting in November 2026
-// SHA-256 of the pinned x86_64 archive, checked in addition to the checksum JetBrains publishes next to it.
+// SHA-256 of the pinned x86_64 archive (Linux .tar.gz, Windows .win.zip), checked in addition to the checksum JetBrains
+// publishes next to it.
 const char *kPinnedSha256X64 = "ae0c4b01e17ab73a4a5227a78ea99e6dcbe3e499600315b22759a4e4cddd11df";
+const char *kPinnedSha256X64Win = "be3bc4ef430cde315e6a83900ffb5d9cc454a36aabe9dd3ba7d4141b2d628164";
 constexpr qint64 kNeededBytes = 1800LL * 1024 * 1024; // archive (~370 MB) + unpacked copy (~1.2 GB) + slack
 constexpr int kNetworkTimeoutMs = 30000;
 
@@ -33,6 +37,16 @@ bool isArm()
 bool isIntel()
 {
     return QSysInfo::currentCpuArchitecture() == QLatin1String("x86_64");
+}
+
+bool isWindows()
+{
+    return Platform::osTag() == QLatin1String("win");
+}
+
+QString serverBinary(const QString &dir) // <dir>/bin/intellij-server (.exe on Windows)
+{
+    return dir + QStringLiteral("/bin/intellij-server") + Platform::exeSuffix();
 }
 
 void makeExecutable(const QString &path)
@@ -57,13 +71,12 @@ QString LspInstaller::installRoot()
 
 QString LspInstaller::linkPath()
 {
-    return QDir::homePath() + QStringLiteral("/.local/bin/kotlin-lsp");
+    return Platform::commandLinkFile(QDir::homePath() + QStringLiteral("/.local/bin/kotlin-lsp")); // Windows: kotlin-lsp.cmd
 }
 
 QString LspInstaller::installedVersion()
 {
-    const QFileInfo cur(installRoot() + QStringLiteral("/current"));
-    return cur.isSymLink() ? QFileInfo(cur.symLinkTarget()).fileName() : QString();
+    return Platform::currentVersion(installRoot());
 }
 
 bool LspInstaller::isManaged(const QString &path)
@@ -75,11 +88,10 @@ bool LspInstaller::isManaged(const QString &path)
 
 bool LspInstaller::remove(QString *error)
 {
-    const QFileInfo link(linkPath());
-    if (link.isSymLink() && isManaged(link.symLinkTarget()))
-        QFile::remove(link.filePath());
-    QDir dir(installRoot());
-    if (dir.exists() && !dir.removeRecursively()) {
+    const QString target = Platform::commandLinkTarget(linkPath());
+    if (!target.isEmpty() && isManaged(target))
+        QFile::remove(linkPath());
+    if (QFileInfo(installRoot()).isDir() && !Platform::removeTree(installRoot())) { // Windows: current is a junction
         if (error)
             *error = QObject::tr("Could not delete %1").arg(installRoot());
         return false;
@@ -94,7 +106,9 @@ QString LspInstaller::workDir() const
 
 QString LspInstaller::archiveName() const
 {
-    return QStringLiteral("kotlin-server-%1%2.tar.gz").arg(m_version, isArm() ? QStringLiteral("-aarch64") : QString());
+    // Linux: kotlin-server-<v>[-aarch64].tar.gz (one top folder). Windows: kotlin-server-<v>[-aarch64].win.zip (no top folder).
+    return QStringLiteral("kotlin-server-%1%2%3")
+        .arg(m_version, isArm() ? QStringLiteral("-aarch64") : QString(), isWindows() ? QStringLiteral(".win.zip") : QStringLiteral(".tar.gz"));
 }
 
 QUrl LspInstaller::archiveUrl() const
@@ -126,7 +140,7 @@ void LspInstaller::start(bool latest, bool createLink)
     m_note.clear();
     m_active = true;
     if (!isIntel() && !isArm()) {
-        abort(tr("The Kotlin language server is only published for x86-64 and ARM64 Linux (this is %1). Download it by hand "
+        abort(tr("The Kotlin language server is only published for x86-64 and ARM64 (this is %1). Download it by hand "
                  "from https://github.com/Kotlin/kotlin-lsp/releases and use LSP > Set Server Path.")
                   .arg(QSysInfo::currentCpuArchitecture()));
         return;
@@ -135,7 +149,7 @@ void LspInstaller::start(bool latest, bool createLink)
         abort(tr("Could not create %1").arg(workDir()));
         return;
     }
-    QDir(workDir()).removeRecursively(); // leftovers of an interrupted run
+    Platform::removeTree(workDir()); // leftovers of an interrupted run
     QDir().mkpath(workDir());
     resolveVersion();
 }
@@ -155,7 +169,7 @@ void LspInstaller::cancel()
         m_proc = nullptr;
     }
     m_file.close();
-    QDir(workDir()).removeRecursively();
+    Platform::removeTree(workDir());
     emit failed(tr("Cancelled"));
 }
 
@@ -170,7 +184,7 @@ void LspInstaller::abort(const QString &error)
         m_proc = nullptr;
     }
     m_file.close();
-    QDir(workDir()).removeRecursively();
+    Platform::removeTree(workDir());
     emit progress(-1, 0);
     emit failed(error);
 }
@@ -233,7 +247,7 @@ void LspInstaller::fetchChecksum()
             return;
         }
         m_expectedHash = m.captured(1).toLower();
-        if (m_version == pinnedVersion() && isIntel() && m_expectedHash != QLatin1String(kPinnedSha256X64)) {
+        if (m_version == pinnedVersion() && isIntel() && m_expectedHash != QLatin1String(isWindows() ? kPinnedSha256X64Win : kPinnedSha256X64)) {
             abort(tr("The published checksum for the tested version no longer matches what QODE expects. Refusing to install."));
             return;
         }
@@ -313,48 +327,62 @@ void LspInstaller::extract()
         emit progress(-1, 0);
         finalize();
     });
-    m_proc->start(QStringLiteral("tar"), {QStringLiteral("-xzf"), m_file.fileName(), QStringLiteral("-C"), out});
+    Platform::setUnpackCommand(m_proc, m_file.fileName(), out); // Windows: System32\tar.exe, which also reads .zip
+    m_proc->start();
 }
 
 void LspInstaller::finalize()
 {
     emit stageChanged(tr("Setting up…"));
     const QDir unpacked(workDir() + QStringLiteral("/unpacked"));
+    // The Linux archive has one top folder, the Windows zip holds bin/, lib/ and jbr/ directly.
     const QStringList tops = unpacked.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-    if (tops.size() != 1 || !QFileInfo::exists(unpacked.filePath(tops.first() + QStringLiteral("/bin/intellij-server")))) {
-        abort(tr("The archive does not have the expected layout (no bin/intellij-server)."));
+    QString server;
+    if (QFileInfo::exists(serverBinary(unpacked.absolutePath())))
+        server = unpacked.absolutePath();
+    else if (tops.size() == 1 && QFileInfo::exists(serverBinary(unpacked.filePath(tops.first()))))
+        server = unpacked.filePath(tops.first());
+    if (server.isEmpty()) {
+        abort(tr("The archive does not have the expected layout (no %1).").arg(QStringLiteral("bin/intellij-server") + Platform::exeSuffix()));
         return;
     }
     const QString target = installRoot() + QLatin1Char('/') + m_version;
-    QDir(target).removeRecursively();
-    if (!QDir().rename(unpacked.filePath(tops.first()), target)) {
+    if (QFileInfo::exists(target)) // the same version again: it may be the one running
+        LspServers::removeVersionFolder(target);
+    if (QFileInfo::exists(target)) {
+        abort(tr("Version %1 is installed and in use. Stop its language server (LSP menu), then try again.").arg(m_version));
+        return;
+    }
+    if (!QDir().rename(server, target)) {
         abort(tr("Could not move the server to %1").arg(target));
         return;
     }
-    makeExecutable(target + QStringLiteral("/bin/intellij-server"));
+    makeExecutable(serverBinary(target));
     makeExecutable(target + QStringLiteral("/jbr/bin/java"));
     QFile::remove(m_file.fileName());
 
-    if (!Platform::replaceSymlink(m_version, installRoot() + QStringLiteral("/current"))) {
+    if (!Platform::setCurrentVersion(installRoot(), m_version)) { // Windows: a junction
         abort(tr("Could not create the link %1/current").arg(installRoot()));
         return;
     }
     if (m_createLink) {
         const QFileInfo link(linkPath());
+        const QString runs = serverBinary(installRoot() + QStringLiteral("/current"));
         QDir().mkpath(link.absolutePath());
-        // Only ever replace our own symlink, never a file or a link somebody else made.
+        // Only ever replace our own link, never a file or a link somebody else made.
         if (link.exists() || link.isSymLink()) {
-            if (!link.isSymLink() || !isManaged(link.symLinkTarget()))
-                m_note += tr("%1 already exists and was left unchanged. ").arg(linkPath());
+            const QString old = Platform::commandLinkTarget(linkPath());
+            if (old.isEmpty() || !isManaged(old))
+                m_note += tr("%1 already exists and was left unchanged. ").arg(QDir::toNativeSeparators(linkPath()));
             else
-                Platform::replaceSymlink(installRoot() + QStringLiteral("/current/bin/intellij-server"), linkPath());
-        } else if (!Platform::replaceSymlink(installRoot() + QStringLiteral("/current/bin/intellij-server"), linkPath())) {
-            m_note += tr("Could not create %1. ").arg(linkPath());
+                Platform::writeCommandLink(runs, linkPath());
+        } else if (!Platform::writeCommandLink(runs, linkPath())) {
+            m_note += tr("Could not create %1. ").arg(QDir::toNativeSeparators(linkPath()));
         }
         const QStringList path = qEnvironmentVariable("PATH").split(QDir::listSeparator(), Qt::SkipEmptyParts);
-        if (!path.contains(link.absolutePath()))
+        if (std::none_of(path.begin(), path.end(), [&link](const QString &dir) { return Platform::samePath(QDir::fromNativeSeparators(dir), link.absolutePath()); }))
             m_note += tr("%1 is not on your PATH, so \"kotlin-lsp\" will not work in a terminal until you add it (QODE itself does not need that). ")
-                          .arg(link.absolutePath());
+                          .arg(QDir::toNativeSeparators(link.absolutePath()));
     }
     smokeTest();
 }
@@ -394,9 +422,9 @@ void LspInstaller::succeed()
     // Older versions are no longer needed once the new one runs.
     const QDir root(installRoot());
     for (const QString &name : root.entryList(QDir::Dirs | QDir::NoDotAndDotDot))
-        if (name != m_version && QRegularExpression(QStringLiteral("^\\d[\\d.]*$")).match(name).hasMatch())
-            QDir(root.filePath(name)).removeRecursively();
-    QDir(workDir()).removeRecursively();
+        if (name != m_version && QRegularExpression(QStringLiteral("^\\d[\\d.]*(\\.old)?$")).match(name).hasMatch())
+            LspServers::removeVersionFolder(root.filePath(name));
+    Platform::removeTree(workDir());
     m_active = false;
     emit progress(-1, 0);
     emit finished(LspServers::managedExecutable(*LspServers::byId(QStringLiteral("kotlin"))), m_note.trimmed());

@@ -34,8 +34,8 @@ qint64 msBeforeMain();
 QString userKey();
 
 // Replaces `link` with a symbolic link to `target` in one step (a half-written link is never visible). Returns false
-// when it could not. Windows: always false for now (creating symlinks needs Developer Mode or admin rights; the
-// installers that use it get a Windows layout in Phase 5 of the port).
+// when it could not. Windows: always false (creating symlinks needs Developer Mode or admin rights): use the functions
+// below, which have a Windows form.
 bool replaceSymlink(const QString &target, const QString &link);
 
 // Deletes a folder and everything in it (or a file); true when nothing is left. Unix: QDir::removeRecursively, which
@@ -44,6 +44,36 @@ bool replaceSymlink(const QString &target, const QString &link);
 // read-only files are deleted too.
 bool removeTree(const QString &path);
 
+// The remove dialogs (LspRemoveDialog) show and run one command per path: a folder and everything in it, or (onlyFile)
+// one file or link. removeCommandText: the line shown (Unix: with `shownPath`, ~/… ; Windows: the full `path`, since
+// cmd has no ~). setRemoveCommand: sets `process` up to run it on `path`; it exits non-zero when the path is still
+// there. Unix: rm -rf -- path / rm -- path. Windows: cmd's rmdir /s /q (it removes a junction as a link and deletes
+// read-only files) / del /f /q.
+QString removeCommandText(const QString &path, const QString &shownPath, bool onlyFile);
+void setRemoveCommand(QProcess *process, const QString &path, bool onlyFile);
+
+// Managed installs (the Kotlin LSP and jdtls installers) keep <root>/<version>/ and point <root>/current at the
+// active one. Unix: a relative symlink (replaceSymlink). Windows: a directory junction, which needs no admin rights
+// and can be swapped while the old version still runs. currentVersion: the folder name `current` points at, "" when
+// there is none.
+bool setCurrentVersion(const QString &root, const QString &version);
+QString currentVersion(const QString &root);
+
+// A command in a PATH folder that runs `target` (the Kotlin LSP installer's ~/.local/bin/kotlin-lsp):
+// - commandLinkFile: the file name it gets. Unix: `link`. Windows: `link`.cmd.
+// - writeCommandLink: Unix a symlink to target (replaceSymlink). Windows a one-line batch file: @"target" %*
+// - commandLinkTarget: what an existing one runs, "" when the file is not such a link (someone else's file).
+QString commandLinkFile(const QString &link);
+bool writeCommandLink(const QString &target, const QString &file);
+QString commandLinkTarget(const QString &file);
+
+// Sets `process` up to unpack `archive` into the existing folder `dir`. Unix: tar -xzf (a .tar.gz). Windows:
+// System32\tar.exe -xf, which reads .tar.gz and .zip (a Git tar earlier on PATH would read "C:" as a host name).
+void setUnpackCommand(QProcess *process, const QString &archive, const QString &dir);
+
+// The OS word in per-OS download and folder names: jdtls' config_<tag>, the Kotlin LSP's archive. Unix: "linux".
+// Windows: "win".
+QString osTag();
 // Whether QODE makes symbolic links (copying a link in the explorer). Unix: true. Windows: false (QFile::link writes a
 // .lnk shortcut, and a real link needs Developer Mode or admin rights).
 bool canMakeSymlinks();

@@ -33,6 +33,7 @@
 #include <windows.h>
 #include <sddl.h>
 #include <tlhelp32.h>
+#include <winioctl.h>
 
 namespace {
 
@@ -155,6 +156,61 @@ bool Platform::replaceSymlink(const QString &, const QString &)
 
 namespace {
 
+std::wstring wide(const QString &path)
+{
+    return QDir::toNativeSeparators(path).toStdWString();
+}
+
+// A directory junction `link` -> `target` (an absolute folder). The reparse data is the mount-point layout from
+// ntifs.h, which user-mode headers do not declare: tag, sizes, then "\??\target" and "target", each NUL-ended.
+bool makeJunction(const QString &target, const QString &link)
+{
+    const std::wstring substitute = L"\\??\\" + wide(QFileInfo(target).absoluteFilePath());
+    const std::wstring print = wide(QFileInfo(target).absoluteFilePath());
+    const WORD pathBytes = WORD((substitute.size() + 1 + print.size() + 1) * sizeof(wchar_t));
+    struct Header {
+        DWORD tag;
+        WORD dataLength, reserved;
+        WORD substituteOffset, substituteLength, printOffset, printLength;
+    };
+    std::string buf(sizeof(Header) + pathBytes, '\0');
+    auto *h = reinterpret_cast<Header *>(buf.data());
+    h->tag = IO_REPARSE_TAG_MOUNT_POINT;
+    h->dataLength = WORD(8 + pathBytes); // the four offset / length words plus the paths
+    h->substituteOffset = 0;
+    h->substituteLength = WORD(substitute.size() * sizeof(wchar_t));
+    h->printOffset = WORD((substitute.size() + 1) * sizeof(wchar_t));
+    h->printLength = WORD(print.size() * sizeof(wchar_t));
+    auto *paths = reinterpret_cast<wchar_t *>(buf.data() + sizeof(Header));
+    std::memcpy(paths, substitute.c_str(), (substitute.size() + 1) * sizeof(wchar_t));
+    std::memcpy(paths + substitute.size() + 1, print.c_str(), (print.size() + 1) * sizeof(wchar_t));
+
+    const std::wstring linkW = wide(link);
+    if (!::CreateDirectoryW(linkW.c_str(), nullptr))
+        return false;
+    const HANDLE dir = ::CreateFileW(linkW.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+                                     FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    bool ok = false;
+    if (dir != INVALID_HANDLE_VALUE) {
+        DWORD returned = 0;
+        ok = ::DeviceIoControl(dir, FSCTL_SET_REPARSE_POINT, buf.data(), DWORD(buf.size()), nullptr, 0, &returned, nullptr);
+        ::CloseHandle(dir);
+    }
+    if (!ok)
+        ::RemoveDirectoryW(linkW.c_str());
+    return ok;
+}
+
+bool isJunction(const QString &path)
+{
+    const DWORD attrs = ::GetFileAttributesW(wide(path).c_str());
+    return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_REPARSE_POINT) && (attrs & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+} // namespace
+
+namespace {
+
 bool removeEntry(const std::wstring &path)
 {
     const DWORD attrs = ::GetFileAttributesW(path.c_str());
@@ -195,6 +251,65 @@ bool Platform::removeTree(const QString &path)
     return removeEntry(native.toStdWString());
 }
 
+bool Platform::setCurrentVersion(const QString &root, const QString &version)
+{
+    const QString link = root + QStringLiteral("/current");
+    // Only ever replace a link (RemoveDirectoryW on a junction removes the link, never what it points at) or an empty
+    // folder, never a real folder with files.
+    if (::GetFileAttributesW(wide(link).c_str()) != INVALID_FILE_ATTRIBUTES) {
+        if (!isJunction(link) && !QDir(link).isEmpty(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System))
+            return false;
+        if (!::RemoveDirectoryW(wide(link).c_str()))
+            return false;
+    }
+    return makeJunction(root + QLatin1Char('/') + version, link);
+}
+
+QString Platform::currentVersion(const QString &root)
+{
+    const QString link = root + QStringLiteral("/current");
+    if (!isJunction(link))
+        return {};
+    const QString real = realPath(link);
+    return real.isEmpty() || samePath(real, link) ? QString() : QFileInfo(real).fileName();
+}
+
+QString Platform::commandLinkFile(const QString &link)
+{
+    return link + QStringLiteral(".cmd");
+}
+
+bool Platform::writeCommandLink(const QString &target, const QString &file)
+{
+    QSaveFile f(file);
+    if (!f.open(QIODevice::WriteOnly))
+        return false;
+    f.write("@\"" + QDir::toNativeSeparators(target).toUtf8() + "\" %*\r\n");
+    return f.commit();
+}
+
+QString Platform::commandLinkTarget(const QString &file)
+{
+    QFile f(file);
+    if (!f.open(QIODevice::ReadOnly) || f.size() > 4096)
+        return {};
+    static const QRegularExpression link(QStringLiteral("^@\"([^\"]+)\" %\\*\\s*$"));
+    const auto m = link.match(QString::fromUtf8(f.readAll()));
+    return m.hasMatch() ? QDir::fromNativeSeparators(m.captured(1)) : QString();
+}
+
+void Platform::setUnpackCommand(QProcess *process, const QString &archive, const QString &dir)
+{
+    const QString system = qEnvironmentVariable("SystemRoot", QStringLiteral("C:\\Windows"));
+    process->setProgram(QDir::fromNativeSeparators(system) + QStringLiteral("/System32/tar.exe"));
+    process->setArguments({QStringLiteral("-xf"), QDir::toNativeSeparators(archive), QStringLiteral("-C"), QDir::toNativeSeparators(dir)});
+}
+
+QString Platform::osTag()
+{
+    return QStringLiteral("win");
+}
+
 namespace {
 
 // /d: no AutoRun commands from the registry. /s /c "<line>": cmd drops the outer quotes and runs the rest as it is, so
@@ -214,6 +329,19 @@ void Platform::setShellCommand(QProcess *process, const QString &command)
     // Callers write sh (Spring's JAVA_TOOL_OPTIONS='…' .\gradlew bootRun): rewritten for cmd as in the terminal. A line
     // outside what ShellSyntax knows (one the user typed for cmd) goes on unchanged.
     setCmdLine(process, ShellSyntax::translate(command, QStringLiteral("cmd.exe")));
+}
+
+QString Platform::removeCommandText(const QString &path, const QString &, bool onlyFile)
+{
+    return (onlyFile ? QStringLiteral("del /f /q \"%1\"") : QStringLiteral("rmdir /s /q \"%1\"")).arg(QDir::toNativeSeparators(path));
+}
+
+void Platform::setRemoveCommand(QProcess *process, const QString &path, bool onlyFile)
+{
+    // rmdir and del do not always set an exit code when something stays (a file in use): check that it is gone.
+    const QString p = QDir::toNativeSeparators(path);
+    setCmdLine(process, (onlyFile ? QStringLiteral("del /f /q \"%1\"") : QStringLiteral("rmdir /s /q \"%1\"")).arg(p) +
+                            QStringLiteral(" & if exist \"%1\" (exit 1) else (exit 0)").arg(p));
 }
 
 namespace {

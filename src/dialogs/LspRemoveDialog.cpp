@@ -34,10 +34,15 @@ namespace {
 qint64 dirSize(const QString &path)
 {
     qint64 total = 0;
-    QDirIterator it(path, QDir::Files | QDir::Hidden | QDir::NoSymLinks, QDirIterator::Subdirectories);
-    while (it.hasNext()) {
-        it.next();
-        total += it.fileInfo().size();
+    QStringList stack{path};
+    while (!stack.isEmpty()) {
+        const QDir dir(stack.takeLast());
+        for (const QFileInfo &e : dir.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::NoSymLinks)) {
+            if (!e.isDir())
+                total += e.size();
+            else if (!e.isJunction()) // Windows: `current` is a junction to a version folder, counted once
+                stack << e.absoluteFilePath();
+        }
     }
     return total;
 }
@@ -45,7 +50,7 @@ qint64 dirSize(const QString &path)
 QString shown(const QString &path)
 {
     const QString home = QDir::homePath();
-    return path.startsWith(home + QLatin1Char('/')) ? QStringLiteral("~") + path.mid(home.size()) : path;
+    return Platform::isUnder(path, home) ? QStringLiteral("~") + path.mid(home.size()) : path;
 }
 
 // The server's own per-project indexes / workspace data (QODE/lsp/<id>/<hash of project>).
@@ -61,7 +66,7 @@ QString libraryCacheDir()
 
 bool underHome(const QString &path)
 {
-    return !path.isEmpty() && QDir::cleanPath(path).startsWith(QDir::homePath() + QLatin1Char('/'));
+    return !path.isEmpty() && Platform::isUnder(QDir::cleanPath(path), QDir::homePath());
 }
 
 } // namespace
@@ -170,9 +175,10 @@ void LspRemoveDialog::buildManaged()
     const QString root = java ? JdtlsInstaller::installRoot() : LspInstaller::installRoot();
     const QString version = java ? JdtlsInstaller::installedVersion() : LspInstaller::installedVersion();
     const QString cacheDir = serverCacheDir(m_id);
-    // Only Kotlin's install adds a ~/.local/bin command link.
+    // Only Kotlin's install adds a ~/.local/bin command link (Windows: kotlin-lsp.cmd).
     const QFileInfo link(java ? QString() : LspInstaller::linkPath());
-    const bool ownLink = !java && link.isSymLink() && LspInstaller::isManaged(link.symLinkTarget());
+    const QString linkTarget = java ? QString() : Platform::commandLinkTarget(link.filePath());
+    const bool ownLink = !linkTarget.isEmpty() && LspInstaller::isManaged(linkTarget);
     const QLocale loc;
 
     m_intro->setText(tr("<b>Remove the %1 language server</b> that QODE downloaded%2. "
@@ -182,12 +188,12 @@ void LspRemoveDialog::buildManaged()
 
     m_steps.clear();
     if (ownLink)
-        m_steps.append({tr("Remove the command link"), QStringLiteral("rm %1").arg(shown(link.filePath())), link.filePath(), true});
+        m_steps.append({tr("Remove the command link"), Platform::removeCommandText(link.filePath(), shown(link.filePath()), true), link.filePath(), true});
     m_steps.append({tr("Delete the downloaded server (about %1)").arg(loc.formattedDataSize(dirSize(root))),
-                    QStringLiteral("rm -rf %1").arg(shown(root)), root, false});
+                    Platform::removeCommandText(root, shown(root), false), root, false});
     if (QFileInfo::exists(cacheDir))
         m_steps.append({tr("Delete the server's project index and cache (about %1)").arg(loc.formattedDataSize(dirSize(cacheDir))),
-                        QStringLiteral("rm -rf %1").arg(shown(cacheDir)), cacheDir, false});
+                        Platform::removeCommandText(cacheDir, shown(cacheDir), false), cacheDir, false});
 
     m_library = new QCheckBox(tr("Also delete cached library sources opened with Go to Definition (about %1)")
                                   .arg(loc.formattedDataSize(dirSize(libraryCacheDir()))),
@@ -200,7 +206,7 @@ void LspRemoveDialog::buildManaged()
         m_view->clear();
         QList<Step> steps = m_steps;
         if (m_library && m_library->isChecked())
-            steps.append({QString(), QStringLiteral("rm -rf %1").arg(shown(libraryCacheDir())), libraryCacheDir(), false});
+            steps.append({QString(), Platform::removeCommandText(libraryCacheDir(), shown(libraryCacheDir()), false), libraryCacheDir(), false});
         for (const Step &s : std::as_const(steps)) {
             if (!s.text.isEmpty())
                 log(QStringLiteral("# %1").arg(s.text));
@@ -222,7 +228,7 @@ void LspRemoveDialog::buildManaged()
 void LspRemoveDialog::startManaged()
 {
     if (m_library && m_library->isChecked())
-        m_steps.append({tr("Delete cached library sources"), QStringLiteral("rm -rf %1").arg(shown(libraryCacheDir())), libraryCacheDir(), false});
+        m_steps.append({tr("Delete cached library sources"), Platform::removeCommandText(libraryCacheDir(), shown(libraryCacheDir()), false), libraryCacheDir(), false});
     m_primary->setEnabled(false);
     m_close->setEnabled(false);
     if (m_library)
@@ -282,14 +288,14 @@ void LspRemoveDialog::runNext()
     connect(m_proc, &QProcess::errorOccurred, this, [this](QProcess::ProcessError e) {
         if (e != QProcess::FailedToStart)
             return;
-        log(tr("  could not start rm"));
+        log(tr("  could not start the command"));
         m_failed = true;
         m_proc->deleteLater();
         m_proc = nullptr;
         runNext();
     });
-    m_proc->start(QStringLiteral("rm"), s.onlyLink ? QStringList{QStringLiteral("--"), s.path}
-                                                   : QStringList{QStringLiteral("-rf"), QStringLiteral("--"), s.path});
+    Platform::setRemoveCommand(m_proc, s.path, s.onlyLink); // Unix: rm; Windows: rmdir /s /q, which never follows a junction
+    m_proc->start();
 }
 
 void LspRemoveDialog::finish(bool ok)
@@ -325,7 +331,7 @@ void LspRemoveDialog::buildNpm()
                             "and no administrator rights are needed. This is the exact command that will run:"));
     m_steps.clear();
     m_steps.append({tr("Delete the installed servers (about %1)").arg(QLocale().formattedDataSize(dirSize(root))),
-                    QStringLiteral("rm -rf %1").arg(shown(root)), root, false});
+                    Platform::removeCommandText(root, shown(root), false), root, false});
     for (const Step &s : std::as_const(m_steps)) {
         log(QStringLiteral("# %1").arg(s.text));
         log(QStringLiteral("$ %1").arg(s.display));
@@ -349,7 +355,7 @@ void LspRemoveDialog::buildPip()
                         "are needed. This is the exact command that will run:"));
     m_steps.clear();
     m_steps.append({tr("Delete the installed tools (about %1)").arg(QLocale().formattedDataSize(dirSize(root))),
-                    QStringLiteral("rm -rf %1").arg(shown(root)), root, false});
+                    Platform::removeCommandText(root, shown(root), false), root, false});
     for (const Step &s : std::as_const(m_steps)) {
         log(QStringLiteral("# %1").arg(s.text));
         log(QStringLiteral("$ %1").arg(s.display));

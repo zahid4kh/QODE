@@ -64,9 +64,13 @@ QString libraryCacheDir()
     return AppPaths::cache(QStringLiteral("lsp/library-sources"));
 }
 
+// Also inside a portable QODE's own data folder, which may be on another drive (a USB stick).
 bool underHome(const QString &path)
 {
-    return !path.isEmpty() && Platform::isUnder(QDir::cleanPath(path), QDir::homePath());
+    if (path.isEmpty())
+        return false;
+    const QString clean = QDir::cleanPath(path);
+    return Platform::isUnder(clean, QDir::homePath()) || (AppPaths::isPortable() && Platform::isUnder(clean, AppPaths::data()));
 }
 
 } // namespace

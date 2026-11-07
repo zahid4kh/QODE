@@ -2,6 +2,7 @@
 
 #include "filesystem/FileManager.h"
 #include "lsp/LspServers.h"
+#include "platform/Platform.h"
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
@@ -398,6 +399,26 @@ void NewProjectDialog::refreshDefaults()
 
 namespace {
 // Package that provides a tool, for the hint (Debian/Ubuntu names; other distributions name them alike).
+// Windows: how to get a missing tool there.
+QString windowsInstallFor(const QString &tool)
+{
+    if (tool == QLatin1String("msvc"))
+        return QObject::tr("Visual Studio's C++ compiler was not found. Install the Visual Studio Build Tools with the "
+                           "\"Desktop development with C++\" workload (winget install Microsoft.VisualStudio.2022.BuildTools), "
+                           "or pick gcc / clang. The project is still created.");
+    if (tool == QLatin1String("gcc") || tool == QLatin1String("g++"))
+        return QObject::tr("%1 was not found on PATH. Install MinGW-w64, for example with MSYS2 (winget install MSYS2.MSYS2, then "
+                           "pacman -S mingw-w64-ucrt-x86_64-gcc) and add its ucrt64\\bin folder to PATH. The project is still created.")
+            .arg(tool);
+    if (tool == QLatin1String("clang") || tool == QLatin1String("clang++"))
+        return QObject::tr("%1 was not found on PATH. Install LLVM (winget install LLVM.LLVM) and add it to PATH. The project is "
+                           "still created.").arg(tool);
+    if (tool == QLatin1String("cmake"))
+        return QObject::tr("cmake was not found on PATH. Install it with winget install Kitware.CMake (Visual Studio and the Qt "
+                           "installer also bring one). The project is still created.");
+    return QObject::tr("%1 was not found on PATH. The project is still created.").arg(tool);
+}
+
 QString packageFor(const QString &tool)
 {
     if (tool == QLatin1String("g++") || tool == QLatin1String("gcc") || tool == QLatin1String("make"))
@@ -411,7 +432,9 @@ QString packageFor(const QString &tool)
 bool qt6Installed()
 {
     static const bool ok = [] {
-        const QString qmake = QStandardPaths::findExecutable(QStringLiteral("qmake6"));
+        QString qmake = QStandardPaths::findExecutable(QStringLiteral("qmake6"));
+        if (qmake.isEmpty())
+            qmake = Platform::qmakeCandidates().value(0); // Windows: the Qt installer's kits (Unix: none)
         if (qmake.isEmpty())
             return false;
         QProcess p;
@@ -430,7 +453,14 @@ void NewProjectDialog::updateRequirements()
 {
     QStringList warnings;
     const ProjectTemplates::Template *t = ProjectTemplates::find(m_templateId);
-    const ProjectTemplates::Values vals = values();
+    ProjectTemplates::Values vals = values();
+    // Conditions may also test the OS and the Windows values (tool:msvc?qtKit=msvc).
+    vals.insert(QStringLiteral("os"), Platform::osTag());
+    const QMap<QString, QString> platform = Platform::templateValues();
+    for (auto it = platform.begin(); it != platform.end(); ++it)
+        if (!vals.contains(it.key()))
+            vals.insert(it.key(), it.value());
+    const bool windows = Platform::osTag() == QLatin1String("win");
     QStringList missingTools;
     if (t) {
         for (QString req : t->needs) {
@@ -450,17 +480,21 @@ void NewProjectDialog::updateRequirements()
                     warnings << tr("A JDK %1 or newer was not found. Gradle needs one to build and run the project: install it or set JAVA_HOME. The project is still created.").arg(need);
             } else if (req == QLatin1String("qt6")) {
                 if (!qt6Installed())
-                    warnings << tr("Qt 6 development files were not found (on Debian/Ubuntu: sudo apt install qt6-base-dev). The project is still created.");
+                    warnings << (windows ? tr("Qt 6 was not found. Install it with the Qt Online Installer (https://www.qt.io/download-qt-installer), "
+                                              "into C:\\Qt, or put its bin folder on PATH. The project is still created.")
+                                         : tr("Qt 6 development files were not found (on Debian/Ubuntu: sudo apt install qt6-base-dev). The project is still created."));
             } else if (req.startsWith(QLatin1String("tool:"))) {
                 const QString tool = ProjectTemplates::expand(*t, req.mid(5), vals);
-                if (QStandardPaths::findExecutable(tool).isEmpty() && !missingTools.contains(tool))
+                const bool found = tool == QLatin1String("msvc") ? Platform::hasMsvc() : !QStandardPaths::findExecutable(tool).isEmpty();
+                if (!found && !missingTools.contains(tool))
                     missingTools << tool;
             }
         }
     }
     for (const QString &tool : std::as_const(missingTools))
-        warnings << tr("%1 was not found. Install it with your package manager (for example: sudo apt install %2). The project is still created.")
-                        .arg(tool, packageFor(tool));
+        warnings << (windows ? windowsInstallFor(tool)
+                             : tr("%1 was not found. Install it with your package manager (for example: sudo apt install %2). The project is still created.")
+                                   .arg(tool, packageFor(tool)));
     const Theme theme = Theme::byName(SettingsManager::instance().theme());
     m_requirement->setStyleSheet(QStringLiteral("color: %1;").arg(theme.warning.name()));
     m_requirement->setText(warnings.join(QLatin1Char('\n')));

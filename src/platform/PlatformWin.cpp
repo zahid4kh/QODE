@@ -722,6 +722,40 @@ QStringList Platform::qmakeScopes(const QString &qmake)
     return scopes;
 }
 
+bool Platform::hasMsvc()
+{
+    return !vcvars64().isEmpty();
+}
+
+QMap<QString, QString> Platform::templateValues()
+{
+    static const QMap<QString, QString> cached = [] { // the New Project dialog asks on every change
+        QMap<QString, QString> v;
+        const bool msvc = hasMsvc();
+        const auto pick = [msvc](const char *gnu, const char *llvm) {
+            if (msvc)
+                return QStringLiteral("msvc");
+            if (!QStandardPaths::findExecutable(QLatin1String(gnu)).isEmpty())
+                return QString::fromLatin1(gnu);
+            if (!QStandardPaths::findExecutable(QLatin1String(llvm)).isEmpty())
+                return QString::fromLatin1(llvm);
+            return QStringLiteral("msvc");
+        };
+        v.insert(QStringLiteral("cCompiler"), pick("gcc", "clang"));
+        v.insert(QStringLiteral("cxxCompiler"), pick("g++", "clang++"));
+        QString qmake;
+        for (const char *name : {"qmake6", "qmake"})
+            if (qmake.isEmpty())
+                qmake = QStandardPaths::findExecutable(QLatin1String(name));
+        if (qmake.isEmpty())
+            qmake = qmakeCandidates().value(0);
+        v.insert(QStringLiteral("qmake"), qmake.isEmpty() ? QString() : batPath(qmake));
+        v.insert(QStringLiteral("qtKit"), qmake.isEmpty() ? QString() : isMsvcKit(qmake) ? QStringLiteral("msvc") : QStringLiteral("mingw"));
+        return v;
+    }();
+    return cached;
+}
+
 QString Platform::qmakeRunCommand(const QString &qmake, const QString &projectRoot, const QString &proRel, const QString &exe)
 {
     if (qmake.isEmpty() || projectRoot.isEmpty())

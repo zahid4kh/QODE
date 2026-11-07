@@ -258,6 +258,16 @@ QString Platform::gitBashExecutable()
     return {};
 }
 
+bool Platform::hasMsvc()
+{
+    return false;
+}
+
+QMap<QString, QString> Platform::templateValues()
+{
+    return {};
+}
+
 QStringList Platform::qmakeCandidates()
 {
     return {};

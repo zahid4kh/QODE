@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QList>
+#include <QMap>
 #include <QString>
 #include <QStringList>
 
@@ -172,6 +173,17 @@ QString gitBashExecutable();
 //   kit's MinGW) and Qt's bin\ on PATH, builds a release with jom / nmake / mingw32-make and runs exe.exe; the line runs
 //   that file. Empty when that cannot be written.
 QStringList qmakeCandidates();
+
+// Whether Visual Studio's C++ compiler (cl, set up by vcvars64.bat) is installed. Unix: false.
+bool hasMsvc();
+
+// Values the project templates' Windows scripts use as {{key}} (ProjectTemplates adds them to every template's
+// values), computed when asked. Unix: none. Windows:
+// - cCompiler / cxxCompiler: the default compiler choice: msvc when Visual Studio's C++ tools are installed, else gcc /
+//   g++ or clang / clang++ when on PATH, else msvc.
+// - qmake: the Qt kit's qmake.exe QODE would use (PATH, else the Qt installer's newest kit), for a batch file (native
+//   separators, % doubled); qtKit: "msvc" or "mingw" (which compiler that kit needs). Empty when no Qt is found.
+QMap<QString, QString> templateValues();
 QStringList qmakeScopes(const QString &qmake);
 QString qmakeRunCommand(const QString &qmake, const QString &projectRoot, const QString &proRel, const QString &exe);
 

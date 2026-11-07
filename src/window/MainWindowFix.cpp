@@ -7,6 +7,7 @@
 #include "ai/AiHub.h"
 #include "editor/Document.h"
 #include "editor/EditorManager.h"
+#include "platform/Platform.h"
 #include "project/ProjectFiles.h"
 #include "project/ProjectManager.h"
 #include "tasks/TasksPanel.h"
@@ -51,7 +52,8 @@ QList<QPair<QString, int>> MainWindow::fixLocations(const QString &text, const Q
     bool namesBuilt = false;
     auto add = [&](QString path, int line) {
         if (path.startsWith(QLatin1String("file://")))
-            path = path.mid(7);
+            path = Platform::uriToPath(path); // file:///C:/x is C:/x on Windows, not /C:/x
+        path = QDir::fromNativeSeparators(path); // D:\x\y.kt from a Windows tool
         QString abs;
         if (QFileInfo(path).isAbsolute()) {
             abs = path;
@@ -74,14 +76,16 @@ QList<QPair<QString, int>> MainWindow::fixLocations(const QString &text, const Q
         if (abs.isEmpty())
             return;
         abs = QDir::cleanPath(abs);
-        if (!abs.startsWith(root + QLatin1Char('/')) || !QFileInfo(abs).isFile() || AiEnv::isSensitive(abs) || generated(abs.mid(root.size() + 1)))
+        if (!Platform::isUnder(abs, root) || !QFileInfo(abs).isFile() || AiEnv::isSensitive(abs) || generated(abs.mid(root.size() + 1)))
             return;
         for (const auto &l : std::as_const(out))
-            if (l.first == abs)
+            if (Platform::samePath(l.first, abs))
                 return;
         out.append({abs, line});
     };
-    static const QRegularExpression location(QStringLiteral("((?:file://)?(?:~|\\.{1,2})?[\\w./+@-]*[\\w+-]\\.[A-Za-z0-9+]{1,8}):(\\d+)"));
+    // A Windows path may start with a drive (C:\ or C:/) and use '\'.
+    static const QRegularExpression location(
+        QStringLiteral("((?:file://)?(?:[A-Za-z]:(?=[\\\\/]))?(?:~|\\.{1,2})?[\\w./\\\\+@-]*[\\w+-]\\.[A-Za-z0-9+]{1,8}):(\\d+)"));
     static const QRegularExpression python(QStringLiteral("File \"([^\"]+)\", line (\\d+)"));
     static const QRegularExpression frame(QStringLiteral("\\(([\\w$]+\\.(?:java|kt|kts|scala|groovy)):(\\d+)\\)"));
     for (const QString &line : text.split(QLatin1Char('\n'))) {
@@ -196,7 +200,7 @@ void MainWindow::fixFailedCommand(const FailedCommand &failure)
     if (test && QFileInfo::exists(m_lastTestFile))
         spots.append({m_lastTestFile, 0});
     for (const BuildProblem &p : failure.problems)
-        if (p.path.startsWith(root + QLatin1Char('/')) && !AiEnv::isSensitive(p.path))
+        if (Platform::isUnder(p.path, root) && !AiEnv::isSensitive(p.path))
             spots.append({p.path, p.line});
     for (const auto &l : fixLocations(failure.output, failure.folder)) {
         bool known = false;

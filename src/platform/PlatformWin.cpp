@@ -244,6 +244,11 @@ QString Platform::invalidFileName(const QString &name)
     return {};
 }
 
+int Platform::busyFileRetries()
+{
+    return 3;
+}
+
 QString Platform::pathKey(const QString &path)
 {
     return QDir::fromNativeSeparators(path).toLower();

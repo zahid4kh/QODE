@@ -1,4 +1,5 @@
 #include "MoveRefactor.h"
+#include "filesystem/FileManager.h"
 #include "history/LocalHistory.h"
 
 #include "RefactorCtx.h"
@@ -251,10 +252,7 @@ bool writeText(const QString &path, const QString &text, bool bom)
     if (bom)
         data.prepend("\xEF\xBB\xBF");
     LocalHistory::recordWrite(path, data, LocalHistory::Kind::Refactor);
-    QFile f(path);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        return false;
-    return f.write(data) == data.size();
+    return FileManager::writeFile(path, data, nullptr); // a temp file renamed over it: never half-written
 }
 
 QString applyEdits(const QString &text, const QVector<TextEdit> &edits)

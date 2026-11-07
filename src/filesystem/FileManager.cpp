@@ -8,6 +8,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QSaveFile>
+#include <QThread>
 #include <QUrl>
 
 namespace FileManager {
@@ -31,15 +32,21 @@ ReadResult readFile(const QString &path)
 
 bool writeFile(const QString &path, const QByteArray &data, QString *error)
 {
-    // QSaveFile writes to a temp file and renames, so a failed save never truncates the original.
-    QSaveFile f(path);
-    f.setDirectWriteFallback(true);
-    if (!f.open(QIODevice::WriteOnly) || f.write(data) != data.size() || !f.commit()) {
-        if (error)
-            *error = f.errorString();
-        return false;
+    // QSaveFile writes to a temp file and renames, so a failed save never truncates the original. On Windows that rename
+    // can fail for a moment while a virus scanner or the indexer has the file open: try again a few times.
+    const int retries = Platform::busyFileRetries();
+    for (int attempt = 0;; ++attempt) {
+        QSaveFile f(path);
+        f.setDirectWriteFallback(true);
+        if (f.open(QIODevice::WriteOnly) && f.write(data) == data.size() && f.commit())
+            return true;
+        if (attempt >= retries) {
+            if (error)
+                *error = f.errorString();
+            return false;
+        }
+        QThread::msleep(50 * (attempt + 1));
     }
-    return true;
 }
 
 bool createFile(const QString &path, QString *error)

@@ -112,6 +112,11 @@ QString Platform::invalidFileName(const QString &)
     return {};
 }
 
+int Platform::busyFileRetries()
+{
+    return 0;
+}
+
 QString Platform::pathKey(const QString &path)
 {
     return path;

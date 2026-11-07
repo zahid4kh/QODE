@@ -43,6 +43,9 @@ bool replaceSymlink(const QString &target, const QString &link);
 //   Windows: the device names CON, PRN, AUX, NUL, COM1-9, LPT1-9 (also with an extension: nul.txt), the characters
 //   < > : " | ? * \ and control characters, and a trailing dot or space (Windows drops them).
 QString invalidFileName(const QString &name);
+// How often a save tries again when it fails (50, 100, 150 ms apart). Unix: 0. Windows: 3 (a virus scanner or the
+// indexer can hold a file that was just written for a moment).
+int busyFileRetries();
 QString pathKey(const QString &path);
 bool samePath(const QString &a, const QString &b);
 bool isUnder(const QString &path, const QString &root);

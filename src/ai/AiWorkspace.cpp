@@ -1,4 +1,5 @@
 #include "AiWorkspace.h"
+#include "filesystem/FileManager.h"
 #include "history/LocalHistory.h"
 
 #include "editor/CodeEditor.h"
@@ -76,16 +77,14 @@ QVector<AiEdits::Outcome> AiWorkspace::apply(const QVector<AiEdits::Edit> &edits
                 continue;
             }
             QDir().mkpath(QFileInfo(abs).absolutePath());
-            QFile f(abs);
             QString code = edits.at(idx.first()).code;
             if (!code.isEmpty() && !code.endsWith(QLatin1Char('\n')))
                 code += QLatin1Char('\n');
-            if (!f.open(QIODevice::WriteOnly) || f.write(code.toUtf8()) < 0) {
+            if (!FileManager::writeFile(abs, code.toUtf8(), nullptr)) {
                 for (int i : idx)
                     fail(i, QStringLiteral("the file could not be written"));
                 continue;
             }
-            f.close();
             LocalHistory::record(abs, code.toUtf8(), LocalHistory::Kind::QodeEdit);
             m_editors->openFile(abs);
             outcomes[idx.first()].ok = true;

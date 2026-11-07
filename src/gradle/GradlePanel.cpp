@@ -276,15 +276,28 @@ void GradlePanel::upgradeWrapper()
             QMessageBox::information(this, tr("Upgrade Gradle Wrapper"), tr("The wrapper already uses Gradle %1, the current release.").arg(latest));
             return;
         }
+        const bool major = current.value.section(QLatin1Char('.'), 0, 0) != latest.section(QLatin1Char('.'), 0, 0);
         const auto answer = QMessageBox::question(
             this, tr("Upgrade Gradle Wrapper"),
-            tr("Upgrade the wrapper from Gradle %1 to %2?\n\nThis runs, in the terminal:\n%3 wrapper --gradle-version %2\n"
-               "and then %3 wrapper once more, so the wrapper scripts and jar come from the new version too. Check the "
-               "release notes for breaking changes before a major upgrade.")
-                .arg(current.value, latest, GradleTasks::runner(m_dir)));
+            tr("Upgrade the wrapper from Gradle %1 to %2?\n\nQODE sets the new version in gradle/wrapper/gradle-wrapper.properties, "
+               "then runs, in the terminal:\n%3 wrapper --gradle-version %2\nso the wrapper scripts and jar come from the new "
+               "version too.%4")
+                .arg(current.value, latest, GradleTasks::runner(m_dir),
+                     major ? tr("\n\nThis is a major upgrade: plugins of the build (Kotlin, Android, Compose …) may need newer "
+                                "versions too. Check Gradle's upgrade guide if the build fails afterwards.")
+                           : QString()));
         if (answer != QMessageBox::Yes)
             return;
-        emit runRequested(QStringLiteral("%1 wrapper --gradle-version %2 --distribution-type bin && %1 wrapper").arg(GradleTasks::runner(m_dir), latest), m_dir);
+        // The properties first: the wrapper task runs the Gradle they name, and the old one may not start at all (Gradle
+        // 8.7 on JDK 25).
+        QString error;
+        if (!JvmTools::setWrapperVersion(m_dir, latest, &error)) {
+            QMessageBox::warning(this, tr("Upgrade Gradle Wrapper"), error);
+            return;
+        }
+        updateWrapper();
+        emit wrapperChanged();
+        emit runRequested(QStringLiteral("%1 wrapper --gradle-version %2 --distribution-type bin").arg(GradleTasks::runner(m_dir), latest), m_dir);
     });
 }
 

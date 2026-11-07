@@ -163,8 +163,19 @@ LspClient::~LspClient()
 
 void LspClient::prependToPath(const QString &dir)
 {
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    QProcessEnvironment env = m_proc->processEnvironment();
+    if (env.isEmpty())
+        env = QProcessEnvironment::systemEnvironment();
     env.insert(QStringLiteral("PATH"), QDir::toNativeSeparators(dir) + QDir::listSeparator() + env.value(QStringLiteral("PATH")));
+    m_proc->setProcessEnvironment(env);
+}
+
+void LspClient::setEnvironmentValue(const QString &name, const QString &value)
+{
+    QProcessEnvironment env = m_proc->processEnvironment();
+    if (env.isEmpty())
+        env = QProcessEnvironment::systemEnvironment();
+    env.insert(name, value);
     m_proc->setProcessEnvironment(env);
 }
 

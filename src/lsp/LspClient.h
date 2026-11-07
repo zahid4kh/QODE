@@ -28,6 +28,7 @@ public:
     // Adds a folder to the front of the server's PATH (so a Node.js script finds `node` when QODE was started from a
     // desktop launcher). Call before start().
     void prependToPath(const QString &dir);
+    void setEnvironmentValue(const QString &name, const QString &value); // before start(); keeps what prependToPath set
     void start();
     // Sends shutdown + exit and waits briefly; kills the process when it does not leave on its own.
     void shutdown(int waitMs = 700);

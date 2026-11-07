@@ -230,6 +230,9 @@ signals:
     void buildSyncFinished(const QString &serverName); // the re-import ended
     void diagnosticsChanged(const QString &path);
     void diagnosticsReported(const QString &path); // also when they did not change (see diagnosticsVersion)
+    // The Kotlin / Java server started in a Gradle project whose Gradle no installed JDK runs, or whose toolchain is not
+    // installed: its import fails, so it knows none of the project's classes (JdkScanner::needsOf says what is missing).
+    void gradleJdkMissing(const QString &serverName);
 
 private:
     struct Server {
@@ -247,6 +250,7 @@ private:
         };
         QHash<QString, Progress> progress; // $/progress token (jdtls: report id) -> running operation
         QStringList lastLog;               // the log of the process that stopped (Show Server Log after a crash)
+        QString gradleJdk;                 // jdtls: the JDK its Gradle import runs on (java.import.gradle.java.home)
     };
     struct Tracked {
         QString uri, path, serverId; // serverId: the file's main server

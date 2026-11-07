@@ -16,9 +16,12 @@
 #include "jvm/DependencyDialog.h"
 #include "jvm/DependencyEdit.h"
 #include "jvm/JdkDialog.h"
+#include "jvm/JdkInstaller.h"
 #include "jvm/JdkScanner.h"
 #include "jvm/JvmTools.h"
 #include "jvm/ScriptCheck.h"
+#include "lsp/LspManager.h"
+#include "platform/Platform.h"
 #include "project/JvmProject.h"
 #include "project/ProjectFiles.h"
 #include "project/ProjectManager.h"
@@ -38,6 +41,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPointer>
+#include <QProgressDialog>
 #include <QPushButton>
 #include <QStackedWidget>
 #include <QStatusBar>
@@ -142,6 +146,10 @@ void MainWindow::setupJvm()
     connect(m_gradle->buildView(), &GradleBuildView::buildFinished, this, [this](bool failed) {
         if (failed && !(m_rightStack->parentWidget()->isVisible() && m_rightStack->currentWidget() == m_gradle))
             statusBar()->showMessage(tr("Gradle build failed: the Gradle panel's Build tab shows where"), 8000);
+    });
+    connect(m_gradle, &GradlePanel::wrapperChanged, this, [this] {
+        updateJvmStatus();
+        restartJvmServers();
     });
     connect(m_projects, &ProjectManager::projectOpened, this, [this] { updateJvmStatus(); });
     connect(m_projects, &ProjectManager::projectClosed, this, [this] { updateJvmStatus(); });
@@ -546,15 +554,35 @@ QString MainWindow::jdkStartupCommand(const QString &shell) const
 void MainWindow::showJdkManager()
 {
     const QString root = m_projects->hasProject() ? m_projects->root() : QString();
-    const JvmTools::Versions v = JvmTools::detectVersions(root);
     const QString before = SettingsManager::instance().projectJdk();
-    JdkDialog dlg(before, v.toolchain, v.autoProvision, this);
+    JdkDialog dlg(before, root, this);
     if (!m_projects->hasProject())
         dlg.setWindowTitle(tr("Installed JDKs"));
-    if (dlg.exec() != QDialog::Accepted || !m_projects->hasProject() || dlg.chosenHome() == before)
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    if (dlg.downloadMajor() > 0) {
+        downloadJdk(dlg.downloadMajor(), m_projects->hasProject());
+        return;
+    }
+    if (!m_projects->hasProject() || dlg.chosenHome() == before)
         return;
     SettingsManager::instance().setProjectJdk(dlg.chosenHome());
+    projectJdkChanged();
+}
+
+void MainWindow::restartJvmServers()
+{
+    // The Kotlin / Java servers import the Gradle build with a JDK chosen when they start (see LspManager::startServer).
+    for (const LspManager::ServerState &st : m_lsp->servers())
+        if ((st.id == QLatin1String("kotlin") || st.id == QLatin1String("java"))
+            && (st.status == LspManager::Status::Running || st.status == LspManager::Status::Starting))
+            m_lsp->restart(st.id);
+}
+
+void MainWindow::projectJdkChanged()
+{
     updateJvmStatus();
+    restartJvmServers();
     if (m_terminal->isRunning()) {
         const auto answer = QMessageBox::question(this, tr("Project JDK"),
                                                   tr("New terminal sessions use the new JDK. Restart the open sessions now? Programs running in "
@@ -563,6 +591,118 @@ void MainWindow::showJdkManager()
         if (answer == QMessageBox::Yes)
             m_terminal->restartAll();
     }
+}
+
+void MainWindow::offerJdkFix(const QString &serverName)
+{
+    if (!m_projects->hasProject())
+        return;
+    const QString root = m_projects->root();
+    if (m_jdkFixOffered.contains(Platform::pathKey(root)))
+        return;
+    const QList<JdkScanner::Jdk> all = JdkScanner::scan();
+    const JdkScanner::Needs n = JdkScanner::needsOf(root, all, SettingsManager::instance().projectJdk());
+    if (n.ok())
+        return;
+    m_jdkFixOffered.insert(Platform::pathKey(root));
+    updateJvmStatus();
+
+    QStringList installed;
+    for (const JdkScanner::Jdk &j : all)
+        installed << QString::number(j.major);
+    installed.removeDuplicates();
+    QStringList why;
+    if (!n.runner.isValid()) {
+        const int min = JvmTools::gradleMinJava(n.gradle), max = JvmTools::gradleMaxJava(n.gradle);
+        why << tr("The project's Gradle %1 runs on %2, and the JDKs installed here are: %3.")
+                   .arg(n.gradle, max > 0 ? tr("Java %1 to %2").arg(min).arg(max) : tr("Java %1 and newer").arg(min),
+                        installed.isEmpty() ? tr("none") : installed.join(QStringLiteral(", ")));
+    }
+    if (n.toolchainMissing)
+        why << tr("The build asks for a Java %1 toolchain (jvmToolchain(%1)), which is not installed.").arg(n.toolchain);
+    QStringList get;
+    for (int m : n.downloads)
+        get << QString::number(m);
+    QMessageBox box(QMessageBox::Warning, tr("Gradle Cannot Run"),
+                    tr("The %1 cannot read this project's Gradle build, so completion, Go to Definition and error checks do not know "
+                       "the project's classes and libraries. Building in the terminal fails for the same reason.")
+                        .arg(serverName),
+                    QMessageBox::NoButton, this);
+    QString info = QStringLiteral("• ") + why.join(QStringLiteral("\n• "));
+    if (!get.isEmpty())
+        info += QStringLiteral("\n\n") + tr("Download Eclipse Temurin %1 (from adoptium.net, about 200 MB each, into %2)? It becomes this "
+                                            "project's JDK, and the language server restarts with it.")
+                                             .arg(get.join(tr(" and ")), QDir::toNativeSeparators(QDir::homePath() + QStringLiteral("/.jdks")));
+    box.setInformativeText(info);
+    QPushButton *download = n.downloads.isEmpty() ? nullptr : box.addButton(tr("Download JDK %1").arg(get.join(QStringLiteral(" + "))), QMessageBox::AcceptRole);
+    QPushButton *upgrade = nullptr;
+    if (!n.runner.isValid() && !n.gradle.isEmpty())
+        upgrade = box.addButton(tr("Upgrade Gradle…"), QMessageBox::ActionRole);
+    QPushButton *jdks = box.addButton(tr("Project JDK…"), QMessageBox::ActionRole);
+    box.addButton(tr("Not Now"), QMessageBox::RejectRole);
+    if (download)
+        box.setDefaultButton(download);
+    box.exec();
+    if (download && box.clickedButton() == download) {
+        for (int m : n.downloads)
+            downloadJdk(m, true);
+    } else if (upgrade && box.clickedButton() == upgrade) {
+        showInRightPanel(m_gradle);
+        m_gradle->upgradeWrapper();
+    } else if (box.clickedButton() == jdks) {
+        showJdkManager();
+    }
+}
+
+void MainWindow::downloadJdk(int major, bool useForProject)
+{
+    auto *installer = new JdkInstaller(this);
+    auto *dlg = new QProgressDialog(tr("Downloading Eclipse Temurin %1…").arg(major), tr("Cancel"), 0, 0, this);
+    dlg->setWindowTitle(tr("Download JDK %1").arg(major));
+    dlg->setMinimumWidth(460);
+    dlg->setMinimumDuration(0);
+    dlg->setAutoClose(false);
+    dlg->setAutoReset(false);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    connect(dlg, &QProgressDialog::canceled, installer, &JdkInstaller::cancel);
+    connect(installer, &JdkInstaller::stageChanged, dlg, &QProgressDialog::setLabelText);
+    connect(installer, &JdkInstaller::progress, dlg, [dlg](qint64 done, qint64 total) {
+        if (total > 0) {
+            dlg->setRange(0, 1000);
+            dlg->setValue(int(done * 1000 / total));
+        } else {
+            dlg->setRange(0, 0);
+        }
+    });
+    const QString root = m_projects->hasProject() ? m_projects->root() : QString();
+    connect(installer, &JdkInstaller::finished, this, [this, installer, dlg, useForProject, root](const QString &home) {
+        installer->deleteLater();
+        dlg->close();
+        const JdkScanner::Jdk j = JdkScanner::fromHome(home);
+        statusBar()->showMessage(tr("✓ JDK %1 installed in %2").arg(j.label(), QDir::toNativeSeparators(home)), 8000);
+        if (!useForProject || root.isEmpty() || !m_projects->hasProject() || !Platform::samePath(m_projects->root(), root)) {
+            updateJvmStatus();
+            return;
+        }
+        // Several downloads (toolchain + runner): the project JDK is the one the project's Gradle runs on.
+        const QList<JdkScanner::Jdk> all = JdkScanner::scan();
+        const JdkScanner::Needs n = JdkScanner::needsOf(root, all, home);
+        if (n.isGradle && !n.gradle.isEmpty() && !JvmTools::gradleRunsOn(n.gradle, j.major)) {
+            updateJvmStatus();
+            return;
+        }
+        SettingsManager::instance().setProjectJdk(home);
+        m_jdkFixOffered.remove(Platform::pathKey(root)); // a remaining problem is explained again
+        projectJdkChanged();
+    });
+    connect(installer, &JdkInstaller::failed, this, [this, installer, dlg, major](const QString &error) {
+        installer->deleteLater();
+        dlg->close();
+        if (error != tr("Cancelled") && error != JdkInstaller::tr("Cancelled"))
+            QMessageBox::warning(this, tr("Download JDK %1").arg(major), error);
+    });
+    dlg->show();
+    installer->start(major);
 }
 
 // --- status bar -----------------------------------------------------------------------------------------------------
@@ -587,25 +727,32 @@ void MainWindow::updateJvmStatus()
 
     const QString chosen = SettingsManager::instance().projectJdk();
     const QList<JdkScanner::Jdk> jdks = JdkScanner::scan();
-    bool toolchainMissing = v.toolchain > 0 && !v.autoProvision;
-    for (const JdkScanner::Jdk &j : jdks)
-        if (j.major == v.toolchain && !j.jre)
-            toolchainMissing = false;
+    const JdkScanner::Needs needs = JdkScanner::needsOf(root, jdks, chosen);
+    const bool toolchainMissing = needs.toolchainMissing;
     const JdkScanner::Jdk used = chosen.isEmpty() ? JdkScanner::defaultJdk(jdks) : JdkScanner::fromHome(chosen);
+    // The JDK of terminal builds cannot run the project's Gradle (Gradle 8.7 on JDK 25).
+    const bool gradleBlocked = needs.isGradle && !needs.gradle.isEmpty() && (!used.isValid() || !JvmTools::gradleRunsOn(needs.gradle, used.major));
     QString javaText = v.java.isEmpty() ? (used.isValid() ? QStringLiteral("JDK %1").arg(used.major) : tr("JDK")) : QStringLiteral("Java %1").arg(v.java.value);
     QStringList tip;
     if (!v.java.isEmpty())
         tip << (v.toolchain > 0 ? tr("Toolchain %1, declared in %2").arg(v.java.value, where(v.java)) : tr("Java target %1, declared in %2").arg(v.java.value, where(v.java)));
     tip << (used.isValid() ? tr("%1 JDK: %2 (%3)").arg(chosen.isEmpty() ? tr("System") : tr("Project"), used.label(), used.home) : tr("No JDK found"));
-    if (toolchainMissing) {
-        javaText = QStringLiteral("⚠ ") + javaText;
+    if (toolchainMissing)
         tip << tr("No Java %1 toolchain is installed: Gradle will fail to compile.").arg(v.toolchain);
+    if (gradleBlocked) {
+        const int min = JvmTools::gradleMinJava(needs.gradle), max = JvmTools::gradleMaxJava(needs.gradle);
+        tip << tr("Gradle %1 runs on %2, not on this JDK: builds fail.").arg(needs.gradle, max > 0 ? tr("Java %1 to %2").arg(min).arg(max) : tr("Java %1 and newer").arg(min));
+        if (!needs.runner.isValid())
+            tip << tr("No installed JDK runs it, so the Kotlin / Java servers cannot read the project either.");
     }
-    tip << tr("Click to choose the project JDK.");
+    const bool warn = toolchainMissing || gradleBlocked;
+    if (warn)
+        javaText = QStringLiteral("⚠ ") + javaText;
+    tip << (warn ? tr("Click to choose or download a JDK.") : tr("Click to choose the project JDK."));
     m_javaBtn->setText(javaText);
     m_javaBtn->setToolTip(tip.join(QLatin1Char('\n')));
-    m_javaBtn->setStyleSheet(toolchainMissing ? QStringLiteral("QToolButton { padding: 1px 5px; color: %1; }").arg(t.warning.name())
-                                              : QStringLiteral("QToolButton { padding: 1px 5px; }"));
+    m_javaBtn->setStyleSheet(warn ? QStringLiteral("QToolButton { padding: 1px 5px; color: %1; }").arg(t.warning.name())
+                                  : QStringLiteral("QToolButton { padding: 1px 5px; }"));
 
     m_buildToolBtn->setVisible(!v.build.isEmpty());
     m_buildToolBtn->setText(QStringLiteral("%1 %2").arg(v.maven ? QStringLiteral("Maven") : QStringLiteral("Gradle"), v.build.value));

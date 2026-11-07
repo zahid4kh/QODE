@@ -8,6 +8,7 @@
 #include "LspServers.h"
 #include "LspSync.h"
 #include "editor/Document.h"
+#include "jvm/JdkScanner.h"
 #include "project/PythonEnv.h"
 #include "project/QmakeProject.h"
 #include "settings/SettingsManager.h"
@@ -120,11 +121,15 @@ QJsonValue configurationFor(const QString &serverId, const QJsonObject &item, co
 
 // jdtls settings: .project / .classpath / .settings stay out of the user's project (they go to the workspace folder in
 // the cache; the JVM property in LspServers::jdtlsCommand is the other half of that), and a changed pom.xml / build.gradle
-// is reloaded without a prompt.
-QJsonObject javaSettings()
+// is reloaded without a prompt. `gradleJdk`: the JDK its Gradle import runs on (one the project's Gradle supports; jdtls
+// would otherwise run Gradle on its own Java, which may be too new for an older Gradle).
+QJsonObject javaSettings(const QString &gradleJdk)
 {
+    QJsonObject import{{QStringLiteral("generatesMetadataFilesAtProjectRoot"), false}};
+    if (!gradleJdk.isEmpty())
+        import.insert(QStringLiteral("gradle"), QJsonObject{{QStringLiteral("java"), QJsonObject{{QStringLiteral("home"), gradleJdk}}}});
     return {{QStringLiteral("java"),
-             QJsonObject{{QStringLiteral("import"), QJsonObject{{QStringLiteral("generatesMetadataFilesAtProjectRoot"), false}}},
+             QJsonObject{{QStringLiteral("import"), import},
                          {QStringLiteral("configuration"), QJsonObject{{QStringLiteral("updateBuildConfiguration"), QStringLiteral("automatic")}}},
                          // "N references" / "N implementations" over types and methods (code lenses; off in jdtls by default).
                          // Older servers read implementationsCodeLens.enabled, newer ones implementationCodeLens.
@@ -324,6 +329,17 @@ void LspManager::startServer(Server &s, const QString &rootPath)
         if (!dir.isEmpty())
             args << QStringLiteral("--compile-commands-dir=") + dir;
     }
+    // Java / Kotlin in a Gradle project: the servers import the build by running Gradle, which only starts on a Java it
+    // supports (Gradle 8.7 not on 25). Give them a JDK the project's Gradle runs on: the project JDK, the system one or
+    // another installed one. When there is none, or the build's toolchain is missing, the import fails: say so.
+    bool jdkMissing = false;
+    s.gradleJdk.clear();
+    if (s.spec->id == QLatin1String("java") || s.spec->id == QLatin1String("kotlin")) {
+        const JdkScanner::Needs n = JdkScanner::needsOf(rootPath, JdkScanner::scan(), SettingsManager::instance().projectJdk());
+        if (n.isGradle && n.runner.isValid())
+            s.gradleJdk = QDir::toNativeSeparators(n.runner.home);
+        jdkMissing = !n.ok();
+    }
     QString program = exe;
     if (s.spec->id == QLatin1String("java")) {
         // jdtls: java -jar <launcher> ...; its configuration and workspace data live in the cache, one per project.
@@ -337,7 +353,7 @@ void LspManager::startServer(Server &s, const QString &rootPath)
         }
         // Report progress and serve class files that have no source (java/classFileContents); the settings are also
         // sent as didChangeConfiguration once the server is ready (see onServerReady), which is when jdtls reads them.
-        options.insert(QStringLiteral("settings"), javaSettings());
+        options.insert(QStringLiteral("settings"), javaSettings(s.gradleJdk));
         options.insert(QStringLiteral("extendedClientCapabilities"),
                        QJsonObject{{QStringLiteral("progressReportProvider"), true}, {QStringLiteral("classFileContentsSupport"), true}});
     }
@@ -350,6 +366,16 @@ void LspManager::startServer(Server &s, const QString &rootPath)
     }
     if (!nodeDir.isEmpty())
         s.client->prependToPath(nodeDir);
+    // The Kotlin server reads the JDK for Gradle from a system property; JAVA_TOOL_OPTIONS reaches its JVM through the
+    // native launcher (the value is quoted: a path may hold spaces).
+    if (s.spec->id == QLatin1String("kotlin") && !s.gradleJdk.isEmpty()) {
+        const QString old = qEnvironmentVariable("JAVA_TOOL_OPTIONS").trimmed();
+        s.client->setEnvironmentValue(QStringLiteral("JAVA_TOOL_OPTIONS"),
+                                      (old.isEmpty() ? QString() : old + QLatin1Char(' ')) +
+                                          QStringLiteral("\"-Dcom.jetbrains.ls.imports.gradle.java.home=%1\"").arg(s.gradleJdk));
+    }
+    if (jdkMissing)
+        emit gradleJdkMissing(s.spec->displayName);
     s.client->setApplyEditHandler([this](const QJsonObject &edit) { return handleApplyEdit(edit); });
     const QString id = s.spec->id;
     connect(s.client, &LspClient::ready, this, [this, id] { onServerReady(id); });
@@ -368,7 +394,7 @@ void LspManager::onServerReady(const QString &id)
         detail += QLatin1Char(' ') + s.client->serverVersion();
     setStatus(s, Status::Running, detail);
     if (s.spec->id == QLatin1String("java"))
-        s.client->notify(QStringLiteral("workspace/didChangeConfiguration"), QJsonObject{{QStringLiteral("settings"), javaSettings()}});
+        s.client->notify(QStringLiteral("workspace/didChangeConfiguration"), QJsonObject{{QStringLiteral("settings"), javaSettings(s.gradleJdk)}});
     if (s.spec->id == QLatin1String("json") && !m_jsonSchemas.isEmpty())
         sendJsonSchemas(s);
     for (auto it = m_tracked.begin(); it != m_tracked.end(); ++it)

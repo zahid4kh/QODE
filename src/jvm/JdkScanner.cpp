@@ -1,4 +1,5 @@
 #include "jvm/JdkScanner.h"
+#include "jvm/JvmTools.h"
 #include "platform/Platform.h"
 
 #include <QDir>
@@ -146,6 +147,59 @@ Jdk defaultJdk(const QList<Jdk> &all)
             if (!want.isEmpty() && Platform::samePath(j.home, want))
                 return j;
     return {};
+}
+
+Jdk forGradle(const QList<Jdk> &all, const QString &gradleVersion, const QString &chosenHome)
+{
+    const Jdk chosen = chosenHome.isEmpty() ? Jdk() : fromHome(chosenHome);
+    const Jdk system = defaultJdk(all);
+    for (const Jdk &j : {chosen, system})
+        if (j.isValid() && JvmTools::gradleRunsOn(gradleVersion, j.major))
+            return j;
+    if (gradleVersion.isEmpty())
+        return {};
+    // `all` is sorted newest first: the newest JDK (not a JRE) this Gradle runs on.
+    for (const Jdk &j : all)
+        if (!j.jre && JvmTools::gradleRunsOn(gradleVersion, j.major))
+            return j;
+    for (const Jdk &j : all)
+        if (JvmTools::gradleRunsOn(gradleVersion, j.major))
+            return j;
+    return {};
+}
+
+Needs needsOf(const QString &root, const QList<Jdk> &all, const QString &chosenHome)
+{
+    Needs n;
+    if (!JvmTools::isJvmBuild(root))
+        return n;
+    const JvmTools::Versions v = JvmTools::detectVersions(root);
+    if (v.maven)
+        return n;
+    n.isGradle = true;
+    n.gradle = JvmTools::wrapperVersion(root).value;
+    n.runner = forGradle(all, n.gradle, chosenHome);
+    n.toolchain = v.toolchain;
+    if (n.toolchain > 0 && !v.autoProvision) {
+        n.toolchainMissing = true;
+        for (const Jdk &j : all)
+            if (j.major == n.toolchain && !j.jre)
+                n.toolchainMissing = false;
+        // Gradle also takes the JVM it runs on as a toolchain.
+        if (n.runner.isValid() && n.runner.major == n.toolchain)
+            n.toolchainMissing = false;
+    }
+    if (n.toolchainMissing)
+        n.downloads << n.toolchain;
+    if (!n.runner.isValid() && !(n.toolchainMissing && JvmTools::gradleRunsOn(n.gradle, n.toolchain))) {
+        // The newest long-term-support release this Gradle runs on.
+        for (int lts : {25, 21, 17, 11, 8})
+            if (JvmTools::gradleRunsOn(n.gradle, lts)) {
+                n.downloads << lts;
+                break;
+            }
+    }
+    return n;
 }
 
 } // namespace JdkScanner

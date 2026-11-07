@@ -31,10 +31,14 @@ public:
     GradleBuildView *buildView() const { return m_buildView; }
     void showBuild(); // the Build tab
     void updateWrapper(); // the wrapper row: version, Upgrade, a gradlew without its exec bit
+    // Upgrade…: asks services.gradle.org for the current release, points gradle-wrapper.properties at it (so this works
+    // when the old Gradle cannot start on the installed JDK), then runs `gradlew wrapper` to refresh the scripts and jar.
+    void upgradeWrapper();
 
 signals:
     void runRequested(const QString &command, const QString &workDir);
     void closeRequested();
+    void wrapperChanged(); // gradle-wrapper.properties names another Gradle (Upgrade…)
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -48,7 +52,6 @@ private:
     void showContextMenu(const QPoint &pos);
     void updateDetail();
     qint64 buildStamp() const;
-    void upgradeWrapper();
 
     QTabBar *m_tabs;
     QStackedWidget *m_pages; // tasks | build

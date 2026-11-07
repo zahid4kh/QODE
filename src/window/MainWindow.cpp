@@ -534,6 +534,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_lsp, &LspManager::buildSyncFinished, this, [this](const QString &server) {
         statusBar()->showMessage(tr("✓ Build files synced (%1)").arg(server), 6000);
     });
+    connect(m_lsp, &LspManager::gradleJdkMissing, this, &MainWindow::offerJdkFix, Qt::QueuedConnection);
     connect(m_editors, &EditorManager::documentPathChanged, m_lsp, &LspManager::documentPathChanged);
     connect(m_lsp, &LspManager::statusChanged, this, &MainWindow::updateLspStatus);
     connect(m_editors, &EditorManager::currentChanged, this, &MainWindow::updateLspStatus); // the button follows the file's server

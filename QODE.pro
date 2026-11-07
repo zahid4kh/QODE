@@ -190,6 +190,7 @@ SOURCES += \
     src/jvm/JvmReference.cpp \
     src/jvm/KotlinAnnotations.cpp \
     src/jvm/JdkScanner.cpp \
+    src/jvm/JdkInstaller.cpp \
     src/jvm/JdkDialog.cpp \
     src/jvm/MavenCentral.cpp \
     src/jvm/DependencyEdit.cpp \
@@ -428,6 +429,7 @@ HEADERS += \
     src/jvm/JvmReference.h \
     src/jvm/KotlinAnnotations.h \
     src/jvm/JdkScanner.h \
+    src/jvm/JdkInstaller.h \
     src/jvm/JdkDialog.h \
     src/jvm/MavenCentral.h \
     src/jvm/DependencyEdit.h \

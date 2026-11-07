@@ -4,7 +4,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QObject>
 #include <QRegularExpression>
+#include <QSaveFile>
 #include <QStandardPaths>
 
 #include <algorithm>
@@ -583,6 +585,113 @@ Found wrapperVersion(const QString &dir)
 bool wrapperNeedsExecBit(const QString &dir)
 {
     return Platform::wrapperNeedsExecBit(dir, QStringLiteral("gradlew"));
+}
+
+bool setWrapperVersion(const QString &dir, const QString &version, QString *error)
+{
+    const QString p = wrapperProperties(dir);
+    QFile in(p);
+    if (p.isEmpty() || !in.open(QIODevice::ReadOnly)) {
+        if (error)
+            *error = QObject::tr("%1 was not found.").arg(QStringLiteral("gradle/wrapper/gradle-wrapper.properties"));
+        return false;
+    }
+    const QString text = QString::fromUtf8(in.readAll());
+    in.close();
+    static const QRegularExpression url(QStringLiteral(R"re(gradle-[\d][\w.-]*?-(bin|all)\.zip)re"));
+    const QRegularExpressionMatch m = url.match(text);
+    if (!m.hasMatch()) {
+        if (error)
+            *error = QObject::tr("gradle-wrapper.properties has no distributionUrl naming a Gradle release.");
+        return false;
+    }
+    QString out = text;
+    out.replace(m.capturedStart(), m.capturedLength(), QStringLiteral("gradle-%1-%2.zip").arg(version, m.captured(1)));
+    // The checksum belongs to the old release; `gradlew wrapper` writes no new one unless asked.
+    static const QRegularExpression sha(QStringLiteral(R"re(^distributionSha256Sum=.*(\r?\n)?)re"), QRegularExpression::MultilineOption);
+    out.remove(sha);
+    QSaveFile f(p);
+    if (!f.open(QIODevice::WriteOnly) || f.write(out.toUtf8()) < 0 || !f.commit()) {
+        if (error)
+            *error = QObject::tr("Could not write %1: %2").arg(QDir::toNativeSeparators(p), f.errorString());
+        return false;
+    }
+    return true;
+}
+
+// --- Gradle and Java ----------------------------------------------------------------------------------------------------
+
+namespace {
+// Java version -> the first Gradle release that runs on it (the "Support for running Gradle" column).
+struct JavaRow {
+    int java;
+    const char *gradle;
+};
+constexpr JavaRow kRunsOn[] = {{8, "2.0"},  {9, "4.3"},  {10, "4.7"}, {11, "5.0"}, {12, "5.4"},   {13, "6.0"},   {14, "6.3"},
+                               {15, "6.7"}, {16, "7.0"}, {17, "7.3"}, {18, "7.5"}, {19, "7.6"},   {20, "8.3"},   {21, "8.5"},
+                               {22, "8.8"}, {23, "8.10"}, {24, "8.14"}, {25, "9.1.0"}, {26, "9.4.0"}, {27, "9.8.0"}};
+const char *kNewestKnownGradle = "9.9"; // the release the table above comes from
+
+QList<int> versionParts(const QString &v)
+{
+    QList<int> out;
+    for (const QString &p : v.section(QLatin1Char('-'), 0, 0).split(QLatin1Char('.'))) {
+        int i = 0;
+        while (i < p.size() && p.at(i).isDigit())
+            ++i;
+        out << p.left(i).toInt();
+    }
+    while (out.size() > 1 && out.last() == 0)
+        out.removeLast();
+    return out;
+}
+} // namespace
+
+int compareVersions(const QString &a, const QString &b)
+{
+    const QList<int> x = versionParts(a), y = versionParts(b);
+    for (int i = 0; i < qMax(x.size(), y.size()); ++i) {
+        const int l = x.value(i), r = y.value(i);
+        if (l != r)
+            return l < r ? -1 : 1;
+    }
+    return 0;
+}
+
+int gradleMinJava(const QString &gradle)
+{
+    return compareVersions(gradle, QStringLiteral("9")) >= 0 ? 17 : 8;
+}
+
+int gradleMaxJava(const QString &gradle)
+{
+    if (gradle.isEmpty() || compareVersions(gradle, QLatin1String(kNewestKnownGradle)) > 0)
+        return 0;
+    int max = 0;
+    for (const JavaRow &r : kRunsOn)
+        if (compareVersions(gradle, QLatin1String(r.gradle)) >= 0)
+            max = r.java;
+    return max;
+}
+
+bool gradleRunsOn(const QString &gradle, int java)
+{
+    if (java <= 0)
+        return false;
+    if (gradle.isEmpty())
+        return true; // a system `gradle` of unknown version: nothing to check against
+    if (java < gradleMinJava(gradle))
+        return false;
+    const int max = gradleMaxJava(gradle);
+    return max == 0 || java <= max;
+}
+
+QString gradleForJava(int java)
+{
+    for (const JavaRow &r : kRunsOn)
+        if (r.java == java)
+            return QLatin1String(r.gradle);
+    return {};
 }
 
 } // namespace JvmTools

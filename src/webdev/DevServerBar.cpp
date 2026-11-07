@@ -1,4 +1,5 @@
 #include "DevServerBar.h"
+#include "filesystem/WatchGuard.h"
 
 #include "DevServer.h"
 #include "EnvDialog.h"
@@ -26,6 +27,7 @@ DevServerBar::DevServerBar(QWidget *parent)
     connect(m_redetect, &QTimer::timeout, this, &DevServerBar::redetect);
     connect(m_watcher, &QFileSystemWatcher::directoryChanged, m_redetect, qOverload<>(&QTimer::start));
     connect(m_watcher, &QFileSystemWatcher::fileChanged, m_redetect, qOverload<>(&QTimer::start));
+    WatchGuard::registerWatcher(m_watcher, [this] { m_redetect->start(); }); // Windows: let go while a folder is renamed
     auto *l = new QHBoxLayout(this);
     l->setContentsMargins(4, 0, 4, 0);
     l->setSpacing(2);

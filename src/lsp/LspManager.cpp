@@ -1,4 +1,5 @@
 #include "LspManager.h"
+#include "filesystem/WatchGuard.h"
 #include "platform/AppPaths.h"
 #include "platform/Platform.h"
 
@@ -609,6 +610,7 @@ QString LspManager::preparePatchedDatabase(const QString &root)
         m_dbTimer->setInterval(500);
         connect(m_dbTimer, &QTimer::timeout, this, &LspManager::rewritePatchedDatabase);
         connect(m_dbWatcher, &QFileSystemWatcher::fileChanged, this, [this] { m_dbTimer->start(); });
+        WatchGuard::registerWatcher(m_dbWatcher, [this] { m_dbTimer->start(); }); // re-adds the watch
     }
     rewritePatchedDatabase();
     if (!QFileInfo::exists(m_patchTarget))

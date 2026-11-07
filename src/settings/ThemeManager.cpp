@@ -1,4 +1,5 @@
 #include "ThemeManager.h"
+#include "filesystem/WatchGuard.h"
 
 #include "SettingsManager.h"
 
@@ -31,6 +32,7 @@ ThemeManager::ThemeManager()
     });
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, &m_debounce, qOverload<>(&QTimer::start));
     connect(&m_watcher, &QFileSystemWatcher::fileChanged, &m_debounce, qOverload<>(&QTimer::start));
+    WatchGuard::registerWatcher(&m_watcher, [this] { m_debounce.start(); });
     reload();
 }
 

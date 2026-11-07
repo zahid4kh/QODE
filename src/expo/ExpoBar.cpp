@@ -1,4 +1,5 @@
 #include "ExpoBar.h"
+#include "filesystem/WatchGuard.h"
 #include "platform/Platform.h"
 
 #include "ExpoWebServer.h"
@@ -37,6 +38,7 @@ ExpoBar::ExpoBar(QWidget *parent)
     connect(m_redetect, &QTimer::timeout, this, &ExpoBar::redetect);
     connect(m_watcher, &QFileSystemWatcher::directoryChanged, m_redetect, qOverload<>(&QTimer::start));
     connect(m_watcher, &QFileSystemWatcher::fileChanged, m_redetect, qOverload<>(&QTimer::start));
+    WatchGuard::registerWatcher(m_watcher, [this] { m_redetect->start(); }); // Windows: let go while a folder is renamed
 
     auto *l = new QHBoxLayout(this);
     l->setContentsMargins(4, 0, 4, 0);

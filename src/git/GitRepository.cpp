@@ -1,4 +1,5 @@
 #include "GitRepository.h"
+#include "filesystem/WatchGuard.h"
 #include "platform/Platform.h"
 
 #include <QDir>
@@ -47,6 +48,10 @@ GitRepository::GitRepository(QObject *parent)
     m_watcher = new QFileSystemWatcher(this);
     connect(m_watcher, &QFileSystemWatcher::fileChanged, this, &GitRepository::onGitPathChanged);
     connect(m_watcher, &QFileSystemWatcher::directoryChanged, this, &GitRepository::onGitPathChanged);
+    WatchGuard::registerWatcher(m_watcher, [this] {
+        if (!m_gitDir.isEmpty())
+            watchGitDir();
+    });
 }
 
 // --- Process plumbing ---------------------------------------------------------

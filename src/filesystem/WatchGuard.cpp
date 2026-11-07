@@ -2,9 +2,12 @@
 #include "platform/Platform.h"
 
 #include <QFileInfo>
+#include <QFileSystemWatcher>
 #include <QList>
 #include <QObject>
 #include <QPointer>
+
+#include <memory>
 
 namespace {
 
@@ -33,6 +36,29 @@ namespace WatchGuard {
 void registerOwner(QObject *owner, std::function<void(const QString &)> release, std::function<void()> restore)
 {
     owners().append({owner, std::move(release), std::move(restore)});
+}
+
+void registerWatcher(QFileSystemWatcher *watcher, std::function<void()> rearm)
+{
+    auto released = std::make_shared<bool>(false);
+    registerOwner(
+        watcher,
+        [watcher, released](const QString &folder) {
+            QStringList drop;
+            for (const QString &p : watcher->files() + watcher->directories())
+                if (Platform::samePath(p, folder) || Platform::isUnder(p, folder))
+                    drop << p;
+            if (!drop.isEmpty()) {
+                watcher->removePaths(drop);
+                *released = true;
+            }
+        },
+        [released, rearm = std::move(rearm)] {
+            if (!*released)
+                return;
+            *released = false;
+            rearm();
+        });
 }
 
 Scope::Scope(const QString &path)

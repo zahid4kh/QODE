@@ -36,6 +36,9 @@ QString userKey();
 // when it could not. Windows: always false for now (creating symlinks needs Developer Mode or admin rights; the
 // installers that use it get a Windows layout in Phase 5 of the port).
 bool replaceSymlink(const QString &target, const QString &link);
+// Whether QODE makes symbolic links (copying a link in the explorer). Unix: true. Windows: false (QFile::link writes a
+// .lnk shortcut, and a real link needs Developer Mode or admin rights).
+bool canMakeSymlinks();
 
 // Paths. Inside QODE a path has Qt's form ('/', and a drive letter on Windows). Windows file names ignore case, so two
 // paths that differ only in case are the same file there.

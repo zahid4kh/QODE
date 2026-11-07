@@ -117,6 +117,11 @@ QString Platform::invalidFileName(const QString &)
     return {};
 }
 
+bool Platform::canMakeSymlinks()
+{
+    return true;
+}
+
 bool Platform::watchesBlockRenames()
 {
     return false;

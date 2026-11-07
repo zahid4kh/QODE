@@ -121,8 +121,18 @@ QString uniquePath(const QString &dir, const QString &name)
 static bool copyTree(const QString &from, const QString &to, QString *error)
 {
     const QFileInfo fi(from);
+    // A link is copied as a link. Windows has no link QODE can make (QFile::link writes a .lnk shortcut there): a link
+    // to a file is copied as the file's content instead.
+    if (fi.isSymLink() && !Platform::canMakeSymlinks() && !fi.isDir()) {
+        if (!QFile::copy(fi.absoluteFilePath(), to)) {
+            if (error)
+                *error = QStringLiteral("Could not copy \"%1\".").arg(fi.fileName());
+            return false;
+        }
+        return true;
+    }
     if (fi.isSymLink()) {
-        if (!QFile::link(fi.symLinkTarget(), to)) {
+        if (!Platform::canMakeSymlinks() || !QFile::link(fi.symLinkTarget(), to)) {
             if (error)
                 *error = QStringLiteral("Could not copy \"%1\".").arg(fi.fileName());
             return false;

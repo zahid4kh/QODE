@@ -3,6 +3,7 @@
 #include "dialogs/FileDialogs.h"
 #include "filesystem/FileManager.h"
 #include "lsp/LspServers.h"
+#include "platform/AppPaths.h"
 #include "platform/Platform.h"
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
@@ -178,10 +179,11 @@ void NewProjectDialog::applyStyle()
     frame.setRed((t.border.red() + t.textMuted.red()) / 2);
     frame.setGreen((t.border.green() + t.textMuted.green()) / 2);
     frame.setBlue((t.border.blue() + t.textMuted.blue()) / 2);
-    // A stylesheet-drawn combo box loses its arrow: give it a recoloured chevron (the stylesheet needs a file).
-    const QString arrow = QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation))
-                              .filePath(QStringLiteral("qode-chevron-%1.png").arg(t.textMuted.name().mid(1)));
-    if (!QFileInfo::exists(arrow))
+    // A stylesheet-drawn combo box loses its arrow: give it a recoloured chevron (the stylesheet needs a file). It
+    // goes in QODE's cache, not the temp folder, where it would be left behind for good.
+    const QString uiCache = AppPaths::cache(QStringLiteral("ui"));
+    const QString arrow = uiCache + QStringLiteral("/chevron-%1.png").arg(t.textMuted.name().mid(1));
+    if (!QFileInfo::exists(arrow) && QDir().mkpath(uiCache))
         Icons::pixmap(QStringLiteral(":/new-icons/chevron-down.svg"), t.textMuted, 12, 2.0).save(arrow);
     setStyleSheet(QStringLiteral(
                       "NewProjectDialog { background: %1; border: 2px solid %2; }"
@@ -195,7 +197,7 @@ void NewProjectDialog::applyStyle()
                       "QLineEdit, QComboBox { background: %10; border: 1px solid %5; border-radius: 6px; padding: 5px 9px; color: %3; }"
                       "QLineEdit:focus, QComboBox:focus { border-color: %7; }"
                       "QComboBox::drop-down { border: 0; width: 26px; }"
-                      "QComboBox::down-arrow { image: url(%11); width: 12px; height: 12px; }"
+                      "QComboBox::down-arrow { image: url(\"%11\"); width: 12px; height: 12px; }" // quoted: spaces in user names
                       "QComboBox QAbstractItemView { background: %10; border: 1px solid %5; color: %3; selection-background-color: %7; selection-color: %8; outline: 0; }"
                       "QPushButton { background: %4; color: %3; border: 1px solid %5; border-radius: 6px; padding: 6px 14px; }"
                       "QPushButton:hover { background: %6; }"

@@ -243,6 +243,10 @@ struct Shell {
 };
 QList<Shell> terminalShells();
 
+// A path a shell or a model wrote, in Qt's form. Unix: unchanged. Windows: '\' becomes '/', and the drive forms of
+// Git Bash, Cygwin and WSL (/c/Users/x, /cygdrive/c/x, /mnt/c/x) become C:/Users/x when that drive exists.
+QString fromShellPath(const QString &path);
+
 // Starts QODE again once this process has ended; call it after the window closed (the project claim goes with the
 // process). Unix: a shell that waits a second, then execs QODE. Windows: a helper that waits for this process to exit.
 void restartSelf();

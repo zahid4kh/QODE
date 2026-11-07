@@ -196,9 +196,7 @@ bool resolveInside(const QString &root, const QString &relative, QString *absolu
         return false;
     const QString clean = QDir::cleanPath(QDir(root).filePath(relative));
     const QString base = QDir::cleanPath(root);
-    if (clean != base && !Platform::isUnder(clean, base))
-        return false;
-    if (clean == base)
+    if (!Platform::isUnder(clean, base)) // also false for the root itself (in any case, on Windows)
         return false;
     if (absolute)
         *absolute = clean;
@@ -208,9 +206,18 @@ bool resolveInside(const QString &root, const QString &relative, QString *absolu
 bool resolveFileLink(const QString &root, const QUrl &url, QString *absolute, int *line)
 {
     const QString scheme = url.scheme();
-    if (!scheme.isEmpty() && scheme != QLatin1String("qode-open") && scheme != QLatin1String("file"))
+    // A Windows path (C:/x/a.kt) reads as the URL scheme "c".
+    const bool drive = scheme.size() == 1 && Platform::osTag() == QLatin1String("win");
+    if (!scheme.isEmpty() && !drive && scheme != QLatin1String("qode-open") && scheme != QLatin1String("file"))
         return false;
-    QString path = url.path(QUrl::FullyDecoded);
+    // file:///C:/x has the path "/C:/x" (uriToPath gives C:/x); a link may use '\' on Windows.
+    QString path;
+    if (scheme == QLatin1String("file"))
+        path = Platform::uriToPath(url.toString(QUrl::RemoveQuery | QUrl::RemoveFragment));
+    else if (drive)
+        path = Platform::fromShellPath(QUrl::fromPercentEncoding(url.toString(QUrl::RemoveQuery | QUrl::RemoveFragment).toUtf8()));
+    else
+        path = Platform::fromShellPath(url.path(QUrl::FullyDecoded));
     int at = 0;
     static const QRegularExpression fragmentLine(QStringLiteral("^L(\\d+)"));
     if (const auto m = fragmentLine.match(url.fragment()); m.hasMatch())

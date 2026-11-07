@@ -1032,6 +1032,20 @@ QList<Platform::Shell> Platform::terminalShells()
     return out;
 }
 
+QString Platform::fromShellPath(const QString &path)
+{
+    QString p = path;
+    p.replace(QLatin1Char('\\'), QLatin1Char('/'));
+    static const QRegularExpression drive(QStringLiteral("^/(?:cygdrive/|mnt/)?([a-zA-Z])(?=/|$)"));
+    const QRegularExpressionMatch m = drive.match(p);
+    if (m.hasMatch()) {
+        const QString root = m.captured(1).toUpper() + QStringLiteral(":/");
+        if (QFileInfo(root).exists())
+            p = root + p.mid(m.capturedEnd() + 1);
+    }
+    return p;
+}
+
 QString Platform::processCwd(qint64)
 {
     return {};

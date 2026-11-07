@@ -328,7 +328,7 @@ QString AgentTools::extraCall(const ExtraTool &tool, const QJsonObject &args)
 
 bool AgentTools::resolve(const QString &input, QString *absolute, QString *error, bool forWrite) const
 {
-    QString p = input.trimmed();
+    QString p = Platform::fromShellPath(input.trimmed()); // Windows: src\a.kt, /c/Users/… (Git Bash)
     if (p.isEmpty())
         p = QStringLiteral(".");
     if (p.startsWith(QLatin1Char('~'))) {
@@ -351,7 +351,7 @@ bool AgentTools::resolve(const QString &input, QString *absolute, QString *error
     const QString canon = info.canonicalFilePath().isEmpty() ? info.absoluteFilePath() : info.canonicalFilePath();
     const QString real = QDir::cleanPath(canon + tail);
     const QString base = canonRoot.isEmpty() ? m_root : canonRoot;
-    if (real != base && !Platform::isUnder(real, base)) {
+    if (!Platform::samePath(real, base) && !Platform::isUnder(real, base)) {
         *error = QStringLiteral("'%1' is outside the project").arg(input);
         return false;
     }
@@ -367,7 +367,7 @@ bool AgentTools::resolve(const QString &input, QString *absolute, QString *error
             return false;
         }
         for (const QString &part : inside.split(QLatin1Char('/'), Qt::SkipEmptyParts))
-            if (part == QLatin1String(".git")) {
+            if (Platform::samePath(part, QStringLiteral(".git"))) { // .GIT is the same folder on Windows
                 *error = QStringLiteral("the .git folder is off limits");
                 return false;
             }
@@ -1724,10 +1724,10 @@ void AgentTools::registerAll()
          [](const QJsonObject &a) { return QStringLiteral("Delete %1").arg(str(a, "path")); },
          [this](const QJsonObject &a) {
              QString abs, err;
-             return QStringLiteral("Move to the trash:\n\n%1").arg(resolve(str(a, "path"), &abs, &err) ? abs : str(a, "path"));
+             return QStringLiteral("Move to the trash:\n\n%1").arg(resolve(str(a, "path"), &abs, &err) ? QDir::toNativeSeparators(abs) : str(a, "path"));
          }});
 
-    add({"run_command", "Run a shell command (bash -c) for builds, tests and linters; returns exit code, stdout and stderr (last 8 KB each). Your edits are saved first; the user approves every command. No input; sudo and destructive system commands are blocked.",
+    add({"run_command", runCommandDescription(m_shell),
          makeSchema({{"command", "string", "The command line."}, {"cwd", "string", "Working folder, relative to the project root. Default: the root.", false},
                      {"timeout_seconds", "integer", "Kill after this many seconds. Default 60, max 900.", false}}),
          Risk::Dangerous, [this](const QJsonObject &a) { return runCommand(a); },

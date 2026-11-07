@@ -246,12 +246,13 @@ void revealInFileManager(const QString &path)
 
 QString displayPath(const QString &path)
 {
+    // Windows shows its own separators (C:\x, ~\x); on Unix toNativeSeparators changes nothing.
     const QString home = QDir::homePath();
-    if (path == home)
+    if (Platform::samePath(path, home))
         return QStringLiteral("~");
-    if (path.startsWith(home + QLatin1Char('/')))
-        return QStringLiteral("~") + path.mid(home.size());
-    return path;
+    if (Platform::isUnder(path, home))
+        return QDir::toNativeSeparators(QStringLiteral("~") + path.mid(home.size()));
+    return QDir::toNativeSeparators(path);
 }
 
 } // namespace FileManager

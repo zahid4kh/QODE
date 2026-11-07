@@ -13,7 +13,9 @@
 // - PowerShell (5.1 and 7): quoting, `a; if ($?) { b }` for &&, $env: for VAR=, Push-Location for the subshell. What a
 //   subshell or VAR= changed is restored in a finally block, which leaves $? true: the line then puts its real result
 //   in $__qodeOk, which the shell integration reads (ShellIntegration.cpp).
-// - cmd: "quoting", & for ;, and a child cmd for the subshell and VAR= (cmd cannot restore them itself).
+// - cmd: "quoting", & for ;, a program path with '/' gets '\' (cmd reads ./x as the command '.'), and a child cmd for
+//   the subshell and VAR= (cmd cannot restore them itself).
+// - PowerShell and cmd: `mkdir -p a b` becomes New-Item -Force / `(if not exist "a\" md "a")`.
 // A line outside that subset ($VAR, `…`, globs, redirections) is passed on unchanged.
 namespace ShellSyntax {
 

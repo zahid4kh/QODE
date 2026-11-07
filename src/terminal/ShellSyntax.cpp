@@ -368,9 +368,26 @@ private:
             return ps ? QStringLiteral("Set-Location -LiteralPath ") + psQuote(w.at(1).value, true)
                       : QStringLiteral("cd /d ") + cmdQuote(QDir::toNativeSeparators(w.at(1).value));
         }
+        if (w.first().value == QLatin1String("mkdir") && !w.first().quoted && w.size() >= 3 && w.at(1).value == QLatin1String("-p")) {
+            QStringList dirs;
+            for (int i = 2; i < w.size(); ++i) {
+                if (ps) {
+                    dirs << psQuote(w.at(i).value, true);
+                } else {
+                    const QString d = QDir::toNativeSeparators(w.at(i).value);
+                    dirs << QStringLiteral("(if not exist \"%1\\\" md \"%1\")").arg(d);
+                }
+            }
+            // An existing folder is no error, as with -p.
+            return ps ? QStringLiteral("$null = New-Item -ItemType Directory -Force -Path ") + dirs.join(QLatin1Char(','))
+                      : dirs.join(QStringLiteral(" && "));
+        }
         QString out;
         for (int i = 0; i < w.size(); ++i) {
-            const QString q = ps ? psQuote(w.at(i).value) : cmdQuote(w.at(i).value);
+            QString word = w.at(i).value;
+            if (i == 0 && !ps && word.contains(QLatin1Char('/')))
+                word = QDir::toNativeSeparators(word); // cmd: ./gradlew is the command '.' with a switch
+            const QString q = ps ? psQuote(word) : cmdQuote(word);
             if (i == 0 && ps && q.startsWith(QLatin1Char('\'')))
                 out += QStringLiteral("& "); // a quoted program is a string to PowerShell until it is called
             else if (i > 0)

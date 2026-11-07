@@ -35,6 +35,11 @@ void initGui();
 // Windows is set to light, and a light one light title bars.
 void setDarkTheme(bool dark);
 
+// Reveal in File Manager for a file: opens its folder with the file selected; true when done. Unix: false (the caller
+// opens the folder; file managers have no common way to select a file). Windows: Explorer (SHOpenFolderAndSelectItems,
+// which reuses a window already showing that folder).
+bool selectInFileManager(const QString &file);
+
 // Text a child process wrote (pip, npm, Gradle, an installer). Unix: QString::fromLocal8Bit, as before. Windows: UTF-8
 // when the bytes are valid UTF-8, else the system's ANSI code page (Java and many console tools write in it when their
 // output is a pipe; QODE's own code page is UTF-8, so fromLocal8Bit would not do).

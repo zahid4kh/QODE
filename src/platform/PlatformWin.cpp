@@ -37,6 +37,7 @@
 #endif
 #include <windows.h>
 #include <sddl.h>
+#include <shlobj.h>
 #include <tlhelp32.h>
 #include <winioctl.h>
 
@@ -144,6 +145,18 @@ void Platform::setDarkTheme(bool dark)
         return;
     requested = int(dark);
     QGuiApplication::styleHints()->setColorScheme(dark ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
+}
+
+bool Platform::selectInFileManager(const QString &file)
+{
+    // COM is initialised on the GUI thread (Qt's OleInitialize).
+    const std::wstring native = QDir::toNativeSeparators(QFileInfo(file).absoluteFilePath()).toStdWString();
+    PIDLIST_ABSOLUTE item = ::ILCreateFromPathW(native.c_str());
+    if (!item)
+        return false;
+    const HRESULT hr = ::SHOpenFolderAndSelectItems(item, 0, nullptr, 0);
+    ::ILFree(item);
+    return SUCCEEDED(hr);
 }
 
 QString Platform::decodeOutput(const QByteArray &bytes)

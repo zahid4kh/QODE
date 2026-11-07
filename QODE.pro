@@ -526,6 +526,7 @@ unix: SOURCES += src/platform/PlatformUnix.cpp src/platform/ProcessTreeUnix.cpp
 win32: SOURCES += src/platform/PlatformWin.cpp src/platform/ProcessTreeWin.cpp src/platform/ConPtyWin.cpp
 win32: HEADERS += src/platform/ConPty.h # the terminal's pseudo console (Windows only)
 win32: LIBS += -ladvapi32 # PlatformWin: the user's SID
+win32: LIBS += -lshell32 # PlatformWin: Explorer with a file selected (SHOpenFolderAndSelectItems)
 
 RESOURCES += resources/qode.qrc
 

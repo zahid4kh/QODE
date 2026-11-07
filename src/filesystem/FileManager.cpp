@@ -240,6 +240,8 @@ QString validateName(const QString &name)
 void revealInFileManager(const QString &path)
 {
     const QFileInfo fi(path);
+    if (fi.isFile() && Platform::selectInFileManager(fi.absoluteFilePath())) // Windows: the file selected in Explorer
+        return;
     const QString dir = fi.isDir() ? fi.absoluteFilePath() : fi.absolutePath();
     QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
 }

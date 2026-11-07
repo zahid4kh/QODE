@@ -33,6 +33,11 @@ void Platform::setDarkTheme(bool)
 {
 }
 
+bool Platform::selectInFileManager(const QString &)
+{
+    return false;
+}
+
 QString Platform::decodeOutput(const QByteArray &bytes)
 {
     return QString::fromLocal8Bit(bytes);

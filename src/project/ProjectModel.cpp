@@ -70,6 +70,8 @@ bool ProjectModel::filterAcceptsRow(int sourceRow, const QModelIndex &sourcePare
         return false;
     if (!m_showHidden && name.startsWith(QLatin1Char('.')) && !name.startsWith(QLatin1String(".env")))
         return false;
+    if (!m_showHidden && Platform::hiddenByOs(fs->fileInfo(idx))) // Windows: the Hidden attribute, desktop.ini
+        return false;
     return true;
 }
 

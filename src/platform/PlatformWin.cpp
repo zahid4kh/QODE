@@ -276,6 +276,13 @@ int Platform::busyFileRetries()
     return 3;
 }
 
+bool Platform::hiddenByOs(const QFileInfo &info)
+{
+    const QString name = info.fileName();
+    return info.isHidden() || name.compare(QLatin1String("desktop.ini"), Qt::CaseInsensitive) == 0
+        || name.compare(QLatin1String("Thumbs.db"), Qt::CaseInsensitive) == 0;
+}
+
 QString Platform::legacyEncoding()
 {
     return QStringLiteral("Windows-1252");

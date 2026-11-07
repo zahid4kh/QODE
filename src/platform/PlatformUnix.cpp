@@ -122,6 +122,11 @@ int Platform::busyFileRetries()
     return 0;
 }
 
+bool Platform::hiddenByOs(const QFileInfo &)
+{
+    return false;
+}
+
 QString Platform::legacyEncoding()
 {
     return QStringLiteral("Latin-1");

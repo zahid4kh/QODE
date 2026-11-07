@@ -3,6 +3,7 @@
 #include <QString>
 #include <QStringList>
 
+class QFileInfo;
 class QProcess;
 
 // Small OS services that have one implementation per OS: PlatformUnix.cpp (Linux, later macOS) and PlatformWin.cpp.
@@ -55,6 +56,9 @@ int busyFileRetries();
 // The encoding a text file that is not UTF-8 is read in (TextEncoding). Unix: "Latin-1". Windows: "Windows-1252", the
 // ANSI code page Windows tools wrote such files in (€ “ ” – — sit at 0x80-0x9F, where Latin-1 has control codes).
 QString legacyEncoding();
+// Whether the explorer should hide this entry when hidden files are not shown, besides dot-files. Unix: never.
+// Windows: the Hidden attribute, and desktop.ini / Thumbs.db (Explorer's own files).
+bool hiddenByOs(const QFileInfo &info);
 QString pathKey(const QString &path);
 bool samePath(const QString &a, const QString &b);
 bool isUnder(const QString &path, const QString &root);

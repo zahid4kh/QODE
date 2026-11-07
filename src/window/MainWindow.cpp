@@ -1687,6 +1687,18 @@ void MainWindow::showStartupTime()
 
 // --- Window events --------------------------------------------------------------
 
+// Qt deletes our children (managers, panels, editors) after this body, in creation order, while our own connections
+// are still live: a child that emits from its destructor (LspManager::shutdown → statusChanged) would call a slot
+// here that reaches into a child already gone (EditorManager → crash on quit). Cut every child → window connection
+// first; the window is going away, nothing needs to hear from them any more.
+MainWindow::~MainWindow()
+{
+    m_dying = true;
+    const QList<QObject *> children = findChildren<QObject *>();
+    for (QObject *child : children)
+        child->disconnect(this);
+}
+
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     if (!m_editors->confirmDiscardOrSaveAll()) {

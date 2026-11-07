@@ -74,7 +74,7 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 public:
     explicit MainWindow(QWidget *parent = nullptr);
-    ~MainWindow() override { m_dying = true; }
+    ~MainWindow() override;
 
     void openInitialPaths(const QStringList &paths, bool restoreLastSession = true);
 

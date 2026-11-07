@@ -179,6 +179,8 @@ LspManager::LspManager(QObject *parent) : QObject(parent), m_changeTimer(new QTi
 
 LspManager::~LspManager()
 {
+    // Stop the servers, but tell no one: the receivers (MainWindow and what it owns) may be half destroyed already.
+    blockSignals(true);
     shutdown();
 }
 

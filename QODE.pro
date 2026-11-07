@@ -255,8 +255,12 @@ SOURCES += \
     src/editor/EditorConfig.cpp \
     src/history/LocalHistory.cpp \
     src/history/LocalHistoryDialog.cpp \
+    src/game/GameArt.cpp \
     src/game/GamePanel.cpp \
+    src/game/GamePicker.cpp \
     src/game/GameStore.cpp \
+    src/game/SnakeGame.cpp \
+    src/game/SnakeWidget.cpp \
     src/game/TeqrisGame.cpp \
     src/game/TeqrisWidget.cpp \
     src/game/Tetromino.cpp \
@@ -495,8 +499,12 @@ HEADERS += \
     src/editor/EditorConfig.h \
     src/history/LocalHistory.h \
     src/history/LocalHistoryDialog.h \
+    src/game/GameArt.h \
     src/game/GamePanel.h \
+    src/game/GamePicker.h \
     src/game/GameStore.h \
+    src/game/SnakeGame.h \
+    src/game/SnakeWidget.h \
     src/game/TeqrisGame.h \
     src/game/TeqrisWidget.h \
     src/game/Tetromino.h \

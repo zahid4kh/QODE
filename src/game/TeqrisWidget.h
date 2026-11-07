@@ -28,7 +28,7 @@ public:
     QSize sizeHint() const override;
 
 signals:
-    void closeRequested(); // the menu's CLOSE item
+    void exitRequested(); // back to the game picker: the menu's ALL GAMES item, or Escape on the menu
 
 protected:
     bool event(QEvent *event) override;

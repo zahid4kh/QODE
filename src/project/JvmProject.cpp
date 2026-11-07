@@ -188,7 +188,7 @@ struct BuildOf {
 BuildOf buildOf(const QString &root, const QString &file)
 {
     BuildOf b;
-    if (root.isEmpty() || !file.startsWith(root + QLatin1Char('/')))
+    if (root.isEmpty() || !Platform::isUnder(file, root))
         return b;
     const bool wrapper = QFileInfo::exists(root + QStringLiteral("/gradlew"));
     b.gradle = wrapper || !gradleFile(root).isEmpty() || QFileInfo::exists(root + QStringLiteral("/settings.gradle.kts"))

@@ -1,4 +1,5 @@
 #include "ClaudeCodePanel.h"
+#include "platform/Platform.h"
 
 #include "agent/AgentTools.h"
 #include "agent/AgentTurnView.h"
@@ -924,7 +925,7 @@ QString ClaudeCodePanel::editorFile() const
     if (!doc || doc->isUntitled() || m_root.isEmpty())
         return {};
     const QString p = doc->filePath();
-    return p.startsWith(m_root + QLatin1Char('/')) && !AiEnv::isSensitive(p) ? p : QString();
+    return Platform::isUnder(p, m_root) && !AiEnv::isSensitive(p) ? p : QString();
 }
 
 void ClaudeCodePanel::updateSelection()

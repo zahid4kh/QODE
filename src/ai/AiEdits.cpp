@@ -1,4 +1,5 @@
 #include "AiEdits.h"
+#include "platform/Platform.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -195,7 +196,7 @@ bool resolveInside(const QString &root, const QString &relative, QString *absolu
         return false;
     const QString clean = QDir::cleanPath(QDir(root).filePath(relative));
     const QString base = QDir::cleanPath(root);
-    if (clean != base && !clean.startsWith(base + QLatin1Char('/')))
+    if (clean != base && !Platform::isUnder(clean, base))
         return false;
     if (clean == base)
         return false;

@@ -1,6 +1,7 @@
 // Java / Kotlin editing extras: Copy Reference, New Kotlin / Java class, Kotlin scratch files, and the completions that
 // need no language server (gradle.properties & co., @file: annotations with Maven coordinates).
 #include "MainWindow.h"
+#include "platform/Platform.h"
 #include "platform/AppPaths.h"
 
 #include "dialogs/NewJvmClassDialog.h"
@@ -100,7 +101,7 @@ void MainWindow::copyReference()
     if (ref.isEmpty()) {
         // Anything else (or nothing to name): the file relative to the project, and the line.
         QString path = doc->filePath();
-        if (m_projects->hasProject() && path.startsWith(m_projects->project().root + QLatin1Char('/')))
+        if (m_projects->hasProject() && Platform::isUnder(path, m_projects->project().root))
             path = path.mid(m_projects->project().root.size() + 1);
         ref = QStringLiteral("%1:%2").arg(path).arg(c.blockNumber() + 1);
     }
@@ -228,7 +229,7 @@ void MainWindow::wireJvmEdit(Document *doc, CodeEditor *ed)
     if (const GradleProperties::File kind = GradleProperties::kindOf(path); kind != GradleProperties::File::None) {
         ed->setLocalCompletions([this, kind, path](const QString &beforeWord) {
             QString root = m_projects->hasProject() ? m_projects->project().root : QString();
-            if (root.isEmpty() || !path.startsWith(root + QLatin1Char('/')))
+            if (root.isEmpty() || !Platform::isUnder(path, root))
                 root = QFileInfo(path).absolutePath();
             if (kind == GradleProperties::File::Wrapper) // gradle/wrapper/gradle-wrapper.properties: the build folder
                 root = QDir::cleanPath(QFileInfo(path).absolutePath() + QStringLiteral("/../.."));

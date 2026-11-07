@@ -320,7 +320,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_editors, &EditorManager::currentChanged, this, &MainWindow::followPreview);
     connect(m_explorer, &ProjectExplorer::pathDeleted, this, [this](const QString &path) {
         const QString cur = m_media ? m_media->currentPath() : QString();
-        if (!cur.isEmpty() && (cur == path || cur.startsWith(path + QLatin1Char('/'))))
+        if (!cur.isEmpty() && (Platform::samePath(cur, path) || Platform::isUnder(cur, path)))
             hideMedia();
     });
     connect(m_explorer, &ProjectExplorer::pathRenamed, this, [this](const QString &from, const QString &to) {
@@ -329,7 +329,7 @@ MainWindow::MainWindow(QWidget *parent)
             return;
         if (cur == from)
             m_media->openMedia(to);
-        else if (cur.startsWith(from + QLatin1Char('/')))
+        else if (Platform::isUnder(cur, from))
             m_media->openMedia(to + cur.mid(from.size()));
     });
     connect(m_editors, &EditorManager::newProjectRequested, m_newProjectAct, &QAction::trigger);
@@ -1562,7 +1562,7 @@ void MainWindow::showQuickOpen(const QString &initialQuery)
             const QFileInfo fi(path);
             it.title = fi.fileName();
             const QString dir = fi.absolutePath();
-            if (!root.isEmpty() && (dir == root || dir.startsWith(root + QLatin1Char('/'))))
+            if (!root.isEmpty() && (Platform::samePath(dir, root) || Platform::isUnder(dir, root)))
                 it.detail = dir == root ? QString() : rootDir.relativeFilePath(dir);
             else
                 it.detail = FileManager::displayPath(dir);

@@ -1,4 +1,5 @@
 #include "ExpoBar.h"
+#include "platform/Platform.h"
 
 #include "ExpoWebServer.h"
 #include "settings/Icons.h"
@@ -107,7 +108,7 @@ const ExpoApp *ExpoBar::appForFile(const QString &path) const
 {
     const ExpoApp *best = nullptr;
     for (const ExpoApp &a : m_apps)
-        if ((path == a.dir || path.startsWith(a.dir + QLatin1Char('/'))) && (!best || a.dir.size() > best->dir.size()))
+        if ((Platform::samePath(path, a.dir) || Platform::isUnder(path, a.dir)) && (!best || a.dir.size() > best->dir.size()))
             best = &a;
     return best;
 }

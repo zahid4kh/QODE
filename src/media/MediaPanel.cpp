@@ -1,4 +1,5 @@
 #include "MediaPanel.h"
+#include "platform/Platform.h"
 
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
@@ -610,7 +611,7 @@ void MediaPanel::refreshInfo()
     if (fi.exists())
         addInfo(tr("Modified"), QLocale().toString(fi.lastModified(), QLocale::LongFormat));
     addInfo(tr("Path"), fi.absoluteFilePath(), true);
-    if (!m_root.isEmpty() && fi.absoluteFilePath().startsWith(m_root + QLatin1Char('/')))
+    if (!m_root.isEmpty() && Platform::isUnder(fi.absoluteFilePath(), m_root))
         addInfo(tr("Relative path"), QDir(m_root).relativeFilePath(fi.absoluteFilePath()), true);
     else
         addInfo(tr("Relative path"), tr("— (outside the project)"));

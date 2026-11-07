@@ -534,7 +534,7 @@ QString GitRepository::relativePath(const QString &absPath) const
     QString p = QFileInfo(absPath).canonicalFilePath();
     if (p.isEmpty()) // e.g. deleted file: canonicalise the directory instead
         p = QFileInfo(QFileInfo(absPath).absolutePath()).canonicalFilePath() + QLatin1Char('/') + QFileInfo(absPath).fileName();
-    if (!p.startsWith(m_root + QLatin1Char('/')))
+    if (!Platform::isUnder(p, m_root))
         return {};
     return p.mid(m_root.size() + 1);
 }

@@ -1,4 +1,5 @@
 #include "AgentPanel.h"
+#include "platform/Platform.h"
 #include "platform/AppPaths.h"
 #include "history/LocalHistory.h"
 
@@ -387,7 +388,7 @@ AgentPanel::AgentPanel(QWidget *parent)
         if (m_editors)
             for (const QString &p : m_editors->openFilePaths()) {
                 Document *d = m_editors->documentForPath(p);
-                if (p.startsWith(m_root + QLatin1Char('/')))
+                if (Platform::isUnder(p, m_root))
                     out.append({p, d && d->isModified()});
             }
         return out;
@@ -446,7 +447,7 @@ AgentPanel::AgentPanel(QWidget *parent)
         if (m_editors)
             for (const QString &p : m_editors->openFilePaths()) {
                 Document *d = m_editors->documentForPath(p);
-                if (d && d->isModified() && p.startsWith(m_root + QLatin1Char('/')) && !AiEnv::isSensitive(p))
+                if (d && d->isModified() && Platform::isUnder(p, m_root) && !AiEnv::isSensitive(p))
                     unsaved.insert(relative(p), d->text());
             }
         return m_index->search(query, scope, max, unsaved, note);
@@ -847,7 +848,7 @@ QString AgentPanel::focusedFile() const
     if (!d || d->isUntitled())
         return {};
     const QString p = d->filePath();
-    return p.startsWith(m_root + QLatin1Char('/')) && !AiEnv::isSensitive(p) ? p : QString();
+    return Platform::isUnder(p, m_root) && !AiEnv::isSensitive(p) ? p : QString();
 }
 
 // --- sessions -----------------------------------------------------------------------------------------------------
@@ -989,7 +990,7 @@ QString AgentPanel::contextFor(const QStringList &mentioned) const
     QStringList tabs;
     if (m_editors)
         for (const QString &p : m_editors->openFilePaths())
-            if (p.startsWith(m_root + QLatin1Char('/')) && !AiEnv::isSensitive(p))
+            if (Platform::isUnder(p, m_root) && !AiEnv::isSensitive(p))
                 tabs << relative(p);
     if (!tabs.isEmpty())
         lines << QStringLiteral("Open tabs: %1").arg(tabs.mid(0, 20).join(QStringLiteral(", ")));
@@ -1523,7 +1524,7 @@ QString AgentPanel::collectDiagnostics(const QString &abs, QVector<Diag> *rows, 
         paths << abs;
     } else {
         for (const QString &p : m_editors->openFilePaths())
-            if (p.startsWith(m_root + QLatin1Char('/')))
+            if (Platform::isUnder(p, m_root))
                 paths << p;
     }
     auto served = [&] {
@@ -1721,7 +1722,7 @@ void AgentPanel::updateMentions(const QString &query)
     if (query.isEmpty()) {
         if (m_editors)
             for (const QString &p : m_editors->openFilePaths())
-                if (p.startsWith(m_root + QLatin1Char('/')) && m_fileSet.contains(relative(p)))
+                if (Platform::isUnder(p, m_root) && m_fileSet.contains(relative(p)))
                     result << relative(p);
         for (const QString &f : m_files) {
             if (result.size() >= 8)

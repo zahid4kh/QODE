@@ -1,4 +1,5 @@
 #include "LspServers.h"
+#include "platform/Platform.h"
 #include "platform/AppPaths.h"
 
 #include <QDir>
@@ -69,7 +70,7 @@ bool isManaged(const LspServerSpec &spec, const QString &path)
         return false;
     const QString real = QFileInfo(path).canonicalFilePath();
     const QString root = QFileInfo(managedDir(spec.managedId)).canonicalFilePath();
-    return !real.isEmpty() && !root.isEmpty() && real.startsWith(root + QLatin1Char('/'));
+    return !real.isEmpty() && !root.isEmpty() && Platform::isUnder(real, root);
 }
 
 QList<const LspServerSpec *> sharingInstall(const LspServerSpec &spec)

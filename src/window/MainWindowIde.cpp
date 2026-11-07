@@ -3,6 +3,7 @@
 // goes through the same QActions and functions as the menus, so the menus stay in sync. Paths arrive absolute and confined to
 // the project; an "error" key in the answer goes back to the model as a failure.
 #include "MainWindow.h"
+#include "platform/Platform.h"
 
 #include "SideSections.h"
 #include "ai/AiHub.h"
@@ -186,7 +187,7 @@ QJsonObject MainWindow::ideTerminalOutput(int tab, int lines)
         return error(QStringLiteral("no terminal tab %1; tabs: %2").arg(tab).arg(tabs.join(QStringLiteral(", "))));
     const QString root = m_projects->hasProject() ? m_projects->root() : QString();
     QString cwd = pick->terminal->currentDirectory();
-    if (!root.isEmpty() && (cwd == root || cwd.startsWith(root + QLatin1Char('/'))))
+    if (!root.isEmpty() && (Platform::samePath(cwd, root) || Platform::isUnder(cwd, root)))
         cwd = cwd == root ? QStringLiteral(".") : cwd.mid(root.size() + 1);
     QJsonObject o{{"tab", pick->tab}, {"folder", cwd}, {"command_running", pick->terminal->commandRunning()},
                   {"output", pick->terminal->recentOutput(qBound(1, lines, 300))}};
@@ -255,7 +256,7 @@ QJsonObject MainWindow::ideState() const
     const QString root = m_projects->hasProject() ? m_projects->root() : QString();
     if (Document *doc = m_editors->currentDocument()) {
         const QString p = doc->filePath();
-        out.insert("current_file", !root.isEmpty() && p.startsWith(root + QLatin1Char('/')) ? p.mid(root.size() + 1) : p);
+        out.insert("current_file", !root.isEmpty() && Platform::isUnder(p, root) ? p.mid(root.size() + 1) : p);
     }
 
     const QString active = SettingsManager::instance().theme();

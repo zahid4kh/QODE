@@ -70,7 +70,7 @@ bool LspInstaller::isManaged(const QString &path)
 {
     const QString real = QFileInfo(path).canonicalFilePath();
     const QString root = QFileInfo(installRoot()).canonicalFilePath();
-    return !real.isEmpty() && !root.isEmpty() && real.startsWith(root + QLatin1Char('/'));
+    return !real.isEmpty() && !root.isEmpty() && Platform::isUnder(real, root);
 }
 
 bool LspInstaller::remove(QString *error)

@@ -1,4 +1,5 @@
 #include "ProjectSearch.h"
+#include "platform/Platform.h"
 
 #include "project/ProjectFiles.h"
 
@@ -83,7 +84,7 @@ bool globMatches(const Glob &g, const QString &rel, const QString &name)
     if (g.wildcard)
         return g.rx.match(g.usesPath ? rel : name).hasMatch();
     // Plain word: a file name, or a directory anywhere in the path.
-    return name == g.raw || rel == g.raw || rel.startsWith(g.raw + QLatin1Char('/')) || rel.contains(QLatin1Char('/') + g.raw + QLatin1Char('/'));
+    return name == g.raw || rel == g.raw || Platform::isUnder(rel, g.raw) || rel.contains(QLatin1Char('/') + g.raw + QLatin1Char('/'));
 }
 
 bool anyMatches(const QList<Glob> &globs, const QString &rel, const QString &name)
@@ -314,7 +315,7 @@ void ProjectSearch::start(const QString &root, const SearchOptions &options, con
         QStringList files = ProjectFiles::scan(root);
         // Unsaved buffers that live in the project but are not on disk yet still count.
         for (auto it = overrides.cbegin(); it != overrides.cend(); ++it)
-            if (it.key().startsWith(root + QLatin1Char('/')) && !files.contains(it.key()))
+            if (Platform::isUnder(it.key(), root) && !files.contains(it.key()))
                 files.append(it.key());
 
         QList<SearchFileResult> batch;

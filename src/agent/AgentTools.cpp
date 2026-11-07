@@ -347,7 +347,7 @@ bool AgentTools::resolve(const QString &input, QString *absolute, QString *error
     const QString canon = info.canonicalFilePath().isEmpty() ? info.absoluteFilePath() : info.canonicalFilePath();
     const QString real = QDir::cleanPath(canon + tail);
     const QString base = canonRoot.isEmpty() ? m_root : canonRoot;
-    if (real != base && !real.startsWith(base + QLatin1Char('/'))) {
+    if (real != base && !Platform::isUnder(real, base)) {
         *error = QStringLiteral("'%1' is outside the project").arg(input);
         return false;
     }
@@ -413,7 +413,7 @@ QStringList AgentTools::indexedFiles() const
             continue;
         bool gone = false;
         for (const QString &g : std::as_const(m_gone))
-            gone = gone || f == g || f.startsWith(g + QLatin1Char('/'));
+            gone = gone || f == g || Platform::isUnder(f, g);
         if (!gone || QFileInfo::exists(f)) // a deletion that was undone brings the file back
             out << f;
     }
@@ -1140,7 +1140,7 @@ ToolResult AgentTools::movePath(const QJsonObject &a, bool copy)
         return fail(QStringLiteral("'%1' does not exist").arg(relative(from)));
     if (QFileInfo::exists(to))
         return fail(QStringLiteral("'%1' already exists; choose another target").arg(relative(to)));
-    if (to.startsWith(from + QLatin1Char('/')))
+    if (Platform::isUnder(to, from))
         return fail(QStringLiteral("cannot put a folder inside itself"));
     QDir().mkpath(QFileInfo(to).absolutePath());
     if (!copy) {

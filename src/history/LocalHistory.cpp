@@ -279,7 +279,7 @@ void pathMoved(const QString &from, const QString &to)
             p.commit();
         }
         if (!sameFolder)
-            QDir(oldFolder).removeRecursively();
+            Platform::removeTree(oldFolder);
     }
 }
 
@@ -293,7 +293,7 @@ void prune()
         while (!files.isEmpty() && files.first().section(QLatin1Char('-'), 0, 0).toLongLong() < cutoff)
             QFile::remove(folder + QLatin1Char('/') + files.takeFirst());
         if (files.isEmpty())
-            QDir(folder).removeRecursively();
+            Platform::removeTree(folder);
     }
 }
 

@@ -158,7 +158,7 @@ void PipInstaller::fail(const QString &error)
         m_useUv = false;
         emit output(tr("uv did not succeed — trying again with python3 and pip."));
         if (m_createdVenv)
-            QDir(installRoot()).removeRecursively();
+            Platform::removeTree(installRoot());
         m_createdVenv = Platform::venvProgram(installRoot(), QStringLiteral("python")).isEmpty();
         m_steps = buildSteps(false);
         m_next = 0;
@@ -166,7 +166,7 @@ void PipInstaller::fail(const QString &error)
         return;
     }
     if (m_createdVenv)
-        QDir(installRoot()).removeRecursively(); // leave nothing half-built behind
+        Platform::removeTree(installRoot()); // leave nothing half-built behind
     QString message = error;
     if (m_collected.contains(QLatin1String("ensurepip")) || m_collected.contains(QLatin1String("python3-venv")))
         message = tr("Python could not create a virtual environment because its venv module is missing. On Debian / Ubuntu run "
@@ -189,7 +189,7 @@ void PipInstaller::cancel()
     m_proc->deleteLater();
     m_proc = nullptr;
     if (m_createdVenv)
-        QDir(installRoot()).removeRecursively();
+        Platform::removeTree(installRoot());
     emit failed(tr("Cancelled."));
 }
 

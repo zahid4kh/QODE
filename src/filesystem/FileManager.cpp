@@ -217,7 +217,7 @@ bool removePath(const QString &path, QString *error)
         LocalHistory::recordDisk(path, LocalHistory::Kind::BeforeDelete); // the text files stay restorable
     bool ok;
     if (fi.isDir() && !fi.isSymLink())
-        ok = QDir(path).removeRecursively();
+        ok = Platform::removeTree(path);
     else
         ok = QFile::remove(path);
     if (!ok && error)

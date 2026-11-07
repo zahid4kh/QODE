@@ -1,5 +1,6 @@
 #include "ExpoSchema.h"
 #include "platform/AppPaths.h"
+#include "platform/Platform.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -74,7 +75,7 @@ qint64 ExpoSchema::cacheSize()
 bool ExpoSchema::clearCache()
 {
     const QString dir = cacheDir();
-    return !QFileInfo::exists(dir) || QDir(dir).removeRecursively();
+    return !QFileInfo::exists(dir) || Platform::removeTree(dir);
 }
 
 void ExpoSchema::request(const QString &sdk)

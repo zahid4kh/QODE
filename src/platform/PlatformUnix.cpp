@@ -64,6 +64,11 @@ bool Platform::replaceSymlink(const QString &target, const QString &link)
     return true;
 }
 
+bool Platform::removeTree(const QString &path)
+{
+    return QDir(path).removeRecursively();
+}
+
 void Platform::setShellCommand(QProcess *process, const QString &command)
 {
     process->setProgram(QStringLiteral("/bin/sh"));

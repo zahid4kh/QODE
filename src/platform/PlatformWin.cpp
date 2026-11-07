@@ -155,6 +155,48 @@ bool Platform::replaceSymlink(const QString &, const QString &)
 
 namespace {
 
+bool removeEntry(const std::wstring &path)
+{
+    const DWORD attrs = ::GetFileAttributesW(path.c_str());
+    if (attrs == INVALID_FILE_ATTRIBUTES)
+        return ::GetLastError() == ERROR_FILE_NOT_FOUND || ::GetLastError() == ERROR_PATH_NOT_FOUND;
+    if (attrs & FILE_ATTRIBUTE_READONLY)
+        ::SetFileAttributesW(path.c_str(), attrs & ~DWORD(FILE_ATTRIBUTE_READONLY));
+    if (!(attrs & FILE_ATTRIBUTE_DIRECTORY))
+        return ::DeleteFileW(path.c_str()) != 0;
+    if (attrs & FILE_ATTRIBUTE_REPARSE_POINT) // a junction or folder symlink: the link goes, its target stays
+        return ::RemoveDirectoryW(path.c_str()) != 0;
+    bool ok = true;
+    WIN32_FIND_DATAW d;
+    const HANDLE find = ::FindFirstFileExW((path + L"\\*").c_str(), FindExInfoBasic, &d, FindExSearchNameMatch, nullptr, 0);
+    if (find != INVALID_HANDLE_VALUE) {
+        do {
+            const std::wstring name = d.cFileName;
+            if (name != L"." && name != L"..")
+                ok = removeEntry(path + L"\\" + name) && ok;
+        } while (::FindNextFileW(find, &d));
+        ::FindClose(find);
+    }
+    return ::RemoveDirectoryW(path.c_str()) && ok;
+}
+
+} // namespace
+
+bool Platform::removeTree(const QString &path)
+{
+    if (path.isEmpty())
+        return false;
+    // \\?\ lifts the 260-character limit for paths QODE did not shorten (deep node_modules).
+    QString native = QDir::toNativeSeparators(QFileInfo(path).absoluteFilePath());
+    if (native.startsWith(QLatin1String("\\\\")))
+        native = QStringLiteral("\\\\?\\UNC\\") + native.mid(2);
+    else
+        native = QStringLiteral("\\\\?\\") + native;
+    return removeEntry(native.toStdWString());
+}
+
+namespace {
+
 // /d: no AutoRun commands from the registry. /s /c "<line>": cmd drops the outer quotes and runs the rest as it is, so
 // the line keeps its own quotes. QProcess would quote each argument for the C runtime, which cmd does not parse, so the
 // line goes in as native arguments.

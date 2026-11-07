@@ -527,7 +527,7 @@ ProjectTemplates::Result ProjectTemplates::instantiate(const Template &t, const 
 
     const QString tmp = destDir + QStringLiteral(".qode-new-") + QUuid::createUuid().toString(QUuid::Id128).left(8);
     auto fail = [&](const QString &msg) {
-        QDir(tmp).removeRecursively();
+        Platform::removeTree(tmp);
         r.error = msg;
         return r;
     };

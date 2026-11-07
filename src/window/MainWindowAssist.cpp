@@ -11,6 +11,7 @@
 #include "project/ProjectManager.h"
 #include "lsp/LspManager.h"
 #include "palette/PalettePopup.h"
+#include "platform/Platform.h"
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 
@@ -440,7 +441,7 @@ void MainWindow::applyFileOps(const QVector<LspManager::FileOp> &ops, bool befor
         } else if (!before && op.kind == QLatin1String("delete")) {
             if (m_editors->documentForPath(op.path))
                 m_editors->closeDocumentsUnder(op.path);
-            QFileInfo(op.path).isDir() ? static_cast<void>(QDir(op.path).removeRecursively()) : static_cast<void>(QFile::remove(op.path));
+            QFileInfo(op.path).isDir() ? static_cast<void>(Platform::removeTree(op.path)) : static_cast<void>(QFile::remove(op.path));
         }
     }
 }

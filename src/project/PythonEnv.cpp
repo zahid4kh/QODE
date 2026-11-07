@@ -89,6 +89,8 @@ QString activationCommand(const QString &projectRoot, const QString &shellName)
     if (venv.isEmpty())
         return {};
     const ShellSyntax::Dialect dialect = ShellSyntax::dialectOf(shellName);
+    if (dialect == ShellSyntax::Dialect::Wsl)
+        return {}; // a Windows venv (Scripts\python.exe) does not run in WSL's Linux
     const QString abs = QDir::toNativeSeparators(QDir(projectRoot).filePath(venv));
     const QString scripts = abs + QDir::separator() + Platform::venvBinDir();
     if (dialect == ShellSyntax::Dialect::PowerShell) {
@@ -100,10 +102,13 @@ QString activationCommand(const QString &projectRoot, const QString &shellName)
         const QString bat = scripts + QStringLiteral("\\activate.bat");
         return QFileInfo::exists(bat) ? ShellSyntax::quote(dialect, bat) : QString();
     }
+    QString name = shellName;
+    if (name.endsWith(QLatin1String(".exe"), Qt::CaseInsensitive))
+        name.chop(4);
     QString script = QStringLiteral("activate");
-    if (shellName == QLatin1String("fish"))
+    if (name == QLatin1String("fish"))
         script = QStringLiteral("activate.fish");
-    else if (shellName == QLatin1String("csh") || shellName == QLatin1String("tcsh"))
+    else if (name == QLatin1String("csh") || name == QLatin1String("tcsh"))
         script = QStringLiteral("activate.csh");
     const QString rel = venv + QLatin1Char('/') + Platform::venvBinDir() + QLatin1Char('/') + script;
     if (!QFileInfo::exists(QDir(projectRoot).filePath(rel)))

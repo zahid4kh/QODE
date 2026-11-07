@@ -526,6 +526,8 @@ QString MainWindow::jdkStartupCommand(const QString &shell) const
     if (home.isEmpty() || (!QFileInfo::exists(home + QStringLiteral("/bin/java")) && !QFileInfo::exists(home + QStringLiteral("/bin/java.exe"))))
         return {};
     const ShellSyntax::Dialect dialect = ShellSyntax::dialectOf(shell);
+    if (dialect == ShellSyntax::Dialect::Wsl)
+        return {}; // Linux in WSL: a Windows JDK is no use there
     if (dialect == ShellSyntax::Dialect::PowerShell)
         return QStringLiteral("$env:JAVA_HOME = %1; $env:PATH = %2 + ';' + $env:PATH")
             .arg(ShellSyntax::quote(dialect, QDir::toNativeSeparators(home)),
@@ -534,6 +536,8 @@ QString MainWindow::jdkStartupCommand(const QString &shell) const
         return QStringLiteral("set \"JAVA_HOME=%1\" & set \"PATH=%1\\bin;%PATH%\"").arg(QDir::toNativeSeparators(home));
     const QString q = JvmTools::shellQuote(home);
     const QString bin = JvmTools::shellQuote(home + QStringLiteral("/bin"));
+    if (dialect == ShellSyntax::Dialect::GitBash) // PATH splits at ':', so C:/… goes on it as /c/… (cygpath knows the mounts)
+        return QStringLiteral("export JAVA_HOME=%1 PATH=\"$(cygpath -u %2):$PATH\"").arg(q, bin);
     if (shell == QLatin1String("fish"))
         return QStringLiteral("set -gx JAVA_HOME %1; set -gx PATH %2 $PATH").arg(q, bin);
     return QStringLiteral("export JAVA_HOME=%1 PATH=%2:\"$PATH\"").arg(q, bin);

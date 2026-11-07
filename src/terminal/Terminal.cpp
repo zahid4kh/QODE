@@ -139,13 +139,18 @@ void Terminal::setShellProgram(const QString &program)
     m_shell->setLaunch(program, {});
 }
 
-QString Terminal::shellName() const
+QString Terminal::shellFile() const
 {
     // Never empty: a tab whose shell has not (re)started yet would otherwise flash a placeholder name.
     QString path = m_shell->shell();
     if (path.isEmpty())
         path = m_program.isEmpty() ? ShellProcess::defaultShell() : m_program;
-    QString name = QFileInfo(path).fileName();
+    return QFileInfo(path).fileName();
+}
+
+QString Terminal::shellName() const
+{
+    QString name = shellFile();
     if (name.endsWith(QLatin1String(".exe"), Qt::CaseInsensitive)) // Windows: "pwsh", not "pwsh.exe"
         name.chop(4);
     return name;
@@ -199,7 +204,7 @@ void Terminal::startShell()
         m_booting = true;
         m_pendingTimer->start(1500); // fallback if the shell prints nothing
         if (m_startupProvider)
-            m_pendingCommand = m_startupProvider(shellName());
+            m_pendingCommand = m_startupProvider(shellFile());
     }
     updateHeader();
 }

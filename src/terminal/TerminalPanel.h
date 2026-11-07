@@ -39,8 +39,8 @@ public:
     void runCommand(const QString &command);
     // Writes raw input to the current pane (a key for the program running there).
     void sendInput(const QByteArray &data);
-    // The shell of the current pane ("bash", "pwsh" …), else of the shell new tabs get.
-    QString currentShellName() const;
+    // The shell file of the current pane ("bash", "pwsh.exe" …, Terminal::shellFile), else of the shell new tabs get.
+    QString currentShellFile() const;
     void newSession();
     void newSessionWith(const QString &program); // a tab running `program` ("" = the default shell)
     // The shell new tabs run ("" or a program that is gone = ShellProcess::defaultShell()).

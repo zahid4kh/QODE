@@ -290,12 +290,12 @@ void MainWindow::showPythonPackages()
         updatePythonUi();
         restartPythonServer();
         statusBar()->showMessage(tr("Created the virtual environment %1").arg(name), 6000);
-        if (PythonEnv::activationCommand(m_projects->project().root, m_terminal->currentShellName()).isEmpty())
+        if (PythonEnv::activationCommand(m_projects->project().root, m_terminal->currentShellFile()).isEmpty())
             return;
         if (QMessageBox::question(m_pkgDialog, tr("Activate it?"),
                                   tr("Activate %1 in the terminal now? New terminals activate it automatically.").arg(name)) == QMessageBox::Yes) {
             showTerminal(); // may start the first pane: its shell decides the command
-            m_terminal->runCommand(PythonEnv::activationCommand(m_projects->project().root, m_terminal->currentShellName()));
+            m_terminal->runCommand(PythonEnv::activationCommand(m_projects->project().root, m_terminal->currentShellFile()));
         }
     });
     m_pkgDialog->show();

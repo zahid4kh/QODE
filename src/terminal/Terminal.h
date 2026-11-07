@@ -34,11 +34,12 @@ public:
     // The shell this pane runs ("" = ShellProcess::defaultShell()); takes effect at the next (re)start.
     void setShellProgram(const QString &program);
     QString shellProgram() const { return m_program; }
-    QString shellName() const;
+    QString shellFile() const; // the shell's file name: "bash", "pwsh.exe", "bash.exe" (Git Bash, ShellSyntax::dialectOf)
+    QString shellName() const; // for the tab: shellFile() without ".exe"
     void setWorkingDirectory(const QString &dir);
     QString workingDirectory() const { return m_cwd; }
 
-    // Asked each time a fresh shell starts (argument: shellName()); a non-empty result is typed in first, as it is
+    // Asked each time a fresh shell starts (argument: shellFile()); a non-empty result is typed in first, as it is
     // (written for that shell).
     void setStartupCommandProvider(std::function<QString(const QString &)> provider) { m_startupProvider = std::move(provider); }
 

@@ -400,6 +400,8 @@ Dialect dialectOf(const QString &shell)
         return Dialect::PowerShell;
     if (name == QLatin1String("cmd"))
         return Dialect::Cmd;
+    if (name == QLatin1String("wsl"))
+        return Dialect::Wsl;
     if (exe)
         return Dialect::GitBash; // bash.exe, sh.exe, zsh.exe: an MSYS / Cygwin shell
     return Dialect::Posix;
@@ -410,10 +412,23 @@ QString translate(const QString &line, const QString &shell)
     const Dialect d = dialectOf(shell);
     if (d == Dialect::Posix)
         return line;
-    if (d == Dialect::GitBash) {
+    if (d == Dialect::GitBash || d == Dialect::Wsl) {
         static const QRegularExpression wrapper(QStringLiteral("(^|[\\s;&|(])\\.\\\\(?=\\w)"));
         QString out = line;
-        return out.replace(wrapper, QStringLiteral("\\1./"));
+        out.replace(wrapper, QStringLiteral("\\1./"));
+        if (d == Dialect::Wsl) {
+            // A drive path at the start of a word (also inside quotes, or after NAME=): C:/x -> /mnt/c/x.
+            static const QRegularExpression drive(QStringLiteral("(^|[\\s'\"=(:])([A-Za-z]):[/\\\\]"));
+            QString mapped;
+            qsizetype last = 0;
+            for (auto it = drive.globalMatch(out); it.hasNext();) {
+                const QRegularExpressionMatch m = it.next();
+                mapped += out.mid(last, m.capturedStart(2) - last) + QStringLiteral("/mnt/") + m.captured(2).toLower() + QLatin1Char('/');
+                last = m.capturedEnd(0);
+            }
+            out = mapped + out.mid(last);
+        }
+        return out;
     }
     QList<Token> tokens;
     List list;

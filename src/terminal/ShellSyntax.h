@@ -9,6 +9,7 @@
 // translate() rewrites such a line for the shell of the pane that runs it:
 // - sh, bash, zsh, fish (Unix): unchanged, as before.
 // - bash.exe / sh.exe (Git Bash): unchanged, except .\gradlew -> ./gradlew.
+// - wsl.exe (a Linux shell on Windows): .\gradlew -> ./gradlew and C:/… -> /mnt/c/… (WSL's default mounts).
 // - PowerShell (5.1 and 7): quoting, `a; if ($?) { b }` for &&, $env: for VAR=, Push-Location for the subshell. What a
 //   subshell or VAR= changed is restored in a finally block, which leaves $? true: the line then puts its real result
 //   in $__qodeOk, which the shell integration reads (ShellIntegration.cpp).
@@ -16,7 +17,7 @@
 // A line outside that subset ($VAR, `…`, globs, redirections) is passed on unchanged.
 namespace ShellSyntax {
 
-enum class Dialect { Posix, GitBash, PowerShell, Cmd };
+enum class Dialect { Posix, GitBash, Wsl, PowerShell, Cmd };
 
 // From the shell's program path or name: "pwsh.exe", "powershell", "cmd.exe", "C:/…/Git/bin/bash.exe", "/bin/bash" …
 Dialect dialectOf(const QString &shell);

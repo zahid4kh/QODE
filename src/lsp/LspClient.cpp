@@ -438,9 +438,11 @@ void LspClient::onFinished(int, int exitStatus)
     m_interactiveIds.clear();
     m_interactive = 0;
     if (crashed && m_error.isEmpty()) {
-        // Kotlin's EAP builds print "This build of kotlin-server has expired." on stdout and quit.
-        const QString out = QString::fromUtf8(m_buffer + m_proc->readAllStandardOutput());
-        if (out.contains(QLatin1String("expired")))
+        // Kotlin's EAP builds print "This build of kotlin-server has expired." and quit: on stdout on Linux, on stderr on
+        // Windows.
+        const QString out = QString::fromUtf8(m_buffer + m_proc->readAllStandardOutput()) +
+                            QString::fromUtf8(m_proc->readAllStandardError()) + m_log.join(QLatin1Char('\n'));
+        if (out.contains(QLatin1String("has expired")))
             m_error = tr("This build of the server has expired — choose Update / Reinstall to get a newer one");
     }
     if (crashed && m_error.isEmpty())

@@ -18,9 +18,9 @@
 #include <QUrl>
 
 namespace {
-const char *kPinnedVersion = "263.6379.0";
+const char *kPinnedVersion = "263.7084.0"; // JetBrains builds expire: 263.6379.0 stopped starting in November 2026
 // SHA-256 of the pinned x86_64 archive, checked in addition to the checksum JetBrains publishes next to it.
-const char *kPinnedSha256X64 = "ab8ca4455dc2fc5fe1a24db2bccc46c104254d2c465155c4251ee65df8f3f7cc";
+const char *kPinnedSha256X64 = "ae0c4b01e17ab73a4a5227a78ea99e6dcbe3e499600315b22759a4e4cddd11df";
 constexpr qint64 kNeededBytes = 1800LL * 1024 * 1024; // archive (~370 MB) + unpacked copy (~1.2 GB) + slack
 constexpr int kNetworkTimeoutMs = 30000;
 

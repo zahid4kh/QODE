@@ -18,6 +18,7 @@ int main(int argc, char *argv[])
     // Qt WebEngine (the web preview) shares OpenGL contexts with the widgets; this must be set before the application exists.
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
     Application app(argc, argv);
+    Platform::initGui();
     StartupProfile::mark(QStringLiteral("Qt application (display, fonts, style, theme)"));
 
     QCommandLineParser parser;

@@ -2,10 +2,12 @@
 #include "platform/AppPaths.h"
 #include "terminal/ShellSyntax.h"
 
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QKeyEvent>
 #include <QProcess>
 #include <QRegularExpression>
 #include <QSaveFile>
@@ -69,6 +71,28 @@ bool startOwnExe(const std::wstring &args)
     return true;
 }
 
+bool g_setQpaPlatform = false; // initProcess set QT_QPA_PLATFORM, initGui removes it again
+
+// With QT_QPA_PLATFORM=windows:altgr, text typed with AltGr comes with GroupSwitchModifier instead of Ctrl+Alt. The
+// shortcut map has already seen the key (as a ShortcutOverride) when the key press is sent, so the press itself goes on
+// without that modifier: widgets see plain typing, as on Linux.
+class AltGrFilter : public QObject
+{
+public:
+    using QObject::QObject;
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) {
+            auto *key = static_cast<QKeyEvent *>(event);
+            if (key->modifiers() & Qt::GroupSwitchModifier)
+                key->setModifiers(key->modifiers() & ~Qt::GroupSwitchModifier);
+        }
+        return QObject::eventFilter(watched, event);
+    }
+};
+
 } // namespace
 
 bool Platform::runIfHelper(int argc, char *argv[])
@@ -92,6 +116,20 @@ void Platform::initProcess()
         qputenv("PYTHONUTF8", "1");
     if (!qEnvironmentVariableIsSet("PYTHONIOENCODING"))
         qputenv("PYTHONIOENCODING", "utf-8");
+    // Read by the QApplication constructor (an environment variable, not "-platform" in argv: a changed argv makes Qt
+    // take the arguments from argv instead of the Unicode command line).
+    if (!qEnvironmentVariableIsSet("QT_QPA_PLATFORM")) {
+        qputenv("QT_QPA_PLATFORM", "windows:altgr");
+        g_setQpaPlatform = true;
+    }
+}
+
+void Platform::initGui()
+{
+    if (g_setQpaPlatform)
+        qunsetenv("QT_QPA_PLATFORM");
+    if (QCoreApplication *app = QCoreApplication::instance())
+        app->installEventFilter(new AltGrFilter(app));
 }
 
 QString Platform::decodeOutput(const QByteArray &bytes)

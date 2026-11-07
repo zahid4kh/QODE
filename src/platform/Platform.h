@@ -18,8 +18,16 @@ bool runIfHelper(int argc, char *argv[]);
 
 // First thing in main(), before Qt starts. Unix: writing to a child process that already exited (git, the shell)
 // fails with EPIPE instead of killing QODE with SIGPIPE. Windows: PYTHONUTF8=1 and PYTHONIOENCODING=utf-8 for every
-// child (unless set already), so Python reads and writes UTF-8, not the ANSI / OEM code page.
+// child (unless set already), so Python reads and writes UTF-8, not the ANSI / OEM code page. Also asks Qt's Windows
+// plugin to tell AltGr from Ctrl+Alt (QT_QPA_PLATFORM=windows:altgr, unless the user set that variable), see initGui.
 void initProcess();
+
+// Right after the QApplication is created. Unix: nothing. Windows: removes the QT_QPA_PLATFORM that initProcess set
+// (children must not inherit it) and makes AltGr typing look as it does on Linux: Qt reports AltGr as
+// GroupSwitchModifier (not Ctrl+Alt), so Ctrl+Alt shortcuts no longer swallow the characters AltGr types (German €,
+// Polish ę ć ś), and once shortcuts are matched an app-wide filter drops that modifier from key presses, so the
+// editor reads `{` typed with AltGr+7 as plain typing (auto-pairing, completion).
+void initGui();
 
 // Text a child process wrote (pip, npm, Gradle, an installer). Unix: QString::fromLocal8Bit, as before. Windows: UTF-8
 // when the bytes are valid UTF-8, else the system's ANSI code page (Java and many console tools write in it when their

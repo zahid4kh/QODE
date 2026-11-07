@@ -25,6 +25,10 @@ void Platform::initProcess()
     std::signal(SIGPIPE, SIG_IGN);
 }
 
+void Platform::initGui()
+{
+}
+
 QString Platform::decodeOutput(const QByteArray &bytes)
 {
     return QString::fromLocal8Bit(bytes);

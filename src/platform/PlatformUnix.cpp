@@ -107,6 +107,11 @@ bool Platform::hasExecBit()
     return true;
 }
 
+QString Platform::invalidFileName(const QString &)
+{
+    return {};
+}
+
 QString Platform::pathKey(const QString &path)
 {
     return path;

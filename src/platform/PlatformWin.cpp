@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QSettings>
 #include <QStandardPaths>
@@ -224,6 +225,23 @@ QString Platform::venvProgram(const QString &venv, const QString &name)
 bool Platform::hasExecBit()
 {
     return false;
+}
+
+QString Platform::invalidFileName(const QString &name)
+{
+    for (const QChar c : name)
+        if (c.unicode() < 32 || QStringLiteral("<>:\"|?*\\").contains(c))
+            return QStringLiteral("A name on Windows cannot contain %1.")
+                .arg(c.unicode() < 32 ? QStringLiteral("control characters") : QStringLiteral("'%1'").arg(c));
+    if (name.endsWith(QLatin1Char('.')) || name.endsWith(QLatin1Char(' ')))
+        return QStringLiteral("A name on Windows cannot end with a dot or a space.");
+    // Device names, with or without an extension (CON, nul.txt, Com1.tar.gz), also with spaces before the dot.
+    static const QRegularExpression device(QStringLiteral("^(con|prn|aux|nul|com[1-9\\x{b9}\\x{b2}\\x{b3}]|lpt[1-9\\x{b9}\\x{b2}\\x{b3}])$"),
+                                           QRegularExpression::CaseInsensitiveOption);
+    const QString stem = name.section(QLatin1Char('.'), 0, 0).trimmed();
+    if (device.match(stem).hasMatch())
+        return QStringLiteral("\"%1\" is reserved by Windows (a device name).").arg(stem);
+    return {};
 }
 
 QString Platform::pathKey(const QString &path)

@@ -1,6 +1,7 @@
 #include "jvm/JvmNewFile.h"
 
 #include "jvm/JvmTools.h"
+#include "platform/Platform.h"
 
 #include <QDir>
 #include <QFile>
@@ -143,6 +144,10 @@ Result generate(Kind kind, const QString &dir, const QString &input)
         }
         if (keywords().contains(p)) {
             r.error = QStringLiteral("\"%1\" is a keyword.").arg(p);
+            return r;
+        }
+        if (const QString bad = Platform::invalidFileName(p); !bad.isEmpty()) { // Windows: a class or package "Con"
+            r.error = bad;
             return r;
         }
     }

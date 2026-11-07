@@ -215,7 +215,7 @@ QString validateName(const QString &name)
         return QStringLiteral("Invalid name.");
     if (n.contains(QLatin1Char('/')) || n.contains(QChar(0)))
         return QStringLiteral("Name cannot contain '/'.");
-    return {};
+    return Platform::invalidFileName(n); // Windows: CON, nul.txt, <>:"|?*\, a trailing dot or space
 }
 
 void revealInFileManager(const QString &path)

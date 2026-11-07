@@ -39,6 +39,10 @@ bool replaceSymlink(const QString &target, const QString &link);
 // - uriToPath: the local path of a file:// URI, "" for another scheme. Language servers on Windows send the drive in
 //   either case and may percent-encode its colon (file:///c%3A/x); this always gives C:/x. Unix: QUrl::toLocalFile.
 // - pathToUri: file:///… for a local path (QUrl::fromLocalFile), on every OS.
+// - invalidFileName: why `name` (one file or folder name, no path) cannot be used here, "" when it can. Unix: always "".
+//   Windows: the device names CON, PRN, AUX, NUL, COM1-9, LPT1-9 (also with an extension: nul.txt), the characters
+//   < > : " | ? * \ and control characters, and a trailing dot or space (Windows drops them).
+QString invalidFileName(const QString &name);
 QString pathKey(const QString &path);
 bool samePath(const QString &a, const QString &b);
 bool isUnder(const QString &path, const QString &root);

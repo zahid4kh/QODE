@@ -164,13 +164,86 @@ bool Platform::selectInFileManager(const QString &file)
 }
 
 namespace {
-const QString kSoftware = QStringLiteral("HKEY_CURRENT_USER\\Software");
+// --- Registry reads that never create anything ---------------------------------------------------------------------
+// QSettings(NativeFormat) opens registry keys for writing and creates every missing one it touches, even to read a
+// value: that left an empty HKCU\...\Lxss and the installer's uninstall key on machines that had neither, and would
+// create HKLM keys in an elevated QODE. So QODE reads the registry only through these (KEY_READ, never created).
+const wchar_t *wptr(const QString &s)
+{
+    return reinterpret_cast<const wchar_t *>(s.utf16());
+}
+
+HKEY openKey(HKEY root, const QString &sub)
+{
+    HKEY key = nullptr;
+    return ::RegOpenKeyExW(root, wptr(sub), 0, KEY_READ, &key) == ERROR_SUCCESS ? key : nullptr;
+}
+
+bool regKeyExists(HKEY root, const QString &sub)
+{
+    const HKEY key = openKey(root, sub);
+    if (key)
+        ::RegCloseKey(key);
+    return key != nullptr;
+}
+
+// A REG_SZ / REG_EXPAND_SZ value as stored (%VARIABLES% not expanded); empty when missing.
+QString regString(HKEY root, const QString &sub, const QString &value)
+{
+    DWORD bytes = 0;
+    const DWORD flags = RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | RRF_NOEXPAND;
+    if (::RegGetValueW(root, wptr(sub), wptr(value), flags, nullptr, nullptr, &bytes) != ERROR_SUCCESS || bytes < sizeof(wchar_t))
+        return {};
+    std::wstring buf(bytes / sizeof(wchar_t), L'\0');
+    if (::RegGetValueW(root, wptr(sub), wptr(value), flags, nullptr, buf.data(), &bytes) != ERROR_SUCCESS)
+        return {};
+    return QString::fromWCharArray(buf.c_str()); // up to the terminating NUL
+}
+
+QStringList regSubKeys(HKEY root, const QString &sub)
+{
+    QStringList out;
+    const HKEY key = openKey(root, sub);
+    if (!key)
+        return out;
+    wchar_t name[256];
+    for (DWORD i = 0;; ++i) {
+        DWORD len = 256;
+        const LSTATUS r = ::RegEnumKeyExW(key, i, name, &len, nullptr, nullptr, nullptr, nullptr);
+        if (r == ERROR_NO_MORE_ITEMS || (r != ERROR_SUCCESS && r != ERROR_MORE_DATA))
+            break;
+        if (r == ERROR_SUCCESS)
+            out << QString::fromWCharArray(name, int(len));
+    }
+    ::RegCloseKey(key);
+    return out;
+}
+
+bool regKeyEmpty(HKEY root, const QString &sub)
+{
+    const HKEY key = openKey(root, sub);
+    if (!key)
+        return false;
+    DWORD subKeys = 0, values = 0;
+    const bool ok = ::RegQueryInfoKeyW(key, nullptr, nullptr, nullptr, &subKeys, nullptr, nullptr, &values, nullptr, nullptr, nullptr, nullptr) == ERROR_SUCCESS;
+    ::RegCloseKey(key);
+    return ok && subKeys == 0 && values == 0;
+}
+
+// --- Qt's file dialog state (HKCU\Software\<org>\OrganizationDefaults\FileDialog) ----------------------------------
 const QString kScope = QStringLiteral("OrganizationDefaults"); // QSettings(UserScope, org) = Software\<org>\OrganizationDefaults
 const QString kGroup = QStringLiteral("FileDialog");
 
-bool hasGroup(const QSettings &s, const QString &name)
+// The keys a file dialog may create, deepest first: it writes under HKCU, and Qt's read fallback opens the same scope
+// under HKLM, which creates it there too when QODE runs elevated.
+QList<QPair<HKEY, QString>> dialogKeys(const QString &org)
 {
-    return s.childGroups().contains(name, Qt::CaseInsensitive); // registry key names ignore case
+    const QString base = QStringLiteral("Software\\") + org;
+    return {{HKEY_CURRENT_USER, base + QLatin1Char('\\') + kScope + QLatin1Char('\\') + kGroup},
+            {HKEY_CURRENT_USER, base + QLatin1Char('\\') + kScope},
+            {HKEY_CURRENT_USER, base},
+            {HKEY_LOCAL_MACHINE, base + QLatin1Char('\\') + kScope},
+            {HKEY_LOCAL_MACHINE, base}};
 }
 } // namespace
 
@@ -178,15 +251,22 @@ QVariant Platform::saveQtDialogState(const QString &org)
 {
     QVariantMap state;
     state.insert(QStringLiteral("org"), org);
-    state.insert(QStringLiteral("root"), hasGroup(QSettings(kSoftware, QSettings::NativeFormat), org));
-    state.insert(QStringLiteral("scope"), hasGroup(QSettings(kSoftware + QLatin1Char('\\') + org, QSettings::NativeFormat), kScope));
-    QSettings s(QSettings::UserScope, org);
-    state.insert(QStringLiteral("group"), hasGroup(s, kGroup));
-    s.beginGroup(kGroup);
-    QVariantMap values;
-    for (const QString &key : s.allKeys())
-        values.insert(key, s.value(key));
-    state.insert(QStringLiteral("values"), values);
+    QVariantList missing; // indexes into dialogKeys(): keys that do not exist before the dialog
+    const QList<QPair<HKEY, QString>> keys = dialogKeys(org);
+    for (int i = 0; i < keys.size(); ++i)
+        if (!regKeyExists(keys[i].first, keys[i].second))
+            missing << i;
+    state.insert(QStringLiteral("missing"), missing);
+    const bool group = regKeyExists(keys[0].first, keys[0].second);
+    state.insert(QStringLiteral("group"), group);
+    if (group) { // the keys exist, so this QSettings creates nothing under HKCU
+        QSettings s(QSettings::UserScope, org);
+        s.beginGroup(kGroup);
+        QVariantMap values;
+        for (const QString &key : s.allKeys())
+            values.insert(key, s.value(key));
+        state.insert(QStringLiteral("values"), values);
+    }
     return state;
 }
 
@@ -196,35 +276,24 @@ void Platform::restoreQtDialogState(const QVariant &state)
     const QString org = st.value(QStringLiteral("org")).toString();
     if (org.isEmpty())
         return;
-    {
+    const QList<QPair<HKEY, QString>> keys = dialogKeys(org);
+    if (st.value(QStringLiteral("group")).toBool()) {
         QSettings s(QSettings::UserScope, org);
         s.remove(kGroup);
-        if (st.value(QStringLiteral("group")).toBool()) {
-            s.beginGroup(kGroup);
-            const QVariantMap values = st.value(QStringLiteral("values")).toMap();
-            for (auto it = values.constBegin(); it != values.constEnd(); ++it)
-                s.setValue(it.key(), it.value());
-            s.endGroup();
-        }
+        s.beginGroup(kGroup);
+        const QVariantMap values = st.value(QStringLiteral("values")).toMap();
+        for (auto it = values.constBegin(); it != values.constEnd(); ++it)
+            s.setValue(it.key(), it.value());
+        s.endGroup();
         s.sync();
+    } else {
+        ::RegDeleteTreeW(HKEY_CURRENT_USER, wptr(keys[0].second)); // all of it was written by this dialog
     }
-    // Keys the dialog created: only removed when nothing else is in them (another Qt program may have written meanwhile).
-    const QString orgKey = kSoftware + QLatin1Char('\\') + org;
-    if (!st.value(QStringLiteral("scope")).toBool()) {
-        const QSettings scope(QSettings::UserScope, org);
-        if (scope.allKeys().isEmpty()) {
-            QSettings parent(orgKey, QSettings::NativeFormat);
-            parent.remove(kScope);
-            parent.sync();
-        }
-    }
-    if (!st.value(QStringLiteral("root")).toBool()) {
-        const QSettings orgSettings(orgKey, QSettings::NativeFormat);
-        if (orgSettings.allKeys().isEmpty() && orgSettings.childGroups().isEmpty()) {
-            QSettings software(kSoftware, QSettings::NativeFormat);
-            software.remove(org);
-            software.sync();
-        }
+    // Keys that did not exist before: deleted when empty (another Qt program may have written into them meanwhile).
+    for (const QVariant &v : st.value(QStringLiteral("missing")).toList()) {
+        const auto &[root, sub] = keys.value(v.toInt());
+        if (!sub.isEmpty() && regKeyEmpty(root, sub))
+            ::RegDeleteKeyW(root, wptr(sub));
     }
 }
 
@@ -234,9 +303,10 @@ QString tr(const char *text)
     return QCoreApplication::translate("Platform", text);
 }
 
+// Under HKEY_CURRENT_USER (the installer is per user).
 QString uninstallKey()
 {
-    return kSoftware + QStringLiteral("\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\") + QLatin1String(Platform::kInstallerAppId) +
+    return QStringLiteral("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\") + QLatin1String(Platform::kInstallerAppId) +
            QStringLiteral("_is1");
 }
 
@@ -244,8 +314,7 @@ QString uninstallKey()
 // not installed with it.
 QString installFolder()
 {
-    const QSettings key(uninstallKey(), QSettings::NativeFormat);
-    QString dir = QDir::fromNativeSeparators(key.value(QStringLiteral("InstallLocation")).toString());
+    QString dir = QDir::fromNativeSeparators(regString(HKEY_CURRENT_USER, uninstallKey(), QStringLiteral("InstallLocation")));
     while (dir.endsWith(QLatin1Char('/')))
         dir.chop(1);
     return dir.isEmpty() || !QFileInfo(dir).isDir() ? QString() : dir;
@@ -276,8 +345,7 @@ QList<Platform::InstalledItem> Platform::installedItems()
         if (dir.isEmpty())
             return out;
     }
-    const QSettings key(uninstallKey(), QSettings::NativeFormat);
-    const QString version = key.value(QStringLiteral("DisplayVersion")).toString();
+    const QString version = regString(HKEY_CURRENT_USER, uninstallKey(), QStringLiteral("DisplayVersion"));
     out.append({dir, version.isEmpty() ? tr("The QODE program (installed)") : tr("The QODE program, version %1 (installed)").arg(version), false});
     const QString startMenu = QStandardPaths::writableLocation(QStandardPaths::ApplicationsLocation) + QStringLiteral("/QODE.lnk");
     if (QFileInfo::exists(startMenu))
@@ -286,20 +354,17 @@ QList<Platform::InstalledItem> Platform::installedItems()
     if (QFileInfo::exists(desktop))
         out.append({desktop, tr("Desktop shortcut"), false});
     const QString bin = QDir::toNativeSeparators(dir + QStringLiteral("/bin"));
-    const QSettings env(QStringLiteral("HKEY_CURRENT_USER\\Environment"), QSettings::NativeFormat);
-    const QStringList path = env.value(QStringLiteral("Path")).toString().split(QLatin1Char(';'), Qt::SkipEmptyParts);
+    const QStringList path = regString(HKEY_CURRENT_USER, QStringLiteral("Environment"), QStringLiteral("Path")).split(QLatin1Char(';'), Qt::SkipEmptyParts);
     if (std::any_of(path.cbegin(), path.cend(), [&bin](const QString &p) { return Platform::samePath(QDir::fromNativeSeparators(p), QDir::fromNativeSeparators(bin)); }))
         out.append({QStringLiteral("HKCU\\Environment\\Path"), tr("Your PATH includes %1, so \"qode\" works in a terminal").arg(bin), true});
-    const QString classes = kSoftware + QStringLiteral("\\Classes\\");
     for (const auto &[sub, what] : {std::pair{"Directory\\shell", "Explorer: \"Open with QODE\" on folders"},
                                     std::pair{"Directory\\Background\\shell", "Explorer: \"Open with QODE\" inside a folder"},
                                     std::pair{"*\\shell", "Explorer: \"Open with QODE\" on files"}}) {
-        const QSettings shell(classes + QLatin1String(sub), QSettings::NativeFormat);
-        if (shell.childGroups().contains(QStringLiteral("QODE"), Qt::CaseInsensitive))
-            out.append({QStringLiteral("HKCU\\Software\\Classes\\") + QLatin1String(sub) + QStringLiteral("\\QODE"), tr(what), true});
+        const QString key = QStringLiteral("Software\\Classes\\") + QLatin1String(sub) + QStringLiteral("\\QODE");
+        if (regKeyExists(HKEY_CURRENT_USER, key))
+            out.append({QStringLiteral("HKCU\\") + key, tr(what), true});
     }
-    out.append({QStringLiteral("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\") + QLatin1String(kInstallerAppId) + QStringLiteral("_is1"),
-                tr("The entry in Settings > Apps (how to uninstall QODE)"), true});
+    out.append({QStringLiteral("HKCU\\") + uninstallKey(), tr("The entry in Settings > Apps (how to uninstall QODE)"), true});
     return out;
 }
 
@@ -326,8 +391,7 @@ QString Platform::decodeOutput(const QByteArray &bytes)
     // The system's ANSI code page, which children use. GetACP() would give QODE's own (UTF-8, from its manifest), so it
     // comes from where Windows keeps it.
     static const UINT acp = [] {
-        const QSettings nls(QStringLiteral("HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage"), QSettings::NativeFormat);
-        const UINT cp = nls.value(QStringLiteral("ACP")).toString().toUInt();
+        const UINT cp = regString(HKEY_LOCAL_MACHINE, QStringLiteral("SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage"), QStringLiteral("ACP")).toUInt();
         return cp ? cp : 1252u;
     }();
     const int n = ::MultiByteToWideChar(acp, 0, bytes.constData(), int(bytes.size()), nullptr, 0);
@@ -1096,9 +1160,14 @@ QList<Platform::JdkPlace> Platform::jdkHomes()
     for (const Key &k : {Key{"JavaSoft\\JDK", "", "JavaHome"}, Key{"JavaSoft\\Java Development Kit", "", "JavaHome"},
                          Key{"Eclipse Adoptium\\JDK", "hotspot/MSI/", "Path"}, Key{"Eclipse Foundation\\JDK", "hotspot/MSI/", "Path"},
                          Key{"Microsoft\\JDK", "hotspot/MSI/", "Path"}, Key{"Azul Systems\\Zulu", "", "InstallationPath"}}) {
-        QSettings reg(QStringLiteral("HKEY_LOCAL_MACHINE\\SOFTWARE\\") + QLatin1String(k.key), QSettings::NativeFormat);
-        for (const QString &version : reg.childGroups())
-            add(reg.value(version + QLatin1Char('/') + QLatin1String(k.sub) + QLatin1String(k.value)).toString(), QStringLiteral("System"));
+        const QString base = QStringLiteral("SOFTWARE\\") + QLatin1String(k.key);
+        for (const QString &version : regSubKeys(HKEY_LOCAL_MACHINE, base)) {
+            QString sub = base + QLatin1Char('\\') + version + QLatin1Char('\\') + QLatin1String(k.sub);
+            sub.replace(QLatin1Char('/'), QLatin1Char('\\'));
+            while (sub.endsWith(QLatin1Char('\\')))
+                sub.chop(1);
+            add(regString(HKEY_LOCAL_MACHINE, sub, QLatin1String(k.value)), QStringLiteral("System"));
+        }
     }
     // Microsoft's build of OpenJDK installs into Program Files\Microsoft\jdk-<version> (next to unrelated folders).
     for (const QString &root : programFilesRoots()) {
@@ -1147,8 +1216,8 @@ QStringList Platform::systemIncludeDirs()
             const QString vc = QDir::cleanPath(QFileInfo(bat).absolutePath() + QStringLiteral("/../.."));
             if (const QString tools = newest(vc + QStringLiteral("/Tools/MSVC")); !tools.isEmpty())
                 out << tools + QStringLiteral("/include");
-            const QSettings kits(QStringLiteral("HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots"), QSettings::NativeFormat);
-            QString root = QDir::fromNativeSeparators(kits.value(QStringLiteral("KitsRoot10")).toString());
+            QString root = QDir::fromNativeSeparators(
+                regString(HKEY_LOCAL_MACHINE, QStringLiteral("SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots"), QStringLiteral("KitsRoot10")));
             if (root.isEmpty())
                 root = QDir::fromNativeSeparators(qEnvironmentVariable("ProgramFiles(x86)", QStringLiteral("C:\\Program Files (x86)"))) +
                        QStringLiteral("/Windows Kits/10");
@@ -1250,8 +1319,7 @@ QList<Platform::Shell> Platform::terminalShells()
     add(QStringLiteral("Command Prompt"), qEnvironmentVariable("ComSpec", system + QStringLiteral("\\cmd.exe")));
     add(QStringLiteral("Git Bash"), gitBash());
     // Without a distribution wsl.exe only explains how to install one.
-    const QSettings lxss(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Lxss"), QSettings::NativeFormat);
-    if (!lxss.childGroups().isEmpty())
+    if (!regSubKeys(HKEY_CURRENT_USER, QStringLiteral("Software\\Microsoft\\Windows\\CurrentVersion\\Lxss")).isEmpty())
         add(QStringLiteral("WSL"), system + QStringLiteral("\\wsl.exe"));
     return out;
 }

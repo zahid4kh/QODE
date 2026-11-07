@@ -1,4 +1,5 @@
 #include "platform/Platform.h"
+#include "terminal/ShellSyntax.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -115,14 +116,25 @@ bool Platform::replaceSymlink(const QString &, const QString &)
     return false;
 }
 
-void Platform::setShellCommand(QProcess *process, const QString &command)
+namespace {
+
+// /d: no AutoRun commands from the registry. /s /c "<line>": cmd drops the outer quotes and runs the rest as it is, so
+// the line keeps its own quotes. QProcess would quote each argument for the C runtime, which cmd does not parse, so the
+// line goes in as native arguments.
+void setCmdLine(QProcess *process, const QString &cmdLine)
 {
-    // /d: no AutoRun commands from the registry. /s /c "<line>": cmd drops the outer quotes and runs the rest as it is,
-    // so the line keeps its own quotes. QProcess would quote each argument for the C runtime, which cmd does not parse,
-    // so the line goes in as native arguments.
     process->setProgram(qEnvironmentVariable("ComSpec", QStringLiteral("cmd.exe")));
     process->setArguments({});
-    process->setNativeArguments(QStringLiteral("/d /s /c \"") + command + QLatin1Char('"'));
+    process->setNativeArguments(QStringLiteral("/d /s /c \"") + cmdLine + QLatin1Char('"'));
+}
+
+} // namespace
+
+void Platform::setShellCommand(QProcess *process, const QString &command)
+{
+    // Callers write sh (Spring's JAVA_TOOL_OPTIONS='…' .\gradlew bootRun): rewritten for cmd as in the terminal. A line
+    // outside what ShellSyntax knows (one the user typed for cmd) goes on unchanged.
+    setCmdLine(process, ShellSyntax::translate(command, QStringLiteral("cmd.exe")));
 }
 
 namespace {
@@ -166,7 +178,7 @@ void Platform::setCommand(QProcess *process, const QString &program, const QStri
     QString line = cmdQuote(QDir::toNativeSeparators(exe));
     for (const QString &a : args)
         line += QLatin1Char(' ') + cmdQuote(a);
-    setShellCommand(process, line);
+    setCmdLine(process, line);
 }
 
 QString Platform::wrapperCommand(const QString &dir, const QString &name)

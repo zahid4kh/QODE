@@ -30,9 +30,9 @@ QString userKey();
 // installers that use it get a Windows layout in Phase 5 of the port).
 bool replaceSymlink(const QString &target, const QString &link);
 
-// Sets `process` up to run a command line through the system shell; start() it afterwards. Unix: /bin/sh -c. Windows:
-// cmd.exe /d /s /c, with the line handed to cmd as it is (cmd's own quoting rules apply, and npm / npx resolve to their
-// .cmd wrappers).
+// Sets `process` up to run an sh command line through the system shell; start() it afterwards. Unix: /bin/sh -c.
+// Windows: cmd.exe /d /s /c, the line rewritten for cmd by ShellSyntax::translate (quotes, VAR=value, &&; a line it
+// does not know goes on as it is), and npm / npx resolve to their .cmd wrappers.
 void setShellCommand(QProcess *process, const QString &command);
 
 // Sets `process` up to run `program` with `args`; start() it afterwards. Unix: exactly that. Windows: a bare name is

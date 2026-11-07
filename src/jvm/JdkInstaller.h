@@ -19,6 +19,12 @@ class JdkInstaller : public QObject
 public:
     static QString defaultRoot(); // ~/.jdks
 
+    // The JDKs QODE itself downloaded that are still there, from <data>/downloaded-jdks.txt (one folder per line):
+    // ~/.jdks is shared with IntelliJ and Gradle, so Help > QODE's Files and the Windows uninstaller offer exactly
+    // these, never a JDK somebody else put there. A release that was already in place when asked for is not recorded.
+    static QStringList downloaded();
+    static QString recordFile();
+
     explicit JdkInstaller(QObject *parent = nullptr);
     ~JdkInstaller() override;
 

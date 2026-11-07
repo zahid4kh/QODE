@@ -1,9 +1,11 @@
 #include "jvm/JdkInstaller.h"
 
 #include "jvm/JdkScanner.h"
+#include "platform/AppPaths.h"
 #include "platform/Platform.h"
 
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -13,11 +15,14 @@
 #include <QNetworkRequest>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QSaveFile>
 #include <QStorageInfo>
 #include <QSysInfo>
 #include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
+
+#include <algorithm>
 
 namespace {
 constexpr int kNetworkTimeoutMs = 30000;
@@ -56,6 +61,42 @@ QString JdkInstaller::defaultRoot()
 {
     return QDir::homePath() + QStringLiteral("/.jdks");
 }
+
+QString JdkInstaller::recordFile()
+{
+    return AppPaths::data(QStringLiteral("downloaded-jdks.txt"));
+}
+
+QStringList JdkInstaller::downloaded()
+{
+    QStringList out;
+    QFile file(recordFile());
+    if (!file.open(QIODevice::ReadOnly))
+        return out;
+    for (const QByteArray &line : file.readAll().split('\n')) {
+        const QString home = QDir::fromNativeSeparators(QString::fromUtf8(line).trimmed());
+        if (!home.isEmpty() && QFileInfo(home).isDir()
+            && std::none_of(out.cbegin(), out.cend(), [&home](const QString &h) { return Platform::samePath(h, home); }))
+            out << home;
+    }
+    return out;
+}
+
+namespace {
+void recordDownload(const QString &home)
+{
+    QStringList all = JdkInstaller::downloaded();
+    if (std::any_of(all.cbegin(), all.cend(), [&home](const QString &h) { return Platform::samePath(h, home); }))
+        return;
+    all << home;
+    QDir().mkpath(QFileInfo(JdkInstaller::recordFile()).absolutePath());
+    QSaveFile file(JdkInstaller::recordFile());
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(all.join(QLatin1Char('\n')).toUtf8() + '\n');
+        file.commit();
+    }
+}
+} // namespace
 
 JdkInstaller::JdkInstaller(QObject *parent) : QObject(parent)
 {
@@ -314,6 +355,7 @@ void JdkInstaller::smokeTest()
             abort(tr("The JDK was installed in %1 but does not run: %2").arg(QDir::toNativeSeparators(m_home), output));
             return;
         }
+        recordDownload(m_home);
         m_active = false;
         emit progress(-1, 0);
         emit finished(m_home);

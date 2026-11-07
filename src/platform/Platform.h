@@ -27,7 +27,9 @@ void initProcess();
 // (children must not inherit it) and makes AltGr typing look as it does on Linux: Qt reports AltGr as
 // GroupSwitchModifier (not Ctrl+Alt), so Ctrl+Alt shortcuts no longer swallow the characters AltGr types (German €,
 // Polish ę ć ś), and once shortcuts are matched an app-wide filter drops that modifier from key presses, so the
-// editor reads `{` typed with AltGr+7 as plain typing (auto-pairing, completion).
+// editor reads `{` typed with AltGr+7 as plain typing (auto-pairing, completion). Also holds the mutex
+// "QODE-AGENTIC-running" that the installer and uninstaller check (Inno Setup's AppMutex), so they ask the user to
+// close QODE first.
 void initGui();
 
 // QODE's theme is dark (or light); called before the theme's palette is set. Unix: nothing (the window manager draws

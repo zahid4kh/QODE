@@ -7,7 +7,12 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QSaveFile>
+
+#include <algorithm>
+#include <cstring>
 
 namespace {
 
@@ -88,6 +93,60 @@ QList<Item> created(bool sizes)
                  tr("Eclipse Temurin JDK QODE downloaded (Gradle / Maven projects may still use it)"), true, false});
     }
     return out;
+}
+
+bool remove(const Item &item, QString *error)
+{
+    const QFileInfo fi(item.path);
+    if (!fi.exists() && !fi.isSymLink())
+        return true;
+    const bool ok = fi.isDir() && !fi.isSymLink() && !fi.isJunction() ? Platform::removeTree(item.path) : QFile::remove(item.path);
+    if (ok && !exists(item.path))
+        return true;
+    if (error)
+        *error = tr("could not delete everything in it (a file may be in use)");
+    return false;
+}
+
+bool runIfHelper(int argc, char *argv[])
+{
+    if (argc < 4 || std::strcmp(argv[1], "--qode-files") != 0)
+        return false;
+    // An application object for QStandardPaths, and the arguments in Unicode (not argv's ANSI code page on Windows).
+    QCoreApplication app(argc, argv);
+    QCoreApplication::setOrganizationName(QStringLiteral("QODE-AGENTIC"));
+    QCoreApplication::setApplicationName(QStringLiteral("QODE"));
+    const QStringList args = QCoreApplication::arguments();
+    const QString mode = args.value(2);
+    QStringList lines;
+    if (mode == QLatin1String("list")) {
+        for (const Item &i : created(true))
+            lines << QStringList{i.id, QString::number(i.removeByDefault ? 1 : 0), QString::number(i.size), QDir::toNativeSeparators(i.path), i.what}
+                         .join(QLatin1Char('\t'));
+    } else if (mode == QLatin1String("remove")) {
+        const QList<Item> items = created(false);
+        for (const QString &id : args.mid(4)) {
+            const auto it = std::find_if(items.cbegin(), items.cend(), [&id](const Item &i) { return i.id == id; });
+            if (it == items.cend()) {
+                lines << QStringLiteral("missing\t%1").arg(id);
+                continue;
+            }
+            const qint64 size = sizeOf(it->path);
+            QString error;
+            lines << (remove(*it, &error) ? QStringLiteral("removed\t%1\t%2\t%3").arg(id, QDir::toNativeSeparators(it->path)).arg(size)
+                                          : QStringLiteral("failed\t%1\t%2\t%3").arg(id, QDir::toNativeSeparators(it->path), error));
+        }
+    } else {
+        return true;
+    }
+    QSaveFile report(args.value(3));
+    if (report.open(QIODevice::WriteOnly)) {
+        report.write("\xEF\xBB\xBF"); // UTF-8 BOM: Inno Setup's LoadStringsFromFile reads the file as UTF-8 then
+        report.write(lines.join(QStringLiteral("\r\n")).toUtf8());
+        report.write("\r\n");
+        report.commit();
+    }
+    return true;
 }
 
 } // namespace QodeFiles

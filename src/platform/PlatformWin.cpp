@@ -134,6 +134,9 @@ void Platform::initGui()
         qunsetenv("QT_QPA_PLATFORM");
     if (QCoreApplication *app = QCoreApplication::instance())
         app->installEventFilter(new AltGrFilter(app));
+    // The installer's AppMutex (packaging/windows/qode.iss): setup and the uninstaller wait until every QODE window is
+    // closed, since they replace the program and delete the data folders a running QODE writes into. Held until exit.
+    ::CreateMutexW(nullptr, FALSE, L"QODE-AGENTIC-running");
 }
 
 void Platform::setDarkTheme(bool dark)

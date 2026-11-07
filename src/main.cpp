@@ -1,4 +1,5 @@
 #include "app/Application.h"
+#include "app/QodeFiles.h"
 #include "app/StartupProfile.h"
 #include "platform/AppPaths.h"
 #include "platform/Platform.h"
@@ -9,9 +10,9 @@
 
 int main(int argc, char *argv[])
 {
-    // The watchdog that stops QODE's servers when QODE itself ends abruptly (Unix), and the helper that sends a server
-    // Ctrl+C (Windows), are this same binary.
-    if (ProcessTree::runIfWatchdog(argc, argv) || Platform::runIfHelper(argc, argv))
+    // The watchdog that stops QODE's servers when QODE itself ends abruptly (Unix), the helper that sends a server
+    // Ctrl+C (Windows) and the uninstaller's helper that lists / removes QODE's data (QodeFiles) are this same binary.
+    if (ProcessTree::runIfWatchdog(argc, argv) || Platform::runIfHelper(argc, argv) || QodeFiles::runIfHelper(argc, argv))
         return 0;
     StartupProfile::begin();
     // Writing to a child process (git, the shell) that already exited must fail with an error, not kill the editor.

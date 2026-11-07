@@ -278,10 +278,10 @@ void GradlePanel::upgradeWrapper()
         }
         const auto answer = QMessageBox::question(
             this, tr("Upgrade Gradle Wrapper"),
-            tr("Upgrade the wrapper from Gradle %1 to %2?\n\nThis runs, in the terminal:\n./gradlew wrapper --gradle-version %2\n"
-               "and then ./gradlew wrapper once more, so the wrapper scripts and jar come from the new version too. Check the "
+            tr("Upgrade the wrapper from Gradle %1 to %2?\n\nThis runs, in the terminal:\n%3 wrapper --gradle-version %2\n"
+               "and then %3 wrapper once more, so the wrapper scripts and jar come from the new version too. Check the "
                "release notes for breaking changes before a major upgrade.")
-                .arg(current.value, latest));
+                .arg(current.value, latest, GradleTasks::runner(m_dir)));
         if (answer != QMessageBox::Yes)
             return;
         emit runRequested(QStringLiteral("%1 wrapper --gradle-version %2 --distribution-type bin && %1 wrapper").arg(GradleTasks::runner(m_dir), latest), m_dir);

@@ -12,7 +12,7 @@ public:
 
     bool isValid() const { return !m_command.isEmpty(); }
     bool isCompose() const { return m_compose; }
-    // "./gradlew run" (or ":module:run" for a module, "gradle run" without a wrapper).
+    // "./gradlew run" (Windows ".\gradlew.bat run"; or ":module:run" for a module, "gradle run" without a wrapper).
     QString runCommand() const { return m_command; }
     // Human-readable kind, e.g. "Compose Desktop".
     QString kind() const { return m_compose ? QStringLiteral("Compose Desktop") : QStringLiteral("Gradle application"); }

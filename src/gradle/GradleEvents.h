@@ -26,7 +26,7 @@ struct Build {
 QString eventsFile(const QString &root);
 // Writes (when changed) and returns the init script of the project.
 QString initScript(const QString &root);
-// `command` with `--init-script <script>` after its Gradle runner (./gradlew, gradlew, sh gradlew, gradle); unchanged when
+// `command` with `--init-script <script>` after its Gradle runner (./gradlew, .\gradlew.bat, gradlew, sh gradlew, gradle); unchanged when
 // the command does not run Gradle or already names the script.
 QString inject(const QString &command, const QString &root);
 bool runsGradle(const QString &command);

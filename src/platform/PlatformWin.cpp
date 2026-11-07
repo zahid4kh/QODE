@@ -396,7 +396,10 @@ void Platform::setCommand(QProcess *process, const QString &program, const QStri
 
 QString Platform::wrapperCommand(const QString &dir, const QString &name)
 {
-    return wrapperFile(dir, name).isEmpty() ? QString() : QStringLiteral(".\\") + name;
+    // .\gradlew.bat, .\mvnw.cmd: the file itself, as the user sees it in the folder (cmd and PowerShell would also find
+    // it from .\gradlew, but the full name says which script runs).
+    const QString file = wrapperFile(dir, name);
+    return file.isEmpty() ? QString() : QStringLiteral(".\\") + QFileInfo(file).fileName();
 }
 
 QString Platform::wrapperFile(const QString &dir, const QString &name)

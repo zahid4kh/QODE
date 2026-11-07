@@ -109,11 +109,14 @@ void KtorReloader::launch(const QStringList &args)
     m_proc->setWorkingDirectory(m_project.workDir);
     m_pending.clear();
     m_stopping = false;
-    // The build tool as the server's command names it: "./gradlew" / "./mvnw" (".\gradlew" on Windows) relative to the
-    // work folder, else gradle / mvn from PATH.
+    // The build tool as the server's command names it: "./gradlew" / "./mvnw" (".\gradlew.bat" / ".\mvnw.cmd" on Windows)
+    // relative to the work folder, else gradle / mvn from PATH.
     const QString &tool = m_project.tool;
     const bool wrapper = tool.startsWith(QLatin1String("./")) || tool.startsWith(QLatin1String(".\\"));
-    Platform::setCommand(m_proc, wrapper ? Platform::wrapperFile(m_project.workDir, tool.mid(2)) : tool, args);
+    QString name = tool.mid(2);
+    if (name.endsWith(QLatin1String(".bat"), Qt::CaseInsensitive) || name.endsWith(QLatin1String(".cmd"), Qt::CaseInsensitive))
+        name.chop(4);
+    Platform::setCommand(m_proc, wrapper ? Platform::wrapperFile(m_project.workDir, name) : tool, args);
     m_proc->start();
 }
 

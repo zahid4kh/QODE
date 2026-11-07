@@ -299,7 +299,7 @@ QString MainWindow::debugInitScript(int port, bool tests) const
 QString MainWindow::debugCommandFor(const QString &runCommand, int port) const
 {
     const QString agent = DebugSession::agentOption(port);
-    static const QRegularExpression gradle(QStringLiteral(R"((?:^|[\s;&|(])(?:sh\s+)?(?:\./gradlew|\.\\gradlew|gradlew|gradle)(?=\s|$))"));
+    static const QRegularExpression gradle(QStringLiteral(R"((?:^|[\s;&|(])(?:sh\s+)?(?:\./gradlew|\.\\gradlew(?:\.bat)?|gradlew(?:\.bat)?|gradle)(?=\s|$))"));
     if (const QRegularExpressionMatch m = gradle.match(runCommand); m.hasMatch()) {
         QString out = runCommand;
         out.insert(m.capturedEnd(), QStringLiteral(" --init-script ") + JvmTools::shellQuote(debugInitScript(port)));

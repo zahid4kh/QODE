@@ -2366,8 +2366,9 @@ QPair<QString, QString> projectCommands(const QString &root)
         if (test.isEmpty())
             test = QStringLiteral("go test ./...");
     }
-    if (lint.isEmpty() && dir.exists(QStringLiteral("gradlew")))
-        lint = QStringLiteral("./gradlew check");
+    if (lint.isEmpty())
+        if (const QString gradlew = Platform::wrapperCommand(dir.path(), QStringLiteral("gradlew")); !gradlew.isEmpty())
+            lint = gradlew + QStringLiteral(" check");
     return {lint, test};
 }
 } // namespace

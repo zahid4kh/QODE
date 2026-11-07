@@ -430,8 +430,12 @@ QString translate(const QString &line, const QString &shell)
     if (d == Dialect::Posix)
         return line;
     if (d == Dialect::GitBash || d == Dialect::Wsl) {
+        // .\gradlew.bat / .\mvnw.cmd -> ./gradlew / ./mvnw (the sh scripts next to them), any other .\x -> ./x.
+        static const QRegularExpression script(QStringLiteral("(^|[\\s;&|(])\\.\\\\(gradlew|mvnw)\\.(?:bat|cmd)(?=\\s|$|[;&|)])"),
+                                               QRegularExpression::CaseInsensitiveOption);
         static const QRegularExpression wrapper(QStringLiteral("(^|[\\s;&|(])\\.\\\\(?=\\w)"));
         QString out = line;
+        out.replace(script, QStringLiteral("\\1./\\2"));
         out.replace(wrapper, QStringLiteral("\\1./"));
         if (d == Dialect::Wsl) {
             // A drive path at the start of a word (also inside quotes, or after NAME=): C:/x -> /mnt/c/x.

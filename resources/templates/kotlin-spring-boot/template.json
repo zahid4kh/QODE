@@ -13,5 +13,6 @@
   ],
   "executable": ["gradlew"],
   "runCommand": "./gradlew bootRun",
+  "win": {"runCommand": ".\\gradlew.bat bootRun"},
   "openFiles": ["src/main/kotlin/{{packagePath}}/HelloController.kt"]
 }

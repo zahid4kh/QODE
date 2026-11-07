@@ -830,7 +830,7 @@ void MavenPanel::executeGoal()
     if (!ok || line.trimmed().isEmpty())
         return;
     QString goals = line.trimmed();
-    for (const QString &r : {QStringLiteral("./mvnw "), QStringLiteral(".\\mvnw "), QStringLiteral("mvn ")})
+    for (const QString &r : {QStringLiteral("./mvnw "), QStringLiteral(".\\mvnw.cmd "), QStringLiteral(".\\mvnw "), QStringLiteral("mvn ")})
         if (goals.startsWith(r))
             goals = goals.mid(r.size());
     emit runRequested(commandFor({goals}), m_dir);

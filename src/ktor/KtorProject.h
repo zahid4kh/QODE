@@ -14,7 +14,7 @@ struct KtorProject
     bool maven = false;
     QString workDir;   // where the build tool is started: the folder with the wrapper / settings file / pom
     QString moduleDir; // the module that holds the server (== workDir for a single-module build)
-    QString tool;      // "./gradlew", "gradle", "./mvnw" or "mvn"
+    QString tool;      // "./gradlew", "gradle", "./mvnw" or "mvn" (Windows ".\gradlew.bat", ".\mvnw.cmd")
     QString appName;   // the module folder name
     QString engine;    // Netty, CIO, Jetty, Tomcat or "" when the build names none
     QString mainClass; // from the build file ("io.ktor.server.netty.EngineMain", "com.example.ApplicationKt" …)

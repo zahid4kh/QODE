@@ -15,5 +15,6 @@
   ],
   "executable": ["gradlew"],
   "runCommand": "./gradlew run",
+  "win": {"runCommand": ".\\gradlew.bat run"},
   "openFiles": ["src/main/kotlin/{{packagePath}}/Routing.kt"]
 }

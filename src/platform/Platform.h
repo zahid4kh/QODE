@@ -123,7 +123,8 @@ void setCommand(QProcess *process, const QString &program, const QStringList &ar
 
 // The wrapper scripts projects ship next to their build file (`gradlew`, `mvnw`), by base name:
 // - wrapperCommand: how a command line run in `dir` names it. Unix "./gradlew", or "sh gradlew" when the file lost its
-//   exec bit; Windows ".\gradlew" (cmd and PowerShell both find gradlew.bat / mvnw.cmd from that). Empty when none.
+//   exec bit; Windows ".\gradlew.bat" / ".\mvnw.cmd" (the file's own name; cmd and PowerShell run it). Empty when none.
+//   Code that reads a command line back accepts every form (./gradlew, .\gradlew, .\gradlew.bat, sh gradlew).
 // - wrapperFile: the file to start with setCommand (dir/gradlew, or dir/gradlew.bat on Windows); empty when there is
 //   none or (Unix) it is not executable.
 // - wrapperNeedsExecBit: Unix only, the script exists without its exec bit (a zip download, a checkout without modes).

@@ -4,7 +4,8 @@
 #include <QString>
 
 // The JDKs installed on this machine: SDKMAN, /usr/lib/jvm, the toolchains Gradle provisioned (~/.gradle/jdks), IntelliJ's
-// ~/.jdks, $JAVA_HOME and the `java` on PATH. Each is read from its `release` file. Qt Core only.
+// ~/.jdks, $JAVA_HOME, the `java` on PATH, and on Windows those in Program Files, the registry and Scoop
+// (Platform::jdkFolders / jdkHomes). Each is read from its `release` file. Qt Core only.
 namespace JdkScanner {
 
 struct Jdk {

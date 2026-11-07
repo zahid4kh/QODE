@@ -1,4 +1,5 @@
 #include "jvm/JdkScanner.h"
+#include "platform/Platform.h"
 
 #include <QDir>
 #include <QFile>
@@ -25,6 +26,11 @@ QString releaseValue(const QString &text, const char *key)
         return v;
     }
     return {};
+}
+
+QString toolIn(const QString &home, const char *tool) // <home>/bin/java (java.exe on Windows)
+{
+    return home + QStringLiteral("/bin/") + QLatin1String(tool) + Platform::exeSuffix();
 }
 
 } // namespace
@@ -57,16 +63,19 @@ Jdk fromHome(const QString &homeIn)
     Jdk j;
     if (homeIn.isEmpty())
         return j;
-    QString home = QFileInfo(homeIn).canonicalFilePath();
+    QString home = Platform::realPath(homeIn); // Windows: through junctions too
     // macOS-style bundles and Gradle's provisioned folders sometimes nest the JDK one level down.
-    if (!home.isEmpty() && !QFileInfo::exists(home + QStringLiteral("/bin/java"))) {
+    if (!home.isEmpty() && !QFileInfo::exists(toolIn(home, "java"))) {
         for (const QString &sub : QDir(home).entryList(QDir::Dirs | QDir::NoDotAndDotDot))
-            if (QFileInfo::exists(home + QLatin1Char('/') + sub + QStringLiteral("/bin/java"))) {
-                home += QLatin1Char('/') + sub;
+            if (QFileInfo::exists(toolIn(home + QLatin1Char('/') + sub, "java"))) {
+                // Windows: Oracle's Java\latest\jdk-25 is a junction, which only realPath follows. Elsewhere the
+                // nested path is kept as it is.
+                const QString nested = home + QLatin1Char('/') + sub, real = Platform::realPath(nested);
+                home = real == QFileInfo(nested).canonicalFilePath() ? nested : real;
                 break;
             }
     }
-    if (home.isEmpty() || !QFileInfo(home + QStringLiteral("/bin/java")).isExecutable())
+    if (home.isEmpty() || !QFileInfo(toolIn(home, "java")).isExecutable())
         return j;
     QFile f(home + QStringLiteral("/release"));
     QString text;
@@ -85,7 +94,7 @@ Jdk fromHome(const QString &homeIn)
             }
     }
     j.major = majorOf(j.version);
-    j.jre = !QFileInfo::exists(home + QStringLiteral("/bin/javac"));
+    j.jre = !QFileInfo::exists(toolIn(home, "javac"));
     return j;
 }
 
@@ -93,44 +102,48 @@ QList<Jdk> scan()
 {
     QList<Jdk> out;
     QSet<QString> seen;
-    auto add = [&](const QString &home, const char *source) {
+    auto add = [&](const QString &home, const QString &source) {
         Jdk j = fromHome(home);
-        if (!j.isValid() || seen.contains(j.home))
+        if (!j.isValid() || seen.contains(Platform::pathKey(j.home))) // Windows: the same folder in another case
             return;
-        seen.insert(j.home);
-        j.source = QLatin1String(source);
+        seen.insert(Platform::pathKey(j.home));
+        j.source = source;
         out << j;
     };
-    auto addChildren = [&](const QString &dir, const char *source) {
+    auto addChildren = [&](const QString &dir, const QString &source) {
         for (const QString &sub : QDir(dir).entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name))
             if (sub != QLatin1String("current") && !sub.endsWith(QLatin1String(".lock")))
                 add(dir + QLatin1Char('/') + sub, source);
     };
-    add(qEnvironmentVariable("JAVA_HOME"), "JAVA_HOME");
-    addChildren(QDir::homePath() + QStringLiteral("/.sdkman/candidates/java"), "SDKMAN");
-    addChildren(QStringLiteral("/usr/lib/jvm"), "System");
-    addChildren(QStringLiteral("/usr/java"), "System");
-    addChildren(QStringLiteral("/opt/java"), "System");
-    addChildren(QDir::homePath() + QStringLiteral("/.gradle/jdks"), "Gradle");
-    addChildren(QDir::homePath() + QStringLiteral("/.jdks"), "IntelliJ");
-    addChildren(QDir::homePath() + QStringLiteral("/.local/share/mise/installs/java"), "mise");
-    addChildren(QDir::homePath() + QStringLiteral("/.asdf/installs/java"), "asdf");
+    add(qEnvironmentVariable("JAVA_HOME"), QStringLiteral("JAVA_HOME"));
+    addChildren(QDir::homePath() + QStringLiteral("/.sdkman/candidates/java"), QStringLiteral("SDKMAN"));
+    addChildren(QStringLiteral("/usr/lib/jvm"), QStringLiteral("System"));
+    addChildren(QStringLiteral("/usr/java"), QStringLiteral("System"));
+    addChildren(QStringLiteral("/opt/java"), QStringLiteral("System"));
+    addChildren(QDir::homePath() + QStringLiteral("/.gradle/jdks"), QStringLiteral("Gradle"));
+    addChildren(QDir::homePath() + QStringLiteral("/.jdks"), QStringLiteral("IntelliJ"));
+    addChildren(QDir::homePath() + QStringLiteral("/.local/share/mise/installs/java"), QStringLiteral("mise"));
+    addChildren(QDir::homePath() + QStringLiteral("/.asdf/installs/java"), QStringLiteral("asdf"));
+    for (const Platform::JdkPlace &p : Platform::jdkFolders()) // Windows: Program Files\<vendor>
+        addChildren(p.path, p.source);
+    for (const Platform::JdkPlace &p : Platform::jdkHomes()) // Windows: the registry, Scoop
+        add(p.path, p.source);
     const QString java = QStandardPaths::findExecutable(QStringLiteral("java"));
     if (!java.isEmpty())
-        add(QFileInfo(QFileInfo(java).canonicalFilePath()).absolutePath() + QStringLiteral("/.."), "PATH");
+        add(QFileInfo(Platform::realPath(java)).absolutePath() + QStringLiteral("/.."), QStringLiteral("PATH"));
     std::stable_sort(out.begin(), out.end(), [](const Jdk &a, const Jdk &b) { return a.major > b.major; });
     return out;
 }
 
 Jdk defaultJdk(const QList<Jdk> &all)
 {
-    const QString env = QFileInfo(qEnvironmentVariable("JAVA_HOME")).canonicalFilePath();
+    const QString env = Platform::realPath(qEnvironmentVariable("JAVA_HOME"));
     QString path;
     if (const QString java = QStandardPaths::findExecutable(QStringLiteral("java")); !java.isEmpty())
-        path = QFileInfo(QFileInfo(QFileInfo(java).canonicalFilePath()).absolutePath() + QStringLiteral("/..")).canonicalFilePath();
+        path = Platform::realPath(QFileInfo(Platform::realPath(java)).absolutePath() + QStringLiteral("/.."));
     for (const QString &want : {env, path})
         for (const Jdk &j : all)
-            if (!want.isEmpty() && j.home == want)
+            if (!want.isEmpty() && Platform::samePath(j.home, want))
                 return j;
     return {};
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QList>
 #include <QString>
 #include <QStringList>
 
@@ -128,6 +129,24 @@ QString bashProgram();
 QStringList qmakeCandidates();
 QStringList qmakeScopes(const QString &qmake);
 QString qmakeRunCommand(const QString &qmake, const QString &projectRoot, const QString &proRel, const QString &exe);
+
+// The real path of an existing file or folder, empty when it does not exist. Unix: QFileInfo::canonicalFilePath.
+// Windows: also resolves junctions (Qt resolves only symlinks), e.g. Oracle's Program Files\Java\latest\jdk-25 -> the
+// real JDK folder, so the same folder reached two ways compares equal.
+QString realPath(const QString &path);
+
+// JDKs installed where only this OS puts them (JdkScanner, LspServers::findJava), on top of the folders those list
+// themselves (JAVA_HOME, PATH, ~/.jdks, ~/.gradle/jdks, SDKMAN, /usr/lib/jvm …). `source` is what the JDK dialog shows.
+// - jdkFolders: folders whose subfolders are JDKs. Unix: none. Windows: Program Files\Java, Eclipse Adoptium, Zulu,
+//   Amazon Corretto, BellSoft, Semeru (those that exist).
+// - jdkHomes: JDK folders themselves. Unix: none. Windows: those the registry names (JavaSoft, Adoptium, Eclipse
+//   Foundation, Microsoft, Azul), Program Files\Microsoft\jdk-*, and Scoop's JDK apps (…\scoop\apps\<jdk>\current).
+struct JdkPlace {
+    QString path;
+    QString source;
+};
+QList<JdkPlace> jdkFolders();
+QList<JdkPlace> jdkHomes();
 
 // The git executable, empty when there is none. PATH first; on Windows also Git for Windows' usual install folders,
 // for an install that did not add itself to PATH.

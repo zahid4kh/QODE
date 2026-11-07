@@ -1,5 +1,6 @@
 #include "jvm/JdkDialog.h"
 
+#include "platform/Platform.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
 
@@ -109,7 +110,7 @@ void JdkDialog::addFolder()
         return;
     const JdkScanner::Jdk j = JdkScanner::fromHome(dir);
     if (!j.isValid()) {
-        QMessageBox::warning(this, tr("Project JDK"), tr("%1 holds no JDK (bin/java is missing).").arg(dir));
+        QMessageBox::warning(this, tr("Project JDK"), tr("%1 holds no JDK (%2 is missing).").arg(QDir::toNativeSeparators(dir), QDir::toNativeSeparators(QStringLiteral("bin/java") + Platform::exeSuffix())));
         return;
     }
     m_chosen = j.home;

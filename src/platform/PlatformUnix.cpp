@@ -218,6 +218,21 @@ void Platform::killTree(QProcess *process)
         process->kill();
 }
 
+QString Platform::realPath(const QString &path)
+{
+    return QFileInfo(path).canonicalFilePath();
+}
+
+QList<Platform::JdkPlace> Platform::jdkFolders()
+{
+    return {};
+}
+
+QList<Platform::JdkPlace> Platform::jdkHomes()
+{
+    return {};
+}
+
 QString Platform::gitExecutable()
 {
     return QStandardPaths::findExecutable(QStringLiteral("git"));

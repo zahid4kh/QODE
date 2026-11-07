@@ -109,7 +109,7 @@ JavaRuntime findJava(int minMajor)
     QStringList candidates;
     const QString javaHome = qEnvironmentVariable("JAVA_HOME");
     if (!javaHome.isEmpty())
-        candidates << javaHome + QStringLiteral("/bin/java");
+        candidates << javaHome + QStringLiteral("/bin/java") + Platform::exeSuffix();
     const QString onPath = QStandardPaths::findExecutable(QStringLiteral("java"));
     if (!onPath.isEmpty())
         candidates << onPath;
@@ -122,6 +122,15 @@ JavaRuntime findJava(int minMajor)
         for (const QString &n : std::as_const(names))
             candidates << dir + QLatin1Char('/') + n + QStringLiteral("/bin/java");
     }
+    // Windows: Program Files\<vendor>\<jdk>, then the registry's and Scoop's JDKs. Unix: none.
+    for (const Platform::JdkPlace &place : Platform::jdkFolders()) {
+        QStringList names = QDir(place.path).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+        std::sort(names.begin(), names.end(), [](const QString &a, const QString &b) { return QString::compare(a, b, Qt::CaseInsensitive) > 0; });
+        for (const QString &n : std::as_const(names))
+            candidates << place.path + QLatin1Char('/') + n + QStringLiteral("/bin/java") + Platform::exeSuffix();
+    }
+    for (const Platform::JdkPlace &place : Platform::jdkHomes())
+        candidates << place.path + QStringLiteral("/bin/java") + Platform::exeSuffix();
     JavaRuntime best;
     QSet<QString> seen;
     for (const QString &c : std::as_const(candidates)) {

@@ -533,6 +533,101 @@ QString Platform::qmakeRunCommand(const QString &qmake, const QString &projectRo
     return QLatin1Char('\'') + quoted + QLatin1Char('\'');
 }
 
+namespace {
+
+QStringList programFilesRoots() // 64-bit first; the same folder twice when QODE is 64-bit is dropped
+{
+    QStringList out;
+    for (const char *var : {"ProgramW6432", "ProgramFiles"}) {
+        const QString dir = QDir::fromNativeSeparators(qEnvironmentVariable(var));
+        if (!dir.isEmpty() && !out.contains(dir, Qt::CaseInsensitive))
+            out << dir;
+    }
+    if (out.isEmpty())
+        out << QStringLiteral("C:/Program Files");
+    return out;
+}
+
+} // namespace
+
+QString Platform::realPath(const QString &path)
+{
+    const QString canonical = QFileInfo(path).canonicalFilePath();
+    if (canonical.isEmpty())
+        return {};
+    // FILE_FLAG_BACKUP_SEMANTICS opens folders too; the handle follows every junction and symlink on the way.
+    const HANDLE h = ::CreateFileW(reinterpret_cast<const wchar_t *>(QDir::toNativeSeparators(canonical).utf16()), 0,
+                                   FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                                   FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    if (h == INVALID_HANDLE_VALUE)
+        return canonical;
+    wchar_t buf[4096];
+    const DWORD n = ::GetFinalPathNameByHandleW(h, buf, DWORD(std::size(buf)), FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    ::CloseHandle(h);
+    if (n == 0 || n >= std::size(buf))
+        return canonical;
+    QString real = QString::fromWCharArray(buf, int(n));
+    if (real.startsWith(QLatin1String("\\\\?\\UNC\\")))
+        real = QStringLiteral("\\\\") + real.mid(8);
+    else if (real.startsWith(QLatin1String("\\\\?\\")))
+        real = real.mid(4);
+    return QDir::fromNativeSeparators(real);
+}
+
+QList<Platform::JdkPlace> Platform::jdkFolders()
+{
+    QList<JdkPlace> out;
+    for (const QString &root : programFilesRoots())
+        for (const char *vendor : {"Java", "Eclipse Adoptium", "Zulu", "Amazon Corretto", "BellSoft", "Semeru", "IBM/Semeru"})
+            if (const QString dir = root + QLatin1Char('/') + QLatin1String(vendor); QFileInfo(dir).isDir())
+                out.append({dir, QStringLiteral("System")});
+    return out;
+}
+
+QList<Platform::JdkPlace> Platform::jdkHomes()
+{
+    QList<JdkPlace> out;
+    const auto add = [&out](const QString &home, const QString &source) {
+        const QString dir = QDir::fromNativeSeparators(home.trimmed());
+        if (!dir.isEmpty() && QFileInfo(dir).isDir())
+            out.append({dir, source});
+    };
+    // The installers' own keys: <key>\<version>[\<sub>] holds the folder in <value>.
+    struct Key {
+        const char *key, *sub, *value;
+    };
+    for (const Key &k : {Key{"JavaSoft\\JDK", "", "JavaHome"}, Key{"JavaSoft\\Java Development Kit", "", "JavaHome"},
+                         Key{"Eclipse Adoptium\\JDK", "hotspot/MSI/", "Path"}, Key{"Eclipse Foundation\\JDK", "hotspot/MSI/", "Path"},
+                         Key{"Microsoft\\JDK", "hotspot/MSI/", "Path"}, Key{"Azul Systems\\Zulu", "", "InstallationPath"}}) {
+        QSettings reg(QStringLiteral("HKEY_LOCAL_MACHINE\\SOFTWARE\\") + QLatin1String(k.key), QSettings::NativeFormat);
+        for (const QString &version : reg.childGroups())
+            add(reg.value(version + QLatin1Char('/') + QLatin1String(k.sub) + QLatin1String(k.value)).toString(), QStringLiteral("System"));
+    }
+    // Microsoft's build of OpenJDK installs into Program Files\Microsoft\jdk-<version> (next to unrelated folders).
+    for (const QString &root : programFilesRoots()) {
+        const QDir ms(root + QStringLiteral("/Microsoft"));
+        for (const QString &name : ms.entryList({QStringLiteral("jdk-*")}, QDir::Dirs | QDir::NoDotAndDotDot))
+            add(ms.filePath(name), QStringLiteral("System"));
+    }
+    // Scoop: per user (%SCOOP% or ~\scoop) and global (%ProgramData%\scoop); a JDK app's current version is "current".
+    QStringList scoop{qEnvironmentVariable("SCOOP"), QDir::homePath() + QStringLiteral("/scoop"), qEnvironmentVariable("SCOOP_GLOBAL")};
+    if (const QString data = qEnvironmentVariable("ProgramData"); !data.isEmpty())
+        scoop << data + QStringLiteral("/scoop");
+    static const QRegularExpression jdkApp(QStringLiteral("jdk|jre|java|temurin|zulu|corretto|liberica|graalvm|semeru"),
+                                           QRegularExpression::CaseInsensitiveOption);
+    QStringList seen;
+    for (const QString &root : std::as_const(scoop)) {
+        const QString apps = QDir::fromNativeSeparators(root) + QStringLiteral("/apps");
+        if (root.isEmpty() || seen.contains(apps, Qt::CaseInsensitive))
+            continue;
+        seen << apps;
+        for (const QString &app : QDir(apps).entryList(QDir::Dirs | QDir::NoDotAndDotDot))
+            if (jdkApp.match(app).hasMatch())
+                add(apps + QLatin1Char('/') + app + QStringLiteral("/current"), QStringLiteral("Scoop"));
+    }
+    return out;
+}
+
 QString Platform::gitExecutable()
 {
     const QString onPath = QStandardPaths::findExecutable(QStringLiteral("git"));

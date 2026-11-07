@@ -1,4 +1,5 @@
 #include "QmakeProject.h"
+#include "platform/Platform.h"
 
 #include <QDir>
 #include <QFile>
@@ -12,16 +13,6 @@
 
 namespace {
 
-QString shellWord(const QString &s)
-{
-    static const QRegularExpression plain(QStringLiteral("^[A-Za-z0-9_./+=:@%-]+$"));
-    if (plain.match(s).hasMatch())
-        return s;
-    QString q = s;
-    q.replace(QLatin1Char('\''), QStringLiteral("'\\''"));
-    return QLatin1Char('\'') + q + QLatin1Char('\'');
-}
-
 QString findQmake()
 {
     for (const char *name : {"qmake6", "qmake-qt6", "qmake"}) {
@@ -29,7 +20,7 @@ QString findQmake()
         if (!p.isEmpty())
             return p;
     }
-    return {};
+    return Platform::qmakeCandidates().value(0); // Windows: the Qt installer's kits, rarely on PATH
 }
 
 // Output of a quick helper process, "" when it fails. Never blocks for long.
@@ -293,9 +284,12 @@ private:
 
     bool evalTerm(const QString &term, const Vars &vars) const
     {
-        static const QSet<QString> yes = {QStringLiteral("unix"), QStringLiteral("linux"), QStringLiteral("linux-g++"),
-                                          QStringLiteral("linux-g++-64"), QStringLiteral("release"), QStringLiteral("gcc"),
-                                          QStringLiteral("posix"), QStringLiteral("true")};
+        static const QSet<QString> yes = [] {
+            QSet<QString> s{QStringLiteral("release"), QStringLiteral("true")};
+            for (const QString &scope : Platform::qmakeScopes(findQmake())) // unix, linux … / win32, msvc …
+                s.insert(scope);
+            return s;
+        }();
         if (yes.contains(term))
             return true;
         static const QRegularExpression fn(QStringLiteral(R"(^(\w+)\s*\((.*)\)$)"));
@@ -438,12 +432,7 @@ QString QmakeProject::runCommand() const
 {
     if (!isValid() || !isApp())
         return {};
-    const QString found = QFileInfo(findQmake()).fileName();
-    const QString qmake = found.isEmpty() ? QStringLiteral("qmake6") : found;
-    const QString rel = QDir(m_root).relativeFilePath(m_proFile);
-    const QString exe = QDir::isAbsolutePath(m_runPath) ? shellWord(m_runPath) : QStringLiteral("./") + shellWord(m_runPath);
-    return QStringLiteral("cd {project} && mkdir -p build && cd build && %1 ../%2 && make -j$(nproc) && %3")
-        .arg(qmake, shellWord(rel), exe);
+    return Platform::qmakeRunCommand(findQmake(), m_root, QDir(m_root).relativeFilePath(m_proFile), m_runPath);
 }
 
 QStringList QmakeProject::compilerFlags() const

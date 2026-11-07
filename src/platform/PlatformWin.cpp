@@ -1,12 +1,20 @@
 #include "platform/Platform.h"
+#include "platform/AppPaths.h"
 #include "terminal/ShellSyntax.h"
 
+#include <QCryptographicHash>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QProcess>
+#include <QSaveFile>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QThread>
+#include <QVersionNumber>
 #include <QtGlobal>
+
+#include <algorithm>
 
 #include <cstdlib>
 #include <cstring>
@@ -217,6 +225,209 @@ bool Platform::hasExecBit()
     return false;
 }
 
+QString Platform::exeSuffix()
+{
+    return QStringLiteral(".exe");
+}
+
+QString Platform::pythonCommand()
+{
+    // python.exe may be the Microsoft Store stub (WindowsApps), which opens the Store; py is only there when Python is.
+    return QStandardPaths::findExecutable(QStringLiteral("py")).isEmpty() ? QStringLiteral("python") : QStringLiteral("py");
+}
+
+namespace {
+
+// Git Bash: bin\bash.exe in Git's folder; git.exe sits in cmd\, bin\ or mingw64\bin\ of it. Empty when there is none.
+QString gitBash()
+{
+    const QString git = Platform::gitExecutable();
+    if (git.isEmpty())
+        return {};
+    QDir dir = QFileInfo(git).dir();
+    for (int up = 0; up < 2 && dir.cdUp(); ++up)
+        if (QFileInfo(dir.filePath(QStringLiteral("bin/bash.exe"))).isFile())
+            return dir.filePath(QStringLiteral("bin/bash.exe"));
+    return {};
+}
+
+} // namespace
+
+QString Platform::bashProgram()
+{
+    const QString bash = gitBash();
+    return bash.isEmpty() ? QStringLiteral("bash") : bash;
+}
+
+// --- qmake projects ---------------------------------------------------------------------------------------------------
+
+namespace {
+
+// vcvars64.bat of the newest Visual Studio with the C++ tools, "" when there is none. vswhere is asked once.
+QString vcvars64()
+{
+    static const QString found = [] {
+        const QString x86 = qEnvironmentVariable("ProgramFiles(x86)", QStringLiteral("C:\\Program Files (x86)"));
+        const QString vswhere = x86 + QStringLiteral("\\Microsoft Visual Studio\\Installer\\vswhere.exe");
+        if (!QFileInfo(vswhere).isFile())
+            return QString();
+        QProcess p;
+        p.start(vswhere, {QStringLiteral("-latest"), QStringLiteral("-products"), QStringLiteral("*"), QStringLiteral("-requires"),
+                          QStringLiteral("Microsoft.VisualStudio.Component.VC.Tools.x86.x64"), QStringLiteral("-property"),
+                          QStringLiteral("installationPath")});
+        if (!p.waitForFinished(5000)) {
+            p.kill();
+            p.waitForFinished(1000);
+            return QString();
+        }
+        const QString dir = QString::fromLocal8Bit(p.readAllStandardOutput()).section(QLatin1Char('\n'), 0, 0).trimmed();
+        const QString bat = dir + QStringLiteral("\\VC\\Auxiliary\\Build\\vcvars64.bat");
+        return !dir.isEmpty() && QFileInfo(bat).isFile() ? bat : QString();
+    }();
+    return found;
+}
+
+bool isMsvcKit(const QString &qmake)
+{
+    return QFileInfo(qmake).absolutePath().contains(QLatin1String("msvc"), Qt::CaseInsensitive);
+}
+
+// The Qt installer's root (…\Qt) of a qmake at <root>\<version>\<kit>\bin\qmake.exe.
+QString qtRootOf(const QString &qmake)
+{
+    QDir dir = QFileInfo(qmake).absoluteDir();
+    for (int i = 0; i < 3; ++i)
+        if (!dir.cdUp())
+            return {};
+    return dir.absolutePath();
+}
+
+// For a batch file: native separators, and % doubled (a batch file expands %…%).
+QString batPath(const QString &path)
+{
+    QString p = QDir::toNativeSeparators(path);
+    return p.replace(QLatin1Char('%'), QStringLiteral("%%"));
+}
+
+} // namespace
+
+QStringList Platform::qmakeCandidates()
+{
+    struct Kit {
+        QVersionNumber version;
+        QString qmake;
+        bool msvc;
+    };
+    QList<Kit> kits;
+    const QFileInfoList drives = QDir::drives();
+    for (const QFileInfo &drive : drives) {
+        const QDir qt(drive.absoluteFilePath() + QStringLiteral("Qt"));
+        if (!qt.exists())
+            continue;
+        const QStringList versions = qt.entryList({QStringLiteral("[0-9]*")}, QDir::Dirs | QDir::NoDotAndDotDot);
+        for (const QString &v : versions) {
+            const QVersionNumber version = QVersionNumber::fromString(v);
+            if (version.isNull())
+                continue;
+            const QStringList kitDirs = QDir(qt.filePath(v)).entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+            for (const QString &kit : kitDirs) {
+                const QString qmake = qt.filePath(v + QLatin1Char('/') + kit + QStringLiteral("/bin/qmake.exe"));
+                const bool msvc = kit.startsWith(QLatin1String("msvc")) && !kit.contains(QLatin1String("arm64"));
+                const bool mingw = kit.startsWith(QLatin1String("mingw"));
+                if ((msvc || mingw) && QFileInfo(qmake).isFile())
+                    kits.append({version, qmake, msvc});
+            }
+        }
+    }
+    // Newest first; within a version the kit whose compiler is there.
+    const bool haveMsvc = !vcvars64().isEmpty();
+    std::stable_sort(kits.begin(), kits.end(), [haveMsvc](const Kit &a, const Kit &b) {
+        if (a.version != b.version)
+            return a.version > b.version;
+        return (a.msvc == haveMsvc) && (b.msvc != haveMsvc);
+    });
+    QStringList out;
+    for (const Kit &k : std::as_const(kits))
+        out << k.qmake;
+    return out;
+}
+
+QStringList Platform::qmakeScopes(const QString &qmake)
+{
+    QStringList scopes{QStringLiteral("win32"), QStringLiteral("windows")};
+    if (qmake.isEmpty())
+        return scopes;
+    if (isMsvcKit(qmake))
+        scopes << QStringLiteral("msvc") << QStringLiteral("win32-msvc");
+    else
+        scopes << QStringLiteral("mingw") << QStringLiteral("win32-g++") << QStringLiteral("gcc");
+    return scopes;
+}
+
+QString Platform::qmakeRunCommand(const QString &qmake, const QString &projectRoot, const QString &proRel, const QString &exe)
+{
+    if (qmake.isEmpty() || projectRoot.isEmpty())
+        return {};
+    const QString root = qtRootOf(qmake);
+    QString setup, make;
+    if (isMsvcKit(qmake)) {
+        const QString vc = vcvars64();
+        if (vc.isEmpty())
+            return {};
+        setup = QStringLiteral("call \"%1\" >nul || (echo QODE: setting up the Visual Studio compiler failed& exit /b 1)").arg(batPath(vc));
+        const QString jom = root + QStringLiteral("/Tools/jom/jom.exe");
+        if (QFileInfo(jom).isFile())
+            make = QLatin1Char('"') + batPath(jom) + QLatin1Char('"');
+        else if (!QStandardPaths::findExecutable(QStringLiteral("jom")).isEmpty())
+            make = QStringLiteral("jom");
+        else
+            make = QStringLiteral("nmake /nologo");
+    } else {
+        // The kit's MinGW comes with the Qt installer (Tools\mingw<ver>_64); else one already on PATH.
+        const QStringList mingws = QDir(root + QStringLiteral("/Tools")).entryList({QStringLiteral("mingw*")}, QDir::Dirs, QDir::Name);
+        for (auto it = mingws.crbegin(); it != mingws.crend(); ++it) {
+            const QString bin = root + QStringLiteral("/Tools/") + *it + QStringLiteral("/bin");
+            if (QFileInfo(bin + QStringLiteral("/mingw32-make.exe")).isFile()) {
+                setup = QStringLiteral("set \"PATH=%1;%PATH%\"").arg(batPath(bin));
+                break;
+            }
+        }
+        make = QStringLiteral("mingw32-make -j%1").arg(qMax(1, QThread::idealThreadCount()));
+    }
+    // .\ for one in build\: a bare name may not be looked up in the current folder (NoDefaultCurrentDirectoryInExePath).
+    const QString run = (QDir::isAbsolutePath(exe) ? exe : QStringLiteral("./") + exe) + QStringLiteral(".exe");
+    const QStringList lines = {
+        QStringLiteral("@echo off"),
+        QStringLiteral("rem Written by QODE: builds %1 into build\\ and runs it.").arg(batPath(proRel)),
+        QStringLiteral("setlocal"),
+        setup,
+        // The program finds Qt's DLLs there.
+        QStringLiteral("set \"PATH=%1;%PATH%\"").arg(batPath(QFileInfo(qmake).absolutePath())),
+        QStringLiteral("cd /d \"%1\" || exit /b 1").arg(batPath(projectRoot)),
+        QStringLiteral("if not exist build\\ md build"),
+        QStringLiteral("cd build || exit /b 1"),
+        // One release build, straight into build\ (no release\ and debug\ folders).
+        QStringLiteral("\"%1\" \"..\\%2\" \"CONFIG+=release\" \"CONFIG-=debug_and_release\" || exit /b 1").arg(batPath(qmake), batPath(proRel)),
+        make + QStringLiteral(" || exit /b 1"),
+        QLatin1Char('"') + batPath(run) + QLatin1Char('"'),
+    };
+    const QString dir = AppPaths::cache(QStringLiteral("qmake-run"));
+    const QByteArray hash = QCryptographicHash::hash(QDir::cleanPath(projectRoot).toLower().toUtf8(), QCryptographicHash::Sha1).toHex().left(10);
+    const QString file = dir + QLatin1Char('/') + QFileInfo(projectRoot).fileName() + QLatin1Char('-') + QString::fromLatin1(hash) + QStringLiteral(".bat");
+    const QByteArray content = lines.join(QStringLiteral("\r\n")).toUtf8() + "\r\n";
+    QFile current(file);
+    if (!current.open(QIODevice::ReadOnly) || current.readAll() != content) {
+        current.close();
+        QDir().mkpath(dir);
+        QSaveFile out(file);
+        if (!out.open(QIODevice::WriteOnly) || out.write(content) != content.size() || !out.commit())
+            return {};
+    }
+    QString quoted = file;
+    quoted.replace(QLatin1Char('\''), QStringLiteral("'\\''"));
+    return QLatin1Char('\'') + quoted + QLatin1Char('\'');
+}
+
 QString Platform::gitExecutable()
 {
     const QString onPath = QStandardPaths::findExecutable(QStringLiteral("git"));
@@ -268,15 +479,7 @@ QList<Platform::Shell> Platform::terminalShells()
     add(QStringLiteral("PowerShell"), QStandardPaths::findExecutable(QStringLiteral("pwsh")));
     add(QStringLiteral("Windows PowerShell"), system + QStringLiteral("\\WindowsPowerShell\\v1.0\\powershell.exe"));
     add(QStringLiteral("Command Prompt"), qEnvironmentVariable("ComSpec", system + QStringLiteral("\\cmd.exe")));
-    // Git Bash is bin\bash.exe in Git's folder; git.exe sits in cmd\, bin\ or mingw64\bin\ of it.
-    if (const QString git = gitExecutable(); !git.isEmpty()) {
-        QDir dir = QFileInfo(git).dir();
-        for (int up = 0; up < 2 && dir.cdUp(); ++up)
-            if (QFileInfo(dir.filePath(QStringLiteral("bin/bash.exe"))).isFile()) {
-                add(QStringLiteral("Git Bash"), dir.filePath(QStringLiteral("bin/bash.exe")));
-                break;
-            }
-    }
+    add(QStringLiteral("Git Bash"), gitBash());
     // Without a distribution wsl.exe only explains how to install one.
     const QSettings lxss(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Lxss"), QSettings::NativeFormat);
     if (!lxss.childGroups().isEmpty())

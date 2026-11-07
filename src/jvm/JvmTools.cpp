@@ -155,7 +155,7 @@ QString scriptRunCommand(const QString &path, const QString &text, bool *chmodOf
     if (chmodOffer)
         *chmodOffer = false;
     const QString bang = shebang(text);
-    if (bang.contains(QLatin1String("kotlin"))) {
+    if (bang.contains(QLatin1String("kotlin")) && Platform::hasExecBit()) { // Windows never runs a file by its #! line
         if (QFileInfo(path).isExecutable())
             return QStringLiteral("{file}");
         if (chmodOffer)

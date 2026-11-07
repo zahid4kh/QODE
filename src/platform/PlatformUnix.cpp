@@ -2,10 +2,12 @@
 
 #include <QByteArray>
 #include <QCoreApplication>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QList>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QStandardPaths>
 
 #include <csignal>
@@ -102,6 +104,49 @@ QString Platform::venvProgram(const QString &venv, const QString &name)
 bool Platform::hasExecBit()
 {
     return true;
+}
+
+QString Platform::exeSuffix()
+{
+    return {};
+}
+
+QString Platform::pythonCommand()
+{
+    return QStringLiteral("python3");
+}
+
+QString Platform::bashProgram()
+{
+    return QStringLiteral("bash");
+}
+
+QStringList Platform::qmakeCandidates()
+{
+    return {};
+}
+
+QStringList Platform::qmakeScopes(const QString &)
+{
+    return {QStringLiteral("unix"),         QStringLiteral("linux"), QStringLiteral("linux-g++"),
+            QStringLiteral("linux-g++-64"), QStringLiteral("gcc"),   QStringLiteral("posix")};
+}
+
+QString Platform::qmakeRunCommand(const QString &qmake, const QString &, const QString &proRel, const QString &exe)
+{
+    // A word for sh, quoted only when it needs it.
+    const auto word = [](const QString &s) {
+        static const QRegularExpression plain(QStringLiteral("^[A-Za-z0-9_./+=:@%-]+$"));
+        if (plain.match(s).hasMatch())
+            return s;
+        QString q = s;
+        q.replace(QLatin1Char('\''), QStringLiteral("'\\''"));
+        return QLatin1Char('\'') + q + QLatin1Char('\'');
+    };
+    const QString name = QFileInfo(qmake).fileName();
+    const QString run = QDir::isAbsolutePath(exe) ? word(exe) : QStringLiteral("./") + word(exe);
+    return QStringLiteral("cd {project} && mkdir -p build && cd build && %1 ../%2 && make -j$(nproc) && %3")
+        .arg(name.isEmpty() ? QStringLiteral("qmake6") : name, word(proRel), run);
 }
 
 QString Platform::gitExecutable()

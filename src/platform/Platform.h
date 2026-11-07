@@ -60,6 +60,29 @@ QString venvProgram(const QString &venv, const QString &name);
 // extension, and QFileInfo::isExecutable only reports that).
 bool hasExecBit();
 
+// What the default run configurations (RunConfigDialog) name, for an sh line:
+// - exeSuffix: what a compiler's `-o name` output is run as. Unix "", Windows ".exe".
+// - pythonCommand: Unix "python3"; Windows "py" (the launcher) when there is one, else "python".
+// - bashProgram: Unix "bash"; Windows Git Bash's bash.exe when Git has one (a bare bash may be WSL's), else "bash".
+QString exeSuffix();
+QString pythonCommand();
+QString bashProgram();
+
+// qmake projects (QmakeProject):
+// - qmakeCandidates: qmake programs that are not on PATH, the best first. Unix: none. Windows: <drive>:\Qt\<version>\
+//   <kit>\bin\qmake.exe (the Qt installer's layout), newest version first; MSVC kits first when Visual Studio's C++
+//   tools are installed, MinGW kits first otherwise.
+// - qmakeScopes: the scopes a .pro file's conditions see as true for this OS and that qmake. Unix: unix, linux,
+//   linux-g++, linux-g++-64, gcc, posix. Windows: win32, windows, plus msvc / win32-msvc or mingw / win32-g++ / gcc.
+// - qmakeRunCommand: an sh line that configures `proRel` (relative to the project) into <project>/build, builds it and
+//   runs `exe` (relative to build/, or absolute). Unix: cd {project} && mkdir -p build && cd build && qmake ../x.pro &&
+//   make -j$(nproc) && ./exe. Windows: a .bat written to QODE's cache that sets the compiler up (vcvars64.bat, or the
+//   kit's MinGW) and Qt's bin\ on PATH, builds a release with jom / nmake / mingw32-make and runs exe.exe; the line runs
+//   that file. Empty when that cannot be written.
+QStringList qmakeCandidates();
+QStringList qmakeScopes(const QString &qmake);
+QString qmakeRunCommand(const QString &qmake, const QString &projectRoot, const QString &proRel, const QString &exe);
+
 // The git executable, empty when there is none. PATH first; on Windows also Git for Windows' usual install folders,
 // for an install that did not add itself to PATH.
 QString gitExecutable();

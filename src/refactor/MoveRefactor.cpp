@@ -248,8 +248,15 @@ bool readText(const QString &path, QString *text, bool *bom)
     return true;
 }
 
-bool writeText(const QString &path, const QString &text, bool bom)
+bool writeText(const QString &path, const QString &fileText, bool bom)
 {
+    // A CRLF file stays CRLF: the import lines the plan inserted end in a bare \n.
+    QString text = fileText;
+    const qsizetype crlf = text.count(QStringLiteral("\r\n"));
+    if (crlf > 0 && crlf >= text.count(QLatin1Char('\n')) - crlf) {
+        text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+        text.replace(QLatin1Char('\n'), QStringLiteral("\r\n"));
+    }
     QByteArray data = text.toUtf8();
     if (bom)
         data.prepend("\xEF\xBB\xBF");

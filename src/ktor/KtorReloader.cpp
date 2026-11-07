@@ -168,12 +168,13 @@ void KtorReloader::scan(const QString &line)
     // Maven's Kotlin plugin: "[ERROR] /home/me/app/src/main/kotlin/Routing.kt: (12, 5) Unresolved reference 'x'."
     // javac: "/home/me/app/src/main/java/A.java:12: error: cannot find symbol"
     static const QRegularExpression kotlinError(QStringLiteral(R"(^e: (?:file://)?(\S+?):(\d+):\d+ (.*))"));
-    static const QRegularExpression mavenError(QStringLiteral(R"(^\[ERROR\] (?:file://)?(/\S+?): \((\d+), \d+\) (.*))"));
-    static const QRegularExpression javacError(QStringLiteral(R"(^(/\S+\.java):(\d+): error: (.*))"));
+    // Windows paths too: D:\app\x.kt, D:/app/x.kt, /D:/app/x.kt after file://.
+    static const QRegularExpression mavenError(QStringLiteral(R"(^\[ERROR\] (?:file://)?((?:/?[A-Za-z]:)?[/\]\S+?): \((\d+), \d+\) (.*))"));
+    static const QRegularExpression javacError(QStringLiteral(R"(^((?:[A-Za-z]:)?[/\]\S+\.java):(\d+): error: (.*))"));
     for (const QRegularExpression *re : {&kotlinError, &mavenError, &javacError}) {
         const QRegularExpressionMatch m = re->match(line);
         if (m.hasMatch()) {
-            m_cycleErrors << QStringLiteral("%1:%2: %3").arg(QFileInfo(m.captured(1)).fileName(), m.captured(2), m.captured(3));
+            m_cycleErrors << QStringLiteral("%1:%2: %3").arg(QFileInfo(QDir::fromNativeSeparators(m.captured(1))).fileName(), m.captured(2), m.captured(3));
             emit output(line + QLatin1Char('\n'));
             return;
         }

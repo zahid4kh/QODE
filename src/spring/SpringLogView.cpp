@@ -2,6 +2,7 @@
 
 #include "settings/SettingsManager.h"
 
+#include <QDir>
 #include <QFontMetricsF>
 #include <QMouseEvent>
 #include <QRegularExpression>
@@ -195,8 +196,9 @@ void SpringLogView::processLine(QString line)
     static const QRegularExpression bracket(QStringLiteral(R"(\[([^\]]*)\])"));
     static const QRegularExpression build(QStringLiteral(
         R"(^(?:> (?:Task|Configure|Transform)\b|BUILD |Deprecated Gradle|FAILURE:|\* (?:What went wrong|Try|Exception is|Get more help)|\[(?:INFO|WARNING|ERROR)\]|Starting a Gradle Daemon|Reusing configuration|Downloading |Daemon will be stopped|Picked up |\d+ actionable tasks?|Calculating task graph|Welcome to Gradle|[ew]: |Execution failed for task|Process 'command))"));
-    static const QRegularExpression kotlinLoc(QStringLiteral(R"(^[ew]: (?:file://)?(/[^:]+?):(\d+):(\d+))"));
-    static const QRegularExpression javaLoc(QStringLiteral(R"(^(/[^:\s]+\.(?:java|kt)):(\d+): (?:error|warning))"));
+    // A path may also be Windows' (D:\x\A.kt, D:/x, or /D:/x after file://).
+    static const QRegularExpression kotlinLoc(QStringLiteral(R"(^[ew]: (?:file://)?((?:/?[A-Za-z]:)?[/\][^:]+?):(\d+):(\d+))"));
+    static const QRegularExpression javaLoc(QStringLiteral(R"(^((?:[A-Za-z]:)?[/\][^:\s]+\.(?:java|kt)):(\d+): (?:error|warning))"));
     // Spring's bootRun or Ktor's run: what follows is the application's own output.
     static const QRegularExpression bootRun(QStringLiteral(R"(^> Task :(?:[\w-]+:)*(?:bootRun|run)\b)"));
     static const QRegularExpression failedBlock(QStringLiteral(R"(^\*{5,}$|^APPLICATION FAILED TO START$)"));
@@ -246,7 +248,9 @@ void SpringLogView::processLine(QString line)
                 lm = javaLoc.match(line);
             if (lm.hasMatch()) {
                 e.loc.kind = LineInfo::Location;
-                e.loc.path = lm.captured(1);
+                e.loc.path = QDir::fromNativeSeparators(lm.captured(1));
+                if (e.loc.path.size() > 3 && e.loc.path.at(0) == QLatin1Char('/') && e.loc.path.at(2) == QLatin1Char(':'))
+                    e.loc.path.remove(0, 1); // file:///D:/x -> D:/x
                 e.loc.line = lm.captured(2).toInt();
                 e.loc.column = lm.captured(3).toInt();
             }

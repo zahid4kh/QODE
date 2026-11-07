@@ -234,19 +234,27 @@ QString nodeExecutable()
     dirs << home + QStringLiteral("/.volta/bin") << home + QStringLiteral("/.local/share/mise/shims")
          << home + QStringLiteral("/.asdf/shims") << home + QStringLiteral("/.local/bin") << QStringLiteral("/usr/local/bin")
          << QStringLiteral("/usr/bin") << QStringLiteral("/snap/bin");
+    for (const QString &dir : Platform::extraBinDirs()) // Windows: Program Files\nodejs, nvm-windows, fnm, Volta, Scoop
+        dirs << QDir::fromNativeSeparators(dir);
     for (const QString &dir : std::as_const(dirs)) {
-        const QFileInfo fi(dir + QStringLiteral("/node"));
+        const QFileInfo fi(dir + QStringLiteral("/node") + Platform::exeSuffix());
         if (fi.isFile() && fi.isExecutable())
             return fi.absoluteFilePath();
     }
     return {};
 }
 
+// npm's launchers for a package's commands (node_modules/.bin, npm itself next to node): Windows ".cmd", Unix none.
+static QString npmShimSuffix()
+{
+    return Platform::osTag() == QLatin1String("win") ? QStringLiteral(".cmd") : QString();
+}
+
 QString npmExecutable()
 {
     const QString node = nodeExecutable();
     if (!node.isEmpty()) {
-        const QFileInfo fi(QFileInfo(node).absolutePath() + QStringLiteral("/npm"));
+        const QFileInfo fi(QFileInfo(node).absolutePath() + QStringLiteral("/npm") + npmShimSuffix()); // Windows: npm.cmd
         if (fi.isFile() && fi.isExecutable())
             return fi.absoluteFilePath();
     }
@@ -418,7 +426,7 @@ const QList<LspServerSpec> &all()
         l.append(java);
 
         // The web servers: one private `npm install` (NpmInstaller "web") provides all four, so they share a managedId.
-        auto webServer = [](const QString &id, const QString &name, const QString &exe, const QStringList &exts) {
+        auto webServer = [windows](const QString &id, const QString &name, const QString &exe, const QStringList &exts) {
             LspServerSpec s;
             s.id = id;
             s.displayName = name;
@@ -428,9 +436,17 @@ const QList<LspServerSpec> &all()
             s.installer = LspServerSpec::Installer::Npm;
             s.installable = true;
             s.managedId = QStringLiteral("web");
-            s.managedBinary = QStringLiteral("node_modules/.bin/") + exe;
+            s.managedBinary = QStringLiteral("node_modules/.bin/") + exe + npmShimSuffix();
             s.needsNode = true;
-            s.installHelp = QStringLiteral(
+            s.installHelp = windows ? QStringLiteral(
+                "%1 is one of the web language servers. They are Node.js programs, so Node.js (with npm) must be installed.\n\n"
+                "Easiest: LSP > %2 > Download and Set Up. QODE runs \"npm install\" into %LOCALAPPDATA%\\QODE-AGENTIC\\lsp\\web, "
+                "which sets up the TypeScript / JavaScript, HTML, CSS and JSON servers together. Nothing is installed globally.\n\n"
+                "By hand: npm install -g typescript typescript-language-server vscode-langservers-extracted\n"
+                "Then make sure \"%3\" is on your PATH, or point QODE at it with LSP > Set Server Path.\n\n"
+                "Node.js: winget install OpenJS.NodeJS.LTS, or https://nodejs.org (restart QODE afterwards so it sees the new PATH).")
+                               .arg(name, name, exe)
+                                    : QStringLiteral(
                 "%1 is one of the web language servers. They are Node.js programs, so Node.js (with npm) must be installed.\n\n"
                 "Easiest: LSP > %2 > Download and Set Up. QODE runs \"npm install\" into ~/.local/share/QODE-AGENTIC/lsp/web, which "
                 "sets up the TypeScript / JavaScript, HTML, CSS and JSON servers together. Nothing is installed globally.\n\n"
@@ -513,9 +529,19 @@ const QList<LspServerSpec> &all()
         bash.installer = LspServerSpec::Installer::Npm;
         bash.installable = true;
         bash.managedId = QStringLiteral("bash");
-        bash.managedBinary = QStringLiteral("node_modules/.bin/bash-language-server");
+        bash.managedBinary = QStringLiteral("node_modules/.bin/bash-language-server") + npmShimSuffix();
         bash.needsNode = true;
-        bash.installHelp = QStringLiteral(
+        bash.installHelp = windows ? QStringLiteral(
+            "The Bash language server (bash-language-server, the one VS Code uses) completes commands, variables and functions, "
+            "shows man / help pages on hover, and jumps to and renames functions and variables. It is a Node.js program, so "
+            "Node.js (with npm) must be installed (winget install OpenJS.NodeJS.LTS, or https://nodejs.org).\n\n"
+            "Its warnings come from ShellCheck, a separate program: without it the server runs but reports no problems. "
+            "Install it with winget install koalaman.shellcheck (or scoop install shellcheck).\n\n"
+            "Easiest: LSP > Bash > Download and Set Up. QODE runs \"npm install\" into %LOCALAPPDATA%\\QODE-AGENTIC\\lsp\\bash. "
+            "Nothing is installed globally.\n\n"
+            "By hand: npm install -g bash-language-server, then make sure \"bash-language-server\" is on your PATH, or point "
+            "QODE at it with LSP > Set Server Path.")
+                                   : QStringLiteral(
             "The Bash language server (bash-language-server, the one VS Code uses) completes commands, variables and functions, "
             "shows man / help pages on hover, and jumps to and renames functions and variables. It is a Node.js program, so "
             "Node.js (with npm) must be installed.\n\n"

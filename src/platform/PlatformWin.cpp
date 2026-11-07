@@ -834,6 +834,8 @@ QStringList Platform::extraBinDirs()
         add(local + QStringLiteral("\\Volta\\bin"));
     }
     add(programFiles + QStringLiteral("\\nodejs"));
+    if (!appData.isEmpty())
+        add(appData + QStringLiteral("\\fnm\\aliases\\default")); // fnm's default Node.js (node.exe only)
     add(QDir::homePath() + QStringLiteral("/scoop/shims"));
     return out;
 }

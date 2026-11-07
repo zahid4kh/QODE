@@ -1,4 +1,5 @@
 #include "LspClient.h"
+#include "platform/Platform.h"
 
 #include <QCoreApplication>
 #include <QDesktopServices>
@@ -40,8 +41,7 @@ LspClient::LspClient(const QString &program, const QStringList &arguments, const
                      QObject *parent)
     : QObject(parent), m_proc(new QProcess(this)), m_root(rootPath), m_initOptions(initializationOptions)
 {
-    m_proc->setProgram(program);
-    m_proc->setArguments(arguments);
+    Platform::setCommand(m_proc, program, arguments); // Windows: an npm .cmd launcher (typescript-language-server.cmd) runs through cmd
     if (QFileInfo(rootPath).isDir())
         m_proc->setWorkingDirectory(rootPath);
     connect(m_proc, &QProcess::readyReadStandardOutput, this, &LspClient::onStdout);
@@ -52,9 +52,9 @@ LspClient::LspClient(const QString &program, const QStringList &arguments, const
             m_log.removeFirst();
     });
     connect(m_proc, &QProcess::finished, this, &LspClient::onFinished);
-    connect(m_proc, &QProcess::errorOccurred, this, [this](QProcess::ProcessError e) {
+    connect(m_proc, &QProcess::errorOccurred, this, [this, program](QProcess::ProcessError e) {
         if (e == QProcess::FailedToStart)
-            fail(tr("Could not start %1").arg(m_proc->program()));
+            fail(tr("Could not start %1").arg(program));
     });
     connect(m_proc, &QProcess::started, this, [this] {
         QJsonObject textDocument{
@@ -156,7 +156,7 @@ LspClient::~LspClient()
 {
     if (m_proc->state() != QProcess::NotRunning) {
         m_proc->disconnect(this);
-        m_proc->kill();
+        Platform::killTree(m_proc); // Windows: also what a .cmd launcher started
         m_proc->waitForFinished(300);
     }
 }
@@ -187,7 +187,7 @@ void LspClient::shutdown(int waitMs)
     }
     m_proc->closeWriteChannel();
     if (!m_proc->waitForFinished(waitMs)) {
-        m_proc->kill();
+        Platform::killTree(m_proc); // Windows: also what a .cmd launcher started
         m_proc->waitForFinished(300);
     }
 }
@@ -462,6 +462,6 @@ void LspClient::fail(const QString &error)
     m_interactiveIds.clear();
     m_interactive = 0;
     if (m_proc->state() != QProcess::NotRunning)
-        m_proc->kill();
+        Platform::killTree(m_proc); // Windows: also what a .cmd launcher started
     emit stopped(true);
 }

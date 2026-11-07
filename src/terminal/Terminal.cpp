@@ -313,10 +313,12 @@ void Terminal::clear()
     newCommand();
     m_view->screen()->clearScrollback();
     m_view->clearSelection();
-    if (m_shell->isRunning())
-        m_shell->write(QByteArray("\x0c")); // Ctrl+L: shell clears the screen and redraws its prompt
-    else
+    if (!m_shell->isRunning())
         m_view->screen()->reset();
+    else if (ShellSyntax::dialectOf(m_shell->shell()) == ShellSyntax::Dialect::Cmd && shellInForeground())
+        m_shell->write(QByteArray("\x1b" "cls\r")); // cmd has no Ctrl+L: Esc drops a half-typed line, then cls
+    else
+        m_shell->write(QByteArray("\x0c")); // Ctrl+L: shell clears the screen and redraws its prompt
 }
 
 void Terminal::focusTerminal()

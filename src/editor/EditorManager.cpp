@@ -8,6 +8,7 @@
 #include "Document.h"
 #include "WelcomePage.h"
 #include "explorer/FileIcons.h"
+#include "platform/Platform.h"
 #include "FindBar.h"
 #include "dialogs/UnsavedChangesDialog.h"
 #include "filesystem/FileManager.h"
@@ -316,7 +317,7 @@ bool EditorManager::openFile(const QString &pathIn)
 
     // Already open? Activate the existing tab.
     for (Document *d : documents()) {
-        if (d->filePath() == path) {
+        if (Platform::samePath(d->filePath(), path)) { // Windows: c:/x and C:/X are one file
             activate(d);
             focusEditor();
             return true;
@@ -374,7 +375,7 @@ bool EditorManager::openFileAt(const QString &path, int line, int column, int le
 Document *EditorManager::documentForPath(const QString &path) const
 {
     for (Document *d : documents())
-        if (!d->isUntitled() && d->filePath() == path)
+        if (!d->isUntitled() && Platform::samePath(d->filePath(), path))
             return d;
     return nullptr;
 }
@@ -995,7 +996,7 @@ bool EditorManager::saveDocumentAs(Document *doc)
             return false;
         // Another open tab already owns that path?
         for (Document *d : documents()) {
-            if (d != doc && d->filePath() == path) {
+            if (d != doc && Platform::samePath(d->filePath(), path)) {
                 QMessageBox::warning(this, tr("Save As"), tr("\"%1\" is already open in another tab. Close it first.").arg(QFileInfo(path).fileName()));
                 start = path;
                 path.clear();
@@ -1244,9 +1245,8 @@ bool EditorManager::closeAll()
 
 void EditorManager::closeDocumentsUnder(const QString &path)
 {
-    const QString prefix = path + QLatin1Char('/');
     for (Document *d : documents())
-        if (!d->isUntitled() && (d->filePath() == path || d->filePath().startsWith(prefix)))
+        if (!d->isUntitled() && (Platform::samePath(d->filePath(), path) || Platform::isUnder(d->filePath(), path)))
             removeDocument(d);
 }
 
@@ -1257,9 +1257,9 @@ void EditorManager::pathRenamed(const QString &oldPath, const QString &newPath)
         if (d->isUntitled())
             continue;
         QString target;
-        if (d->filePath() == oldPath)
+        if (Platform::samePath(d->filePath(), oldPath))
             target = newPath;
-        else if (d->filePath().startsWith(prefix))
+        else if (Platform::isUnder(d->filePath(), oldPath))
             target = newPath + QLatin1Char('/') + d->filePath().mid(prefix.size());
         if (target.isEmpty())
             continue;
@@ -1356,7 +1356,7 @@ void EditorManager::processPendingChanges()
     for (const QString &path : paths) {
         Document *doc = nullptr;
         for (Document *d : documents())
-            if (d->filePath() == path)
+            if (Platform::samePath(d->filePath(), path))
                 doc = d;
         if (!doc)
             continue;

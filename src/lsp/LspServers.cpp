@@ -345,7 +345,14 @@ const QList<LspServerSpec> &all()
                              QStringLiteral("inl")};
         clangd.fallbackFlags = true;
         clangd.managedId = clangd.id;
-        clangd.installHelp = QStringLiteral(
+        clangd.installHelp = windows ? QStringLiteral(
+            "clangd is the C/C++ language server from the LLVM project. Install it with one of:\n\n"
+            "  LLVM:    winget install LLVM.LLVM   (or the installer from https://github.com/llvm/llvm-project/releases)\n"
+            "  MSYS2:   pacman -S mingw-w64-ucrt-x86_64-clang-tools-extra\n\n"
+            "QODE also looks in C:\\Program Files\\LLVM\\bin and C:\\msys64\\ucrt64\\bin when clangd is not on your PATH, "
+            "or point QODE at clangd.exe with LSP > Set Server Path. Releases are also published at "
+            "https://github.com/clangd/clangd/releases")
+                                     : QStringLiteral(
             "clangd is the C/C++ language server from the LLVM project. Install it with your package manager:\n\n"
             "  Debian / Ubuntu:   sudo apt install clangd\n"
             "  Fedora:            sudo dnf install clang-tools-extra\n"
@@ -658,6 +665,13 @@ QString locate(const LspServerSpec &spec, const QString &configuredPath)
         }
         if (!best.isEmpty())
             return best;
+        // Windows: tools whose installer does not touch PATH (LLVM, MSYS2, Node.js, Scoop). Unix: no folders.
+        const QStringList extra = Platform::extraBinDirs() + Platform::languageServerDirs();
+        if (!extra.isEmpty()) {
+            const QString found = QStandardPaths::findExecutable(name, extra);
+            if (!found.isEmpty())
+                return found;
+        }
     }
     return managedExecutable(spec);
 }

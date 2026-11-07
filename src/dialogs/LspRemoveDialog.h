@@ -42,6 +42,7 @@ private:
     void buildNpm();
     void buildPip();
     void buildSystem();
+    void buildSystemWindows(const QString &resolved);
     void startManaged();
     void runNext();
     void finish(bool ok);

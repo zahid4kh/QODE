@@ -381,6 +381,10 @@ void LspRemoveDialog::buildSystem()
 
     struct Candidate { QString tool, command, note; };
     QList<Candidate> found, all;
+    if (Platform::osTag() == QLatin1String("win")) {
+        buildSystemWindows(resolved);
+        return;
+    }
     all.append({QStringLiteral("apt"), QStringLiteral("sudo apt remove %1 && sudo apt autoremove").arg(aptPackage), tr("Debian, Ubuntu, Mint")});
     all.append({QStringLiteral("dnf"), QStringLiteral("sudo dnf remove clang-tools-extra"), tr("Fedora, RHEL")});
     all.append({QStringLiteral("pacman"), QStringLiteral("sudo pacman -Rns clang"), tr("Arch, Manjaro (this removes the whole clang package)")});
@@ -418,6 +422,59 @@ void LspRemoveDialog::buildSystem()
         emit terminalCommandRequested(m_command);
         askRestart(tr("The command is running in the QODE terminal: enter your password there and wait for it to finish. "
                       "Then restart QODE so it stops looking for clangd."));
+    });
+}
+
+// Windows: clangd comes from LLVM's installer (winget LLVM.LLVM, Program Files\LLVM) or from MSYS2 (pacman). The
+// command is chosen by where clangd.exe is; anything else is removed in Settings > Apps.
+void LspRemoveDialog::buildSystemWindows(const QString &resolved)
+{
+    static const QRegularExpression msys(QStringLiteral("^(.*)/(ucrt64|clang64|mingw64)/bin/clangd\\.exe$"),
+                                         QRegularExpression::CaseInsensitiveOption);
+    const auto m = msys.match(resolved);
+    QString note;
+    if (m.hasMatch()) {
+        const QString env = m.captured(2).toLower();
+        const QString package = env == QLatin1String("ucrt64")    ? QStringLiteral("mingw-w64-ucrt-x86_64-clang-tools-extra")
+                                : env == QLatin1String("clang64") ? QStringLiteral("mingw-w64-clang-x86_64-clang-tools-extra")
+                                                                  : QStringLiteral("mingw-w64-x86_64-clang-tools-extra");
+        m_command = QStringLiteral("%1/usr/bin/pacman.exe -Rns %2").arg(m.captured(1), package);
+        note = tr("MSYS2 (%1)").arg(env);
+    } else if (!QStandardPaths::findExecutable(QStringLiteral("winget")).isEmpty() &&
+               (resolved.isEmpty() || resolved.contains(QLatin1String("/LLVM/"), Qt::CaseInsensitive))) {
+        m_command = QStringLiteral("winget uninstall --id LLVM.LLVM");
+        note = tr("LLVM, installed with winget or LLVM's installer (this removes all of LLVM)");
+    }
+
+    m_intro->setText(tr("<b>Remove clangd (C/C++)</b>. clangd was installed system-wide, so removing it may show a Windows "
+                        "prompt for administrator rights. QODE can type the command into its terminal; copy it if you prefer "
+                        "another terminal.%1")
+                         .arg(resolved.isEmpty() ? QString()
+                                                 : tr("<br>Installed at <b>%1</b>.").arg(QDir::toNativeSeparators(resolved).toHtmlEscaped())));
+    if (!m_command.isEmpty()) {
+        log(QStringLiteral("# %1").arg(note));
+        log(QStringLiteral("$ %1").arg(m_command));
+        log(QString());
+    } else {
+        log(tr("# QODE does not know how this clangd was installed. Remove it in Settings > Apps > Installed apps "
+               "(LLVM), with the package manager that installed it, or delete %1 yourself.")
+                .arg(resolved.isEmpty() ? QStringLiteral("clangd.exe") : QDir::toNativeSeparators(resolved)));
+    }
+
+    m_secondary->setText(tr("Copy Command"));
+    m_secondary->setEnabled(!m_command.isEmpty());
+    m_primary->setText(tr("Run in QODE Terminal"));
+    m_primary->setEnabled(!m_command.isEmpty());
+    m_primary->setDefault(true);
+    m_close->setText(tr("Close"));
+    connect(m_secondary, &QPushButton::clicked, this, [this] {
+        QApplication::clipboard()->setText(m_command);
+        m_secondary->setText(tr("Copied"));
+    });
+    connect(m_primary, &QPushButton::clicked, this, [this] {
+        emit terminalCommandRequested(m_command);
+        askRestart(tr("The command is running in the QODE terminal: answer its questions (and the Windows prompt, if one "
+                      "appears) and wait for it to finish. Then restart QODE so it stops looking for clangd."));
     });
 }
 

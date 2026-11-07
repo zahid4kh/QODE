@@ -297,6 +297,11 @@ QStringList Platform::extraBinDirs()
     return {};
 }
 
+QStringList Platform::languageServerDirs()
+{
+    return {};
+}
+
 QList<Platform::Shell> Platform::terminalShells()
 {
     return {};

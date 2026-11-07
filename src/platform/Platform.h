@@ -194,6 +194,11 @@ QString gitExecutable();
 // global folder, pnpm's, Node.js's, WinGet's links and Scoop's shims. Only folders that exist.
 QStringList extraBinDirs();
 
+// More folders where a language server (clangd) may be installed without being on PATH, looked at only by
+// LspServers::locate (not added to any PATH: they hold many other tools). Unix: none. Windows: LLVM's Program Files
+// folder and MSYS2's ucrt64 / clang64 / mingw64 bin folders. Only folders that exist.
+QStringList languageServerDirs();
+
 // The current folder of process `pid`, empty when unknown. Unix: from /proc. Windows: always empty (another process's
 // folder cannot be read reliably); the terminal gets it from its shell integration instead.
 QString processCwd(qint64 pid);

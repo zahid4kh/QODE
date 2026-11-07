@@ -840,6 +840,21 @@ QStringList Platform::extraBinDirs()
     return out;
 }
 
+QStringList Platform::languageServerDirs()
+{
+    QStringList out;
+    for (const QString &root : programFilesRoots())
+        if (const QString dir = root + QStringLiteral("/LLVM/bin"); QFileInfo(dir).isDir())
+            out << dir;
+    QString msys = qEnvironmentVariable("MSYS2_ROOT");
+    if (msys.isEmpty())
+        msys = QStringLiteral("C:/msys64");
+    for (const char *env : {"ucrt64", "clang64", "mingw64"})
+        if (const QString dir = QDir::fromNativeSeparators(msys) + QLatin1Char('/') + QLatin1String(env) + QStringLiteral("/bin"); QFileInfo(dir).isDir())
+            out << dir;
+    return out;
+}
+
 QList<Platform::Shell> Platform::terminalShells()
 {
     QList<Shell> out;

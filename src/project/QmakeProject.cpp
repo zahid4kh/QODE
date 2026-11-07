@@ -33,7 +33,7 @@ QString runTool(const QString &program, const QStringList &args)
             p.kill();
         return {};
     }
-    return QString::fromLocal8Bit(p.readAllStandardOutput()).trimmed();
+    return Platform::decodeOutput(p.readAllStandardOutput()).trimmed();
 }
 
 // Where the Qt headers live ("" when qmake isn't installed), and the Qt major version.

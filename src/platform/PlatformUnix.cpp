@@ -25,6 +25,11 @@ void Platform::initProcess()
     std::signal(SIGPIPE, SIG_IGN);
 }
 
+QString Platform::decodeOutput(const QByteArray &bytes)
+{
+    return QString::fromLocal8Bit(bytes);
+}
+
 qint64 Platform::msBeforeMain()
 {
     QFile stat(QStringLiteral("/proc/self/stat")), uptime(QStringLiteral("/proc/uptime"));

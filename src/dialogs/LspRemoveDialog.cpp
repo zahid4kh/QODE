@@ -1,4 +1,5 @@
 #include "LspRemoveDialog.h"
+#include "platform/Platform.h"
 #include "platform/AppPaths.h"
 
 #include "lsp/JarSource.h"
@@ -265,7 +266,7 @@ void LspRemoveDialog::runNext()
     m_proc = new QProcess(this);
     m_proc->setProcessChannelMode(QProcess::MergedChannels);
     connect(m_proc, &QProcess::finished, this, [this](int code, QProcess::ExitStatus status) {
-        const QString out = QString::fromLocal8Bit(m_proc->readAll()).trimmed();
+        const QString out = Platform::decodeOutput(m_proc->readAll()).trimmed();
         if (!out.isEmpty())
             log(out);
         if (status == QProcess::NormalExit && code == 0) {

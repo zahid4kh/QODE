@@ -44,7 +44,7 @@ QString PipInstaller::installedVersion()
         p.kill();
         return {};
     }
-    return QString::fromLocal8Bit(p.readAll()).trimmed();
+    return Platform::decodeOutput(p.readAll()).trimmed();
 }
 
 QList<PythonTools::Command> PipInstaller::buildSteps(bool useUv) const
@@ -124,7 +124,7 @@ void PipInstaller::runNext()
     env.remove(QStringLiteral("VIRTUAL_ENV")); // a venv active in QODE's own shell must not leak into the new one
     m_proc->setProcessEnvironment(env);
     connect(m_proc, &QProcess::readyRead, this, [this] {
-        const QString text = QString::fromLocal8Bit(m_proc->readAll());
+        const QString text = Platform::decodeOutput(m_proc->readAll());
         m_collected += text;
         emit output(text);
     });
@@ -138,7 +138,7 @@ void PipInstaller::runNext()
 
 void PipInstaller::stepFinished(int code, QProcess::ExitStatus status)
 {
-    const QString text = QString::fromLocal8Bit(m_proc->readAll());
+    const QString text = Platform::decodeOutput(m_proc->readAll());
     m_collected += text;
     emit output(text);
     m_proc->deleteLater();

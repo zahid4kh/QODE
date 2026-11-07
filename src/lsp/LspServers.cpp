@@ -94,7 +94,7 @@ static int javaMajor(const QString &javaPath)
     p.start(javaPath, {QStringLiteral("-version")});
     int major = 0;
     if (p.waitForFinished(5000)) {
-        const auto m = QRegularExpression(QStringLiteral("version \"(\\d+)(?:\\.(\\d+))?")).match(QString::fromLocal8Bit(p.readAll()));
+        const auto m = QRegularExpression(QStringLiteral("version \"(\\d+)(?:\\.(\\d+))?")).match(Platform::decodeOutput(p.readAll()));
         if (m.hasMatch())
             major = m.captured(1) == QLatin1String("1") && !m.captured(2).isEmpty() ? m.captured(2).toInt() : m.captured(1).toInt();
     } else {

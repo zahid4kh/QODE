@@ -11,6 +11,7 @@
 #include <QSaveFile>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QStringConverter>
 #include <QThread>
 #include <QUrl>
 #include <QVersionNumber>
@@ -84,6 +85,32 @@ bool Platform::runIfHelper(int argc, char *argv[])
 
 void Platform::initProcess()
 {
+    // Inherited by every child, the terminal's shells too: Python then reads and writes UTF-8.
+    if (!qEnvironmentVariableIsSet("PYTHONUTF8"))
+        qputenv("PYTHONUTF8", "1");
+    if (!qEnvironmentVariableIsSet("PYTHONIOENCODING"))
+        qputenv("PYTHONIOENCODING", "utf-8");
+}
+
+QString Platform::decodeOutput(const QByteArray &bytes)
+{
+    QStringDecoder utf8(QStringConverter::Utf8, QStringConverter::Flag::Stateless);
+    const QString text = utf8.decode(bytes);
+    if (!utf8.hasError())
+        return text;
+    // The system's ANSI code page, which children use. GetACP() would give QODE's own (UTF-8, from its manifest), so it
+    // comes from where Windows keeps it.
+    static const UINT acp = [] {
+        const QSettings nls(QStringLiteral("HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage"), QSettings::NativeFormat);
+        const UINT cp = nls.value(QStringLiteral("ACP")).toString().toUInt();
+        return cp ? cp : 1252u;
+    }();
+    const int n = ::MultiByteToWideChar(acp, 0, bytes.constData(), int(bytes.size()), nullptr, 0);
+    if (n <= 0)
+        return QString::fromLatin1(bytes);
+    QString out(n, Qt::Uninitialized);
+    ::MultiByteToWideChar(acp, 0, bytes.constData(), int(bytes.size()), reinterpret_cast<wchar_t *>(out.data()), n);
+    return out;
 }
 
 qint64 Platform::msBeforeMain()

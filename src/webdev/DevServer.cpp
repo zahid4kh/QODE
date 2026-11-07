@@ -135,7 +135,7 @@ void DevServer::killTree()
 
 void DevServer::onOutput()
 {
-    const QString text = stripAnsi(QString::fromLocal8Bit(m_proc->readAll()));
+    const QString text = stripAnsi(Platform::decodeOutput(m_proc->readAll()));
     if (text.isEmpty())
         return;
     m_log += text;

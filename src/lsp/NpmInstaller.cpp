@@ -1,4 +1,5 @@
 #include "NpmInstaller.h"
+#include "platform/Platform.h"
 
 #include "LspServers.h"
 
@@ -71,13 +72,13 @@ void NpmInstaller::start()
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.insert(QStringLiteral("PATH"), QDir::toNativeSeparators(QFileInfo(node).absolutePath()) + QDir::listSeparator() + env.value(QStringLiteral("PATH")));
     m_proc->setProcessEnvironment(env);
-    connect(m_proc, &QProcess::readyRead, this, [this] { emit output(QString::fromLocal8Bit(m_proc->readAll())); });
+    connect(m_proc, &QProcess::readyRead, this, [this] { emit output(Platform::decodeOutput(m_proc->readAll())); });
     connect(m_proc, &QProcess::errorOccurred, this, [this](QProcess::ProcessError e) {
         if (e == QProcess::FailedToStart)
             abort(tr("Could not start npm"));
     });
     connect(m_proc, &QProcess::finished, this, [this](int code, QProcess::ExitStatus status) {
-        emit output(QString::fromLocal8Bit(m_proc->readAll()));
+        emit output(Platform::decodeOutput(m_proc->readAll()));
         m_proc->deleteLater();
         m_proc = nullptr;
         if (status != QProcess::NormalExit || code != 0) {

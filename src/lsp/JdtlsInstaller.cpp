@@ -273,7 +273,7 @@ void JdtlsInstaller::extract()
     connect(m_proc, &QProcess::finished, this, [this](int code, QProcess::ExitStatus status) {
         if (!m_active)
             return;
-        const QString output = QString::fromLocal8Bit(m_proc->readAll()).trimmed();
+        const QString output = Platform::decodeOutput(m_proc->readAll()).trimmed();
         m_proc->deleteLater();
         m_proc = nullptr;
         if (status != QProcess::NormalExit || code != 0) {

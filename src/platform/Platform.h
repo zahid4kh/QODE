@@ -14,8 +14,14 @@ namespace Platform {
 bool runIfHelper(int argc, char *argv[]);
 
 // First thing in main(), before Qt starts. Unix: writing to a child process that already exited (git, the shell)
-// fails with EPIPE instead of killing QODE with SIGPIPE. Windows: nothing to do.
+// fails with EPIPE instead of killing QODE with SIGPIPE. Windows: PYTHONUTF8=1 and PYTHONIOENCODING=utf-8 for every
+// child (unless set already), so Python reads and writes UTF-8, not the ANSI / OEM code page.
 void initProcess();
+
+// Text a child process wrote (pip, npm, Gradle, an installer). Unix: QString::fromLocal8Bit, as before. Windows: UTF-8
+// when the bytes are valid UTF-8, else the system's ANSI code page (Java and many console tools write in it when their
+// output is a pipe; QODE's own code page is UTF-8, so fromLocal8Bit would not do).
+QString decodeOutput(const QByteArray &bytes);
 
 // How long the process ran before main() (loading and linking the libraries, static initialisers), in ms; -1 when
 // unknown. Unix: from /proc (about 10 ms precise). Windows: from the process creation time.

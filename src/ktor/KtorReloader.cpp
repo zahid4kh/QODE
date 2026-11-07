@@ -151,7 +151,7 @@ void KtorReloader::killTree()
 
 void KtorReloader::onOutput()
 {
-    m_pending += QString::fromLocal8Bit(m_proc->readAll());
+    m_pending += Platform::decodeOutput(m_proc->readAll());
     int nl;
     while ((nl = m_pending.indexOf(QLatin1Char('\n'))) >= 0) {
         QString line = m_pending.left(nl);

@@ -19,7 +19,9 @@ QPixmap pixmap(const QString &resource, const QColor &color, int size, qreal dpr
     if (const auto it = cache.constFind(key); it != cache.constEnd())
         return it.value();
     const QIcon base(resource);
-    QPixmap pm = base.pixmap(QSize(size, size) * dpr);
+    // Exactly size * dpr device pixels. pixmap(QSize) alone multiplies by the screen's ratio again, so at 125% / 150%
+    // scaling the icons came out 1.25x / 1.5x too big and ran into the text beside them.
+    QPixmap pm = base.pixmap(QSize(size, size), dpr);
     if (pm.isNull())
         return pm;
     QPainter p(&pm);

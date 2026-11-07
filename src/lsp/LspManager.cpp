@@ -1,5 +1,6 @@
 #include "LspManager.h"
 #include "platform/AppPaths.h"
+#include "platform/Platform.h"
 
 #include "JarSource.h"
 #include "LspClient.h"
@@ -41,7 +42,7 @@ QJsonValue configurationFor(const QString &serverId, const QJsonObject &item, co
     const QString section = item.value(QStringLiteral("section")).toString();
     if (serverId == QLatin1String("eslint")) {
         const QString scope = item.value(QStringLiteral("scopeUri")).toString();
-        const QString file = QUrl(scope).toLocalFile();
+        const QString file = Platform::uriToPath(scope);
         // Run ESLint from the project root (where its config and node_modules live).
         return QJsonObject{
             {QStringLiteral("validate"), QStringLiteral("on")},
@@ -1154,7 +1155,7 @@ void addLocation(QVector<LspLocation> &out, const QJsonObject &o)
     const QJsonObject range = o.value(link ? QStringLiteral("targetSelectionRange") : QStringLiteral("range")).toObject();
     const QJsonObject start = range.value(QStringLiteral("start")).toObject();
     LspLocation loc;
-    loc.path = JarSource::isJarUri(uri) ? JarSource::extract(uri) : QUrl(uri).toLocalFile();
+    loc.path = JarSource::isJarUri(uri) ? JarSource::extract(uri) : Platform::uriToPath(uri);
     loc.line = start.value(QStringLiteral("line")).toInt();
     loc.column = start.value(QStringLiteral("character")).toInt();
     loc.fromClass = JarSource::isJarUri(uri) && JarSource::lastWasClass();
@@ -1294,7 +1295,7 @@ QHash<QString, QVector<LspTextEdit>> LspManager::editsOf(const QJsonObject &edit
     QHash<QString, QVector<LspTextEdit>> out;
     *ok = true;
     auto add = [&out](const QString &uri, const QJsonArray &edits) {
-        const QString path = QUrl(uri).toLocalFile();
+        const QString path = Platform::uriToPath(uri);
         if (path.isEmpty())
             return false;
         for (const QJsonValue &e : edits)
@@ -1328,10 +1329,10 @@ QVector<LspManager::FileOp> LspManager::fileOpsOf(const QJsonObject &edit)
         const QJsonObject opts = o.value(QStringLiteral("options")).toObject();
         op.overwrite = opts.value(QStringLiteral("overwrite")).toBool();
         if (op.kind == QLatin1String("rename")) {
-            op.path = QUrl(o.value(QStringLiteral("oldUri")).toString()).toLocalFile();
-            op.target = QUrl(o.value(QStringLiteral("newUri")).toString()).toLocalFile();
+            op.path = Platform::uriToPath(o.value(QStringLiteral("oldUri")).toString());
+            op.target = Platform::uriToPath(o.value(QStringLiteral("newUri")).toString());
         } else {
-            op.path = QUrl(o.value(QStringLiteral("uri")).toString()).toLocalFile();
+            op.path = Platform::uriToPath(o.value(QStringLiteral("uri")).toString());
         }
         if (!op.path.isEmpty())
             out << op;
@@ -2128,7 +2129,7 @@ void LspManager::switchSourceHeader(Document *doc, std::function<void(const QStr
     }
     c->request(QStringLiteral("textDocument/switchSourceHeader"), QJsonObject{{QStringLiteral("uri"), uri}},
                [done](const QJsonValue &result, const QJsonObject &error) {
-                   done(error.isEmpty() && result.isString() ? QUrl(result.toString()).toLocalFile() : QString());
+                   done(error.isEmpty() && result.isString() ? Platform::uriToPath(result.toString()) : QString());
                });
 }
 
@@ -2285,14 +2286,14 @@ void LspManager::onNotification(const QString &id, const QString &method, const 
     if (method == QLatin1String("_typescript.rename")) {
         const QJsonObject o = params.toObject();
         const QJsonObject pos = o.value(QStringLiteral("position")).toObject();
-        emit renameRequested(QUrl(o.value(QStringLiteral("textDocument")).toObject().value(QStringLiteral("uri")).toString()).toLocalFile(),
+        emit renameRequested(Platform::uriToPath(o.value(QStringLiteral("textDocument")).toObject().value(QStringLiteral("uri")).toString()),
                              pos.value(QStringLiteral("line")).toInt(), pos.value(QStringLiteral("character")).toInt());
         return;
     }
     if (method != QLatin1String("textDocument/publishDiagnostics"))
         return;
     const QJsonObject o = params.toObject();
-    const QString path = QUrl(o.value(QStringLiteral("uri")).toString()).toLocalFile();
+    const QString path = Platform::uriToPath(o.value(QStringLiteral("uri")).toString());
     setDiagnosticsFor(path, o.value(QStringLiteral("diagnostics")).toArray(), id);
     noteReported(path, id, o.value(QStringLiteral("version")).toInt(-1));
 }
@@ -2684,7 +2685,7 @@ bool provides(const QJsonObject &caps, const char *capability)
 
 QString pathOfUri(const QString &uri)
 {
-    return JarSource::isJarUri(uri) ? JarSource::extract(uri) : QUrl(uri).toLocalFile();
+    return JarSource::isJarUri(uri) ? JarSource::extract(uri) : Platform::uriToPath(uri);
 }
 
 QPair<int, int> startOf(const QJsonObject &range)

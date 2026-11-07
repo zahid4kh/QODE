@@ -9,6 +9,7 @@
 #include <QProcess>
 #include <QRegularExpression>
 #include <QStandardPaths>
+#include <QUrl>
 
 #include <csignal>
 #include <cstdio>
@@ -104,6 +105,33 @@ QString Platform::venvProgram(const QString &venv, const QString &name)
 bool Platform::hasExecBit()
 {
     return true;
+}
+
+QString Platform::pathKey(const QString &path)
+{
+    return path;
+}
+
+bool Platform::samePath(const QString &a, const QString &b)
+{
+    return a == b;
+}
+
+bool Platform::isUnder(const QString &path, const QString &root)
+{
+    if (root.isEmpty())
+        return false;
+    return path.startsWith(root.endsWith(QLatin1Char('/')) ? root : root + QLatin1Char('/'));
+}
+
+QString Platform::uriToPath(const QString &uri)
+{
+    return QUrl(uri).toLocalFile();
+}
+
+QString Platform::pathToUri(const QString &path)
+{
+    return QUrl::fromLocalFile(path).toString();
 }
 
 QString Platform::exeSuffix()

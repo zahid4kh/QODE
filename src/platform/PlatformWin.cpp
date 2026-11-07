@@ -11,6 +11,7 @@
 #include <QSettings>
 #include <QStandardPaths>
 #include <QThread>
+#include <QUrl>
 #include <QVersionNumber>
 #include <QtGlobal>
 
@@ -223,6 +224,38 @@ QString Platform::venvProgram(const QString &venv, const QString &name)
 bool Platform::hasExecBit()
 {
     return false;
+}
+
+QString Platform::pathKey(const QString &path)
+{
+    return QDir::fromNativeSeparators(path).toLower();
+}
+
+bool Platform::samePath(const QString &a, const QString &b)
+{
+    return pathKey(a) == pathKey(b);
+}
+
+bool Platform::isUnder(const QString &path, const QString &root)
+{
+    if (root.isEmpty())
+        return false;
+    const QString r = pathKey(root);
+    return pathKey(path).startsWith(r.endsWith(QLatin1Char('/')) ? r : r + QLatin1Char('/'));
+}
+
+QString Platform::uriToPath(const QString &uri)
+{
+    // QUrl decodes %3A; the drive letter comes in whatever case the server chose.
+    QString path = QUrl(uri).toLocalFile();
+    if (path.size() >= 2 && path.at(1) == QLatin1Char(':') && path.at(0).isLetter())
+        path[0] = path.at(0).toUpper();
+    return path;
+}
+
+QString Platform::pathToUri(const QString &path)
+{
+    return QUrl::fromLocalFile(path).toString();
 }
 
 QString Platform::exeSuffix()

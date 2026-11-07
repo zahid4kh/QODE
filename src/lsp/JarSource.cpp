@@ -36,6 +36,12 @@ bool split(const QString &uri, QString *jar, QString *entry)
     if (bang < 0)
         return false;
     *jar = QUrl::fromPercentEncoding(rest.left(bang).toUtf8());
+    // Windows: /C:/x.jar (or /c:/…) -> C:/x.jar. A Unix path never starts with /<letter>:/.
+    if (jar->size() > 3 && jar->at(0) == QLatin1Char('/') && jar->at(1).isLetter() && jar->at(2) == QLatin1Char(':')
+        && jar->at(3) == QLatin1Char('/')) {
+        jar->remove(0, 1);
+        (*jar)[0] = jar->at(0).toUpper();
+    }
     *entry = QUrl::fromPercentEncoding(rest.mid(bang + 2).toUtf8());
     return !jar->isEmpty() && !entry->isEmpty();
 }

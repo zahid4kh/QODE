@@ -30,6 +30,21 @@ QString userKey();
 // installers that use it get a Windows layout in Phase 5 of the port).
 bool replaceSymlink(const QString &target, const QString &link);
 
+// Paths. Inside QODE a path has Qt's form ('/', and a drive letter on Windows). Windows file names ignore case, so two
+// paths that differ only in case are the same file there.
+// - pathKey: the form to compare paths in or to key a map by. Unix: the path as it is. Windows: '/' and lower case.
+// - samePath: pathKey(a) == pathKey(b).
+// - isUnder: `path` lies below the folder `root` (not root itself), i.e. it starts with root + '/'; a root that already
+//   ends in '/' (C:/, or / on Unix) is used as it is. Case-insensitive on Windows.
+// - uriToPath: the local path of a file:// URI, "" for another scheme. Language servers on Windows send the drive in
+//   either case and may percent-encode its colon (file:///c%3A/x); this always gives C:/x. Unix: QUrl::toLocalFile.
+// - pathToUri: file:///… for a local path (QUrl::fromLocalFile), on every OS.
+QString pathKey(const QString &path);
+bool samePath(const QString &a, const QString &b);
+bool isUnder(const QString &path, const QString &root);
+QString uriToPath(const QString &uri);
+QString pathToUri(const QString &path);
+
 // Sets `process` up to run an sh command line through the system shell; start() it afterwards. Unix: /bin/sh -c.
 // Windows: cmd.exe /d /s /c, the line rewritten for cmd by ShellSyntax::translate (quotes, VAR=value, &&; a line it
 // does not know goes on as it is), and npm / npx resolve to their .cmd wrappers.

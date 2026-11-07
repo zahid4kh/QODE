@@ -1,6 +1,7 @@
 #include "LspInstallDialog.h"
 
 #include "lsp/LspInstaller.h"
+#include "platform/AppPaths.h"
 
 #include <QCheckBox>
 #include <QCloseEvent>
@@ -35,6 +36,10 @@ LspInstallDialog::LspInstallDialog(QWidget *parent) : QDialog(parent), m_install
     m_link->setChecked(true);
     m_link->setToolTip(tr("Lets you run \"kotlin-lsp\" in a terminal. QODE finds the server without it."));
     layout->addWidget(m_link);
+    if (AppPaths::isPortable()) { // portable QODE writes nothing outside its own folder
+        m_link->setChecked(false);
+        m_link->hide();
+    }
     m_latest = new QCheckBox(tr("Use the latest release instead of the tested version (%1)").arg(LspInstaller::pinnedVersion()), this);
     layout->addWidget(m_latest);
 

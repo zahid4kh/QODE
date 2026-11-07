@@ -1,6 +1,7 @@
 #include "LspInstaller.h"
 
 #include "LspServers.h"
+#include "platform/AppPaths.h"
 #include "platform/Platform.h"
 
 #include <QDir>
@@ -365,7 +366,7 @@ void LspInstaller::finalize()
         abort(tr("Could not create the link %1/current").arg(installRoot()));
         return;
     }
-    if (m_createLink) {
+    if (m_createLink && !AppPaths::isPortable()) { // portable QODE writes nothing outside its own folder
         const QFileInfo link(linkPath());
         const QString runs = serverBinary(installRoot() + QStringLiteral("/current"));
         QDir().mkpath(link.absolutePath());

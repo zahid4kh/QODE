@@ -122,6 +122,9 @@ JavaRuntime findJava(int minMajor)
         for (const QString &n : std::as_const(names))
             candidates << dir + QLatin1Char('/') + n + QStringLiteral("/bin/java");
     }
+    if (AppPaths::isPortable()) // portable QODE downloads JDKs into its own folder (JdkInstaller::defaultRoot)
+        for (const QString &n : QDir(AppPaths::data(QStringLiteral("jdks"))).entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name | QDir::Reversed))
+            candidates << AppPaths::data(QStringLiteral("jdks/")) + n + QStringLiteral("/bin/java") + Platform::exeSuffix();
     // Windows: Program Files\<vendor>\<jdk>, then the registry's and Scoop's JDKs. Unix: none.
     for (const Platform::JdkPlace &place : Platform::jdkFolders()) {
         QStringList names = QDir(place.path).entryList(QDir::Dirs | QDir::NoDotAndDotDot);

@@ -632,7 +632,7 @@ void MainWindow::offerJdkFix(const QString &serverName)
     if (!get.isEmpty())
         info += QStringLiteral("\n\n") + tr("Download Eclipse Temurin %1 (from adoptium.net, about 200 MB each, into %2)? It becomes this "
                                             "project's JDK, and the language server restarts with it.")
-                                             .arg(get.join(tr(" and ")), QDir::toNativeSeparators(QDir::homePath() + QStringLiteral("/.jdks")));
+                                             .arg(get.join(tr(" and ")), QDir::toNativeSeparators(JdkInstaller::defaultRoot()));
     box.setInformativeText(info);
     QPushButton *download = n.downloads.isEmpty() ? nullptr : box.addButton(tr("Download JDK %1").arg(get.join(QStringLiteral(" + "))), QMessageBox::AcceptRole);
     QPushButton *upgrade = nullptr;

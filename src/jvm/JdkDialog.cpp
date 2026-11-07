@@ -1,6 +1,7 @@
 #include "jvm/JdkDialog.h"
 
 #include "dialogs/FileDialogs.h"
+#include "jvm/JdkInstaller.h"
 #include "jvm/JvmTools.h"
 #include "platform/Platform.h"
 #include "settings/SettingsManager.h"
@@ -50,7 +51,7 @@ JdkDialog::JdkDialog(const QString &chosen, const QString &root, QWidget *parent
     m_warning->setTextInteractionFlags(Qt::TextSelectableByMouse);
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     QPushButton *download = buttons->addButton(tr("Download JDK…"), QDialogButtonBox::ActionRole);
-    download->setToolTip(tr("Download Eclipse Temurin from adoptium.net into %1").arg(QDir::toNativeSeparators(QDir::homePath() + QStringLiteral("/.jdks"))));
+    download->setToolTip(tr("Download Eclipse Temurin from adoptium.net into %1").arg(QDir::toNativeSeparators(JdkInstaller::defaultRoot())));
     QPushButton *addBtn = buttons->addButton(tr("Add JDK Folder…"), QDialogButtonBox::ActionRole);
     QPushButton *rescan = buttons->addButton(tr("Rescan"), QDialogButtonBox::ActionRole);
     connect(download, &QPushButton::clicked, this, &JdkDialog::askDownload);
@@ -138,7 +139,7 @@ void JdkDialog::askDownload()
     const QString item = QInputDialog::getItem(this, tr("Download JDK"),
                                                tr("Eclipse Temurin (adoptium.net), the newest release of the version, into %1. It becomes "
                                                   "this project's JDK.")
-                                                   .arg(QDir::toNativeSeparators(QDir::homePath() + QStringLiteral("/.jdks"))),
+                                                   .arg(QDir::toNativeSeparators(JdkInstaller::defaultRoot())),
                                                items, 0, false, &ok);
     if (!ok)
         return;

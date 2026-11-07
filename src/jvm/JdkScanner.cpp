@@ -1,5 +1,7 @@
 #include "jvm/JdkScanner.h"
+#include "jvm/JdkInstaller.h"
 #include "jvm/JvmTools.h"
+#include "platform/AppPaths.h"
 #include "platform/Platform.h"
 
 #include <QDir>
@@ -123,6 +125,8 @@ QList<Jdk> scan()
     addChildren(QStringLiteral("/opt/java"), QStringLiteral("System"));
     addChildren(QDir::homePath() + QStringLiteral("/.gradle/jdks"), QStringLiteral("Gradle"));
     addChildren(QDir::homePath() + QStringLiteral("/.jdks"), QStringLiteral("IntelliJ"));
+    if (AppPaths::isPortable()) // portable QODE downloads JDKs into its own folder
+        addChildren(JdkInstaller::defaultRoot(), QStringLiteral("QODE"));
     addChildren(QDir::homePath() + QStringLiteral("/.local/share/mise/installs/java"), QStringLiteral("mise"));
     addChildren(QDir::homePath() + QStringLiteral("/.asdf/installs/java"), QStringLiteral("asdf"));
     for (const Platform::JdkPlace &p : Platform::jdkFolders()) // Windows: Program Files\<vendor>

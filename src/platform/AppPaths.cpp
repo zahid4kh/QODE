@@ -1,8 +1,21 @@
 #include "platform/AppPaths.h"
 
 #include <QDir>
+#include <QFileInfo>
 #include <QSettings>
 #include <QStandardPaths>
+
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+
+#include <vector>
+#endif
 
 namespace {
 
@@ -18,11 +31,39 @@ QString location(QStandardPaths::StandardLocation type)
     return QStandardPaths::writableLocation(type);
 }
 
+#ifdef Q_OS_WIN
+// "<folder of qode.exe>/data" when portable.txt is next to qode.exe, else empty. From the module path, not
+// QCoreApplication::applicationDirPath(): AppPaths is also used before the application object exists.
+const QString &portableRoot()
+{
+    static const QString root = [] {
+        std::vector<wchar_t> buf(32768);
+        const DWORD n = ::GetModuleFileNameW(nullptr, buf.data(), DWORD(buf.size()));
+        if (n == 0 || n >= buf.size())
+            return QString();
+        const QString dir = QFileInfo(QDir::fromNativeSeparators(QString::fromWCharArray(buf.data(), int(n)))).absolutePath();
+        return QFileInfo::exists(dir + QStringLiteral("/portable.txt")) ? dir + QStringLiteral("/data") : QString();
+    }();
+    return root;
+}
+#endif
+
 } // namespace
+
+bool AppPaths::isPortable()
+{
+#ifdef Q_OS_WIN
+    return !portableRoot().isEmpty();
+#else
+    return false;
+#endif
+}
 
 QString AppPaths::config(const QString &sub)
 {
 #ifdef Q_OS_WIN
+    if (isPortable())
+        return join(portableRoot() + QStringLiteral("/config"), sub);
     // GenericConfigLocation is %LOCALAPPDATA% on Windows; settings belong in the roaming profile.
     QString root = QDir::fromNativeSeparators(qEnvironmentVariable("APPDATA"));
     if (root.isEmpty())
@@ -35,6 +76,10 @@ QString AppPaths::config(const QString &sub)
 
 QString AppPaths::data(const QString &sub)
 {
+#ifdef Q_OS_WIN
+    if (isPortable())
+        return join(portableRoot() + QStringLiteral("/local"), sub);
+#endif
     return join(location(QStandardPaths::GenericDataLocation) + kFolder, sub); // %LOCALAPPDATA% on Windows
 }
 

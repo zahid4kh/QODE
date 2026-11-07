@@ -12,7 +12,14 @@
 //
 // The Unix roots follow $XDG_CONFIG_HOME / $XDG_DATA_HOME / $XDG_CACHE_HOME (QStandardPaths). Paths use '/'. `sub`
 // is appended after a '/' when it is not empty; the folders are not created here.
+//
+// Portable mode (Windows only, the portable zip): a file named portable.txt next to qode.exe puts all three inside
+// <QODE folder>\data (config = data\config, data = data\local, cache = data\local\cache). JDK downloads then go to
+// data\local\jdks and no Kotlin command link is made, so a portable QODE writes nothing outside its own folder.
 namespace AppPaths {
+
+// True in portable mode. Unix: always false.
+bool isPortable();
 
 QString config(const QString &sub = {});
 QString data(const QString &sub = {});

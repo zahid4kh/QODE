@@ -59,7 +59,8 @@ QString replyError(QNetworkReply *r)
 
 QString JdkInstaller::defaultRoot()
 {
-    return QDir::homePath() + QStringLiteral("/.jdks");
+    // Portable QODE (AppPaths::isPortable) writes nothing outside its own folder.
+    return AppPaths::isPortable() ? AppPaths::data(QStringLiteral("jdks")) : QDir::homePath() + QStringLiteral("/.jdks");
 }
 
 QString JdkInstaller::recordFile()

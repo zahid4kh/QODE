@@ -1,5 +1,6 @@
 #include "NewProjectDialog.h"
 
+#include "dialogs/FileDialogs.h"
 #include "filesystem/FileManager.h"
 #include "lsp/LspServers.h"
 #include "platform/Platform.h"
@@ -11,7 +12,6 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDir>
-#include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QHBoxLayout>
@@ -235,7 +235,7 @@ ProjectTemplates::Values NewProjectDialog::values() const
 
 void NewProjectDialog::browse()
 {
-    const QString dir = QFileDialog::getExistingDirectory(this, tr("Project Location"), location());
+    const QString dir = FileDialogs::getExistingDirectory(this, tr("Project Location"), location());
     if (!dir.isEmpty())
         m_location->setText(dir);
 }
@@ -320,7 +320,7 @@ QWidget *NewProjectDialog::makeField(const ProjectTemplates::Option &o)
 
 void NewProjectDialog::browseImage(QLineEdit *edit)
 {
-    const QString file = QFileDialog::getOpenFileName(this, tr("App Icon"), QDir::homePath(),
+    const QString file = FileDialogs::getOpenFileName(this, tr("App Icon"), QDir::homePath(),
                                                       tr("Images (*.png *.svg *.jpg *.jpeg *.webp *.bmp);;All files (*)"));
     if (!file.isEmpty())
         edit->setText(file);

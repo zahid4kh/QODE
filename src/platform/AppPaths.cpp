@@ -1,6 +1,7 @@
 #include "platform/AppPaths.h"
 
 #include <QDir>
+#include <QSettings>
 #include <QStandardPaths>
 
 namespace {
@@ -54,4 +55,15 @@ QString AppPaths::settingsFile()
 #else
     return config(QStringLiteral("QODE.conf"));
 #endif
+}
+
+void AppPaths::initQtSettings()
+{
+#ifdef Q_OS_UNIX
+    // Every QSettings in QODE names its file itself (SettingsManager), so only Qt's QSettings(scope, organization)
+    // objects follow this.
+    QSettings::setPath(QSettings::NativeFormat, QSettings::UserScope, config());
+#endif
+    // Windows: QSettings(scope, organization) is always the registry there and setPath cannot move it, so the file
+    // dialogs go through FileDialogs, which puts HKCU\Software\QtProject back the way it was after each dialog.
 }

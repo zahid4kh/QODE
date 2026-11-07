@@ -1,5 +1,6 @@
 #include "PackagesDialog.h"
 
+#include "dialogs/FileDialogs.h"
 #include "project/PythonEnv.h"
 #include "python/PackageManager.h"
 #include "settings/Icons.h"
@@ -11,7 +12,6 @@
 #include <QClipboard>
 #include <QComboBox>
 #include <QDesktopServices>
-#include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -470,7 +470,7 @@ void PackagesDialog::installNow(const QStringList &specs)
 
 void PackagesDialog::installFromFile()
 {
-    const QString file = QFileDialog::getOpenFileName(
+    const QString file = FileDialogs::getOpenFileName(
         this, tr("Install From File"), m_root,
         tr("Requirements and projects (requirements*.txt *.txt pyproject.toml setup.py);;All files (*)"));
     if (!file.isEmpty())

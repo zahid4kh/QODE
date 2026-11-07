@@ -1,4 +1,5 @@
 #include "app/InstanceRegistry.h"
+#include "dialogs/FileDialogs.h"
 #include "filesystem/WatchGuard.h"
 #include "EditorManager.h"
 
@@ -26,7 +27,6 @@
 #include <QMenu>
 #include <QMimeData>
 #include <QSplitter>
-#include <QFileDialog>
 #include <QFileInfo>
 #include <QFileSystemWatcher>
 #include <QLabel>
@@ -1006,7 +1006,7 @@ bool EditorManager::saveDocumentAs(Document *doc)
                                                                            : SettingsManager::instance().lastDirectory())
                     .filePath(doc->fileName());
     while (true) {
-        QString path = QFileDialog::getSaveFileName(this, tr("Save As"), start);
+        QString path = FileDialogs::getSaveFileName(this, tr("Save As"), start);
         if (path.isEmpty())
             return false;
         // Another open tab already owns that path?

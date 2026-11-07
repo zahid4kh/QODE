@@ -1,5 +1,6 @@
 #include "jvm/JdkDialog.h"
 
+#include "dialogs/FileDialogs.h"
 #include "jvm/JvmTools.h"
 #include "platform/Platform.h"
 #include "settings/SettingsManager.h"
@@ -7,7 +8,6 @@
 
 #include <QDialogButtonBox>
 #include <QDir>
-#include <QFileDialog>
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QLabel>
@@ -111,7 +111,7 @@ void JdkDialog::populate()
 
 void JdkDialog::addFolder()
 {
-    const QString dir = QFileDialog::getExistingDirectory(this, tr("JDK Folder"), QDir::homePath());
+    const QString dir = FileDialogs::getExistingDirectory(this, tr("JDK Folder"), QDir::homePath());
     if (dir.isEmpty())
         return;
     const JdkScanner::Jdk j = JdkScanner::fromHome(dir);

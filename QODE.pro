@@ -222,6 +222,7 @@ SOURCES += \
     src/dialogs/RunConfigDialog.cpp \
     src/dialogs/ThemeEditorDialog.cpp \
     src/dialogs/CompilerFlagsDialog.cpp \
+    src/dialogs/FileDialogs.cpp \
     src/dialogs/IncludePathsDialog.cpp \
     src/dialogs/LspInstallDialog.cpp \
     src/dialogs/JdtlsInstallDialog.cpp \
@@ -465,6 +466,7 @@ HEADERS += \
     src/dialogs/ThemeEditorDialog.h \
     src/dialogs/CompilerFlagsDialog.h \
     src/dialogs/IncludePathsDialog.h \
+    src/dialogs/FileDialogs.h \
     src/dialogs/LspInstallDialog.h \
     src/dialogs/JdtlsInstallDialog.h \
     src/dialogs/LspRemoveDialog.h \

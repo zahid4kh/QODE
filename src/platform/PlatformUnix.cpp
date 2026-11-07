@@ -38,6 +38,13 @@ bool Platform::selectInFileManager(const QString &)
     return false;
 }
 
+QVariant Platform::saveQtDialogState(const QString &)
+{
+    return {};
+}
+
+void Platform::restoreQtDialogState(const QVariant &) {}
+
 QString Platform::decodeOutput(const QByteArray &bytes)
 {
     return QString::fromLocal8Bit(bytes);

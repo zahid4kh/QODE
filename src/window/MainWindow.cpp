@@ -8,6 +8,7 @@
 #include "cpp/CppTools.h"
 #include "debug/DebugPanel.h"
 #include "debug/DebugSession.h"
+#include "dialogs/FileDialogs.h"
 #include "dialogs/NewProjectDialog.h"
 #include "dialogs/RunConfigDialog.h"
 #include "dialogs/ThemeEditorDialog.h"
@@ -62,7 +63,6 @@
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QDragEnterEvent>
-#include <QFileDialog>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -783,7 +783,7 @@ void MainWindow::openProject()
 {
     const QString start = m_projects->hasProject() ? QFileInfo(m_projects->root()).absolutePath()
                                                    : SettingsManager::instance().lastDirectory();
-    const QString dir = QFileDialog::getExistingDirectory(this, tr("Open Project"), start.isEmpty() ? QDir::homePath() : start);
+    const QString dir = FileDialogs::getExistingDirectory(this, tr("Open Project"), start.isEmpty() ? QDir::homePath() : start);
     if (!dir.isEmpty())
         openProjectPath(dir);
 }
@@ -935,7 +935,7 @@ void MainWindow::newFile()
 void MainWindow::openFile()
 {
     const QString start = m_projects->hasProject() ? m_projects->root() : SettingsManager::instance().lastDirectory();
-    const QStringList files = QFileDialog::getOpenFileNames(this, tr("Open File"), start.isEmpty() ? QDir::homePath() : start);
+    const QStringList files = FileDialogs::getOpenFileNames(this, tr("Open File"), start.isEmpty() ? QDir::homePath() : start);
     for (const QString &f : files)
         m_editors->openFile(f);
 }

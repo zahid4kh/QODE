@@ -1,6 +1,7 @@
 // MainWindow's language server side: the LSP menu and status, installing servers, Go to Definition, code actions,
 // workspace edits, rename, references and colour swatches.
 #include "MainWindow.h"
+#include "dialogs/FileDialogs.h"
 #include "platform/Platform.h"
 #include "platform/AppPaths.h"
 
@@ -33,7 +34,6 @@
 #include <QApplication>
 #include <QColorDialog>
 #include <QDir>
-#include <QFileDialog>
 #include <QFileInfo>
 #include <QIcon>
 #include <QInputDialog>
@@ -737,7 +737,7 @@ void MainWindow::removeLspServer(const QString &serverId)
 void MainWindow::chooseLspServerPath(const QString &serverId)
 {
     const QString current = m_lsp->serverPath(serverId);
-    const QString path = QFileDialog::getOpenFileName(this, tr("Select the language server executable"),
+    const QString path = FileDialogs::getOpenFileName(this, tr("Select the language server executable"),
                                                       current.isEmpty() ? QStringLiteral("/usr/bin") : current);
     if (!path.isEmpty())
         m_lsp->setServerPath(serverId, path);

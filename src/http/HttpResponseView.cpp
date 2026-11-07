@@ -1,5 +1,6 @@
 #include "http/HttpResponseView.h"
 
+#include "dialogs/FileDialogs.h"
 #include "http/HttpRunner.h"
 #include "http/HttpUi.h"
 #include "settings/Icons.h"
@@ -10,7 +11,6 @@
 #include <QClipboard>
 #include <QDir>
 #include <QFile>
-#include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QImage>
@@ -298,7 +298,7 @@ void HttpResponseView::saveBody()
     if (name.isEmpty())
         name = QStringLiteral("response");
     const QString suggested = QDir(SettingsManager::instance().lastDirectory()).filePath(name + QLatin1Char('.') + extensionFor(m_result.contentType()));
-    const QString path = QFileDialog::getSaveFileName(this, tr("Save Response Body"), suggested);
+    const QString path = FileDialogs::getSaveFileName(this, tr("Save Response Body"), suggested);
     if (path.isEmpty())
         return;
     QFile f(path);

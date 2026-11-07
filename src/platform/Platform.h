@@ -4,6 +4,7 @@
 #include <QMap>
 #include <QString>
 #include <QStringList>
+#include <QVariant>
 
 class QFileInfo;
 class QProcess;
@@ -39,6 +40,15 @@ void setDarkTheme(bool dark);
 // opens the folder; file managers have no common way to select a file). Windows: Explorer (SHOpenFolderAndSelectItems,
 // which reuses a window already showing that folder).
 bool selectInFileManager(const QString &file);
+
+// Qt's file dialog saves its state (last folder, history) in QSettings(UserScope, "QtProject") every time it closes.
+// On Windows that is always the registry (HKCU\Software\QtProject\OrganizationDefaults\FileDialog, shared with Qt
+// Creator and other Qt programs), and nothing in Qt moves it. FileDialogs wraps every dialog in these two:
+// saveQtDialogState snapshots that key, restoreQtDialogState puts it back exactly, deleting the keys the dialog
+// created when they did not exist before, so QODE leaves the registry as it found it. Unix: nothing
+// (AppPaths::initQtSettings moved the file into QODE's config folder). `org` other than "QtProject" is for tests.
+QVariant saveQtDialogState(const QString &org = QStringLiteral("QtProject"));
+void restoreQtDialogState(const QVariant &state);
 
 // Text a child process wrote (pip, npm, Gradle, an installer). Unix: QString::fromLocal8Bit, as before. Windows: UTF-8
 // when the bytes are valid UTF-8, else the system's ANSI code page (Java and many console tools write in it when their

@@ -1,5 +1,6 @@
 #include "app/Application.h"
 #include "app/StartupProfile.h"
+#include "platform/AppPaths.h"
 #include "platform/Platform.h"
 #include "platform/ProcessTree.h"
 #include "window/MainWindow.h"
@@ -15,6 +16,7 @@ int main(int argc, char *argv[])
     StartupProfile::begin();
     // Writing to a child process (git, the shell) that already exited must fail with an error, not kill the editor.
     Platform::initProcess();
+    AppPaths::initQtSettings(); // Qt's file dialog state in QODE's config folder (Unix; Windows: FileDialogs)
     // Qt WebEngine (the web preview) shares OpenGL contexts with the widgets; this must be set before the application exists.
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
     Application app(argc, argv);

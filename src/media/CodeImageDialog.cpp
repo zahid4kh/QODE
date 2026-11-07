@@ -1,5 +1,6 @@
 #include "CodeImageDialog.h"
 
+#include "dialogs/FileDialogs.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
 #include "settings/ThemeManager.h"
@@ -10,7 +11,6 @@
 #include <QColorDialog>
 #include <QComboBox>
 #include <QDir>
-#include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QGuiApplication>
@@ -324,7 +324,7 @@ void CodeImageDialog::choosePicture()
         filters << QStringLiteral("*.") + QString::fromLatin1(f);
     const QString start = m_style.picture.isEmpty() ? QStandardPaths::writableLocation(QStandardPaths::PicturesLocation)
                                                     : QFileInfo(m_style.picture).absolutePath();
-    const QString file = QFileDialog::getOpenFileName(this, tr("Background Picture"), start,
+    const QString file = FileDialogs::getOpenFileName(this, tr("Background Picture"), start,
                                                       tr("Images (%1)").arg(filters.join(QLatin1Char(' '))));
     if (file.isEmpty())
         return;
@@ -384,7 +384,7 @@ void CodeImageDialog::savePng()
     QString base = QFileInfo(m_source.title).completeBaseName();
     if (base.isEmpty())
         base = QStringLiteral("code");
-    const QString file = QFileDialog::getSaveFileName(this, tr("Save Image"), QDir(lastSaveDir).filePath(base + QStringLiteral(".png")),
+    const QString file = FileDialogs::getSaveFileName(this, tr("Save Image"), QDir(lastSaveDir).filePath(base + QStringLiteral(".png")),
                                                       tr("PNG images (*.png)"));
     if (file.isEmpty())
         return;

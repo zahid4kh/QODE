@@ -2,6 +2,7 @@
 #include "window/MainWindow.h"
 
 #include "app/StartupProfile.h"
+#include "dialogs/FileDialogs.h"
 #include "editor/CodeEditor.h"
 #include "editor/Document.h"
 #include "editor/EditorManager.h"
@@ -16,7 +17,6 @@
 
 #include <QDir>
 #include <QFile>
-#include <QFileDialog>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -140,7 +140,7 @@ void MainWindow::toggleHttpPanel()
 void MainWindow::newHttpFile()
 {
     const QString root = m_projects->hasProject() ? m_projects->root() : SettingsManager::instance().lastDirectory();
-    QString path = QFileDialog::getSaveFileName(this, tr("New HTTP Request File"), QDir(root).filePath(QStringLiteral("requests.http")),
+    QString path = FileDialogs::getSaveFileName(this, tr("New HTTP Request File"), QDir(root).filePath(QStringLiteral("requests.http")),
                                                 tr("HTTP requests (*.http *.rest)"));
     if (path.isEmpty())
         return;

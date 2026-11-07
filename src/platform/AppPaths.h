@@ -22,4 +22,11 @@ QString cache(const QString &sub = {});
 // registry, so the per-project files can live beside it).
 QString settingsFile();
 
+// Qt's file dialog keeps its state (last folder, history) in QSettings(UserScope, "QtProject"), by default
+// ~/.config/QtProject.conf on Unix and HKCU\Software\QtProject on Windows, shared with every other Qt program.
+// Unix: this moves it to config()/QtProject.conf, so everything QODE writes stays in its own folders. Windows: Qt
+// cannot move it (always the registry); FileDialogs restores the key after each dialog instead. Called by main
+// before anything uses QSettings.
+void initQtSettings();
+
 } // namespace AppPaths

@@ -1,10 +1,10 @@
 #include "IncludePathsDialog.h"
 
+#include "dialogs/FileDialogs.h"
 #include "lsp/LspManager.h"
 
 #include <QDialogButtonBox>
 #include <QDir>
-#include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
@@ -66,7 +66,7 @@ void IncludePathsDialog::addItem(const QString &path)
 
 void IncludePathsDialog::addFolder()
 {
-    const QString dir = QFileDialog::getExistingDirectory(this, tr("Add Include Folder"), m_root);
+    const QString dir = FileDialogs::getExistingDirectory(this, tr("Add Include Folder"), m_root);
     if (dir.isEmpty())
         return;
     // Folders inside the project are kept relative so the setting survives moving the project.

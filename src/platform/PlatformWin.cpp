@@ -159,6 +159,71 @@ bool Platform::selectInFileManager(const QString &file)
     return SUCCEEDED(hr);
 }
 
+namespace {
+const QString kSoftware = QStringLiteral("HKEY_CURRENT_USER\\Software");
+const QString kScope = QStringLiteral("OrganizationDefaults"); // QSettings(UserScope, org) = Software\<org>\OrganizationDefaults
+const QString kGroup = QStringLiteral("FileDialog");
+
+bool hasGroup(const QSettings &s, const QString &name)
+{
+    return s.childGroups().contains(name, Qt::CaseInsensitive); // registry key names ignore case
+}
+} // namespace
+
+QVariant Platform::saveQtDialogState(const QString &org)
+{
+    QVariantMap state;
+    state.insert(QStringLiteral("org"), org);
+    state.insert(QStringLiteral("root"), hasGroup(QSettings(kSoftware, QSettings::NativeFormat), org));
+    state.insert(QStringLiteral("scope"), hasGroup(QSettings(kSoftware + QLatin1Char('\\') + org, QSettings::NativeFormat), kScope));
+    QSettings s(QSettings::UserScope, org);
+    state.insert(QStringLiteral("group"), hasGroup(s, kGroup));
+    s.beginGroup(kGroup);
+    QVariantMap values;
+    for (const QString &key : s.allKeys())
+        values.insert(key, s.value(key));
+    state.insert(QStringLiteral("values"), values);
+    return state;
+}
+
+void Platform::restoreQtDialogState(const QVariant &state)
+{
+    const QVariantMap st = state.toMap();
+    const QString org = st.value(QStringLiteral("org")).toString();
+    if (org.isEmpty())
+        return;
+    {
+        QSettings s(QSettings::UserScope, org);
+        s.remove(kGroup);
+        if (st.value(QStringLiteral("group")).toBool()) {
+            s.beginGroup(kGroup);
+            const QVariantMap values = st.value(QStringLiteral("values")).toMap();
+            for (auto it = values.constBegin(); it != values.constEnd(); ++it)
+                s.setValue(it.key(), it.value());
+            s.endGroup();
+        }
+        s.sync();
+    }
+    // Keys the dialog created: only removed when nothing else is in them (another Qt program may have written meanwhile).
+    const QString orgKey = kSoftware + QLatin1Char('\\') + org;
+    if (!st.value(QStringLiteral("scope")).toBool()) {
+        const QSettings scope(QSettings::UserScope, org);
+        if (scope.allKeys().isEmpty()) {
+            QSettings parent(orgKey, QSettings::NativeFormat);
+            parent.remove(kScope);
+            parent.sync();
+        }
+    }
+    if (!st.value(QStringLiteral("root")).toBool()) {
+        const QSettings orgSettings(orgKey, QSettings::NativeFormat);
+        if (orgSettings.allKeys().isEmpty() && orgSettings.childGroups().isEmpty()) {
+            QSettings software(kSoftware, QSettings::NativeFormat);
+            software.remove(org);
+            software.sync();
+        }
+    }
+}
+
 QString Platform::decodeOutput(const QByteArray &bytes)
 {
     QStringDecoder utf8(QStringConverter::Utf8, QStringConverter::Flag::Stateless);

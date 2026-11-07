@@ -2,6 +2,7 @@
 #include "MainWindow.h"
 
 #include "SideSections.h"
+#include "dialogs/QodeFilesDialog.h"
 #include "editor/Breadcrumbs.h"
 #include "editor/CodeEditor.h"
 #include "editor/Document.h"
@@ -611,6 +612,7 @@ void MainWindow::createMenus()
     createLspMenu(menuBar()->addMenu(tr("&LSP")));
 
     QMenu *help = menuBar()->addMenu(tr("&Help"));
+    help->addAction(tr("QODE's Files…"), this, [this] { (new QodeFilesDialog(this))->open(); });
     help->addAction(tr("Startup Time…"), this, &MainWindow::showStartupTime);
     help->addSeparator();
     help->addAction(m_aboutAct);

@@ -45,6 +45,65 @@ QVariant Platform::saveQtDialogState(const QString &)
 
 void Platform::restoreQtDialogState(const QVariant &) {}
 
+namespace {
+QString tr(const char *text)
+{
+    return QCoreApplication::translate("Platform", text);
+}
+
+// The Debian package that owns /usr/bin/qode: the one whose doc folder exists (they replace each other).
+QString debianPackage()
+{
+    for (const char *pkg : {"qode-bundled-noweb", "qode-bundled", "qode"})
+        if (QFileInfo(QStringLiteral("/usr/share/doc/") + QLatin1String(pkg)).isDir())
+            return QLatin1String(pkg);
+    return {};
+}
+} // namespace
+
+QList<Platform::InstalledItem> Platform::installedItems()
+{
+    QList<InstalledItem> out;
+    auto add = [&out](const QString &path, const QString &what) {
+        if (QFileInfo::exists(path) || QFileInfo(path).isSymLink())
+            out.append({path, what, false});
+    };
+    const QString program = QCoreApplication::applicationFilePath();
+    const QString real = QFileInfo(program).canonicalFilePath();
+    if (real.startsWith(QLatin1String("/opt/qode/"))) {
+        add(QStringLiteral("/opt/qode"), tr("QODE with its own copy of Qt (qode-bundled package)"));
+        add(QStringLiteral("/usr/bin/qode"), tr("Link to /opt/qode/bin/qode, so \"qode\" works in a terminal"));
+    } else {
+        add(program, real.startsWith(QLatin1String("/usr/")) ? tr("The QODE program") : tr("The QODE program (not installed: run from this folder)"));
+    }
+    add(QStringLiteral("/usr/bin/qode-remove-lsp"), tr("Command that lists and removes the language servers QODE uses"));
+    add(QStringLiteral("/usr/local/bin/qode"), tr("Link to /usr/bin/qode for shells that search /usr/local/bin first"));
+    for (const QString &prefix : {QStringLiteral("/usr"), QStringLiteral("/usr/local")}) {
+        add(prefix + QStringLiteral("/share/applications/qode.desktop"), tr("Applications-menu entry"));
+        const QString icons = prefix + QStringLiteral("/share/icons/hicolor");
+        for (const QString &size : QDir(icons).entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name))
+            for (const char *file : {"qode.png", "qode.svg"})
+                add(icons + QLatin1Char('/') + size + QStringLiteral("/apps/") + QLatin1String(file), tr("Icon"));
+    }
+    add(QStringLiteral("/usr/share/man/man1/qode.1.gz"), tr("Manual page (man qode)"));
+    add(QStringLiteral("/usr/share/man/man1/qode-remove-lsp.1.gz"), tr("Manual page (man qode-remove-lsp)"));
+    if (const QString pkg = debianPackage(); !pkg.isEmpty())
+        add(QStringLiteral("/usr/share/doc/") + pkg, tr("README, copyright and changelog of the %1 package").arg(pkg));
+    return out;
+}
+
+QString Platform::removalHint()
+{
+    const QString pkg = debianPackage();
+    if (pkg.isEmpty())
+        return tr("QODE was not installed from a package here: delete the program yourself, and the folders above to remove "
+                  "its data.");
+    return tr("<b>sudo apt remove %1</b> removes QODE and, for every user, the QODE-AGENTIC folders above. To keep "
+              "them: <b>sudo QODE_KEEP_USER_DATA=1 apt remove %1</b>. JDKs QODE downloaded are kept; delete them yourself "
+              "if no project needs them.")
+        .arg(pkg);
+}
+
 QString Platform::decodeOutput(const QByteArray &bytes)
 {
     return QString::fromLocal8Bit(bytes);

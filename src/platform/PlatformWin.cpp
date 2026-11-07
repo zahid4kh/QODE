@@ -28,6 +28,7 @@
 #include <cstring>
 #include <iterator>
 #include <string>
+#include <utility>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -222,6 +223,95 @@ void Platform::restoreQtDialogState(const QVariant &state)
             software.sync();
         }
     }
+}
+
+namespace {
+QString tr(const char *text)
+{
+    return QCoreApplication::translate("Platform", text);
+}
+
+QString uninstallKey()
+{
+    return kSoftware + QStringLiteral("\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\") + QLatin1String(Platform::kInstallerAppId) +
+           QStringLiteral("_is1");
+}
+
+// The folder the installer put QODE in (from its uninstall key, '/' separators, no trailing '/'); empty when QODE was
+// not installed with it.
+QString installFolder()
+{
+    const QSettings key(uninstallKey(), QSettings::NativeFormat);
+    QString dir = QDir::fromNativeSeparators(key.value(QStringLiteral("InstallLocation")).toString());
+    while (dir.endsWith(QLatin1Char('/')))
+        dir.chop(1);
+    return dir.isEmpty() || !QFileInfo(dir).isDir() ? QString() : dir;
+}
+
+QString exeFolder()
+{
+    return QFileInfo(QCoreApplication::applicationFilePath()).absolutePath();
+}
+
+bool runsFromInstall()
+{
+    const QString dir = installFolder();
+    return !dir.isEmpty() && Platform::samePath(dir, exeFolder());
+}
+} // namespace
+
+QList<Platform::InstalledItem> Platform::installedItems()
+{
+    QList<InstalledItem> out;
+    if (AppPaths::isPortable()) {
+        out.append({exeFolder(), tr("Portable QODE: the program, and in data\\ everything it writes"), false});
+        return out;
+    }
+    const QString dir = installFolder();
+    if (dir.isEmpty() || !runsFromInstall()) {
+        out.append({exeFolder(), tr("The QODE program (not installed with the installer: run from this folder)"), false});
+        if (dir.isEmpty())
+            return out;
+    }
+    const QSettings key(uninstallKey(), QSettings::NativeFormat);
+    const QString version = key.value(QStringLiteral("DisplayVersion")).toString();
+    out.append({dir, version.isEmpty() ? tr("The QODE program (installed)") : tr("The QODE program, version %1 (installed)").arg(version), false});
+    const QString startMenu = QStandardPaths::writableLocation(QStandardPaths::ApplicationsLocation) + QStringLiteral("/QODE.lnk");
+    if (QFileInfo::exists(startMenu))
+        out.append({startMenu, tr("Start-menu shortcut"), false});
+    const QString desktop = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation) + QStringLiteral("/QODE.lnk");
+    if (QFileInfo::exists(desktop))
+        out.append({desktop, tr("Desktop shortcut"), false});
+    const QString bin = QDir::toNativeSeparators(dir + QStringLiteral("/bin"));
+    const QSettings env(QStringLiteral("HKEY_CURRENT_USER\\Environment"), QSettings::NativeFormat);
+    const QStringList path = env.value(QStringLiteral("Path")).toString().split(QLatin1Char(';'), Qt::SkipEmptyParts);
+    if (std::any_of(path.cbegin(), path.cend(), [&bin](const QString &p) { return Platform::samePath(QDir::fromNativeSeparators(p), QDir::fromNativeSeparators(bin)); }))
+        out.append({QStringLiteral("HKCU\\Environment\\Path"), tr("Your PATH includes %1, so \"qode\" works in a terminal").arg(bin), true});
+    const QString classes = kSoftware + QStringLiteral("\\Classes\\");
+    for (const auto &[sub, what] : {std::pair{"Directory\\shell", "Explorer: \"Open with QODE\" on folders"},
+                                    std::pair{"Directory\\Background\\shell", "Explorer: \"Open with QODE\" inside a folder"},
+                                    std::pair{"*\\shell", "Explorer: \"Open with QODE\" on files"}}) {
+        const QSettings shell(classes + QLatin1String(sub), QSettings::NativeFormat);
+        if (shell.childGroups().contains(QStringLiteral("QODE"), Qt::CaseInsensitive))
+            out.append({QStringLiteral("HKCU\\Software\\Classes\\") + QLatin1String(sub) + QStringLiteral("\\QODE"), tr(what), true});
+    }
+    out.append({QStringLiteral("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\") + QLatin1String(kInstallerAppId) + QStringLiteral("_is1"),
+                tr("The entry in Settings > Apps (how to uninstall QODE)"), true});
+    return out;
+}
+
+QString Platform::removalHint()
+{
+    if (AppPaths::isPortable())
+        return tr("Portable QODE writes nothing outside its own folder (%1): delete that folder to remove it with all its "
+                  "data. JDKs it downloaded are inside it too.")
+            .arg(QDir::toNativeSeparators(exeFolder()));
+    if (installFolder().isEmpty())
+        return tr("QODE was not installed with the installer here: delete its folder yourself, and the folders above to "
+                  "remove its data.");
+    return tr("<b>Settings &gt; Apps &gt; QODE &gt; Uninstall</b> removes QODE and everything installed with it. It then "
+              "lists the folders above with their sizes and deletes the ones you leave ticked (all of them, except JDKs "
+              "QODE downloaded, which projects may still use).");
 }
 
 QString Platform::decodeOutput(const QByteArray &bytes)

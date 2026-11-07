@@ -50,6 +50,23 @@ bool selectInFileManager(const QString &file);
 QVariant saveQtDialogState(const QString &org = QStringLiteral("QtProject"));
 void restoreQtDialogState(const QVariant &state);
 
+// What the installer or package put on this machine for QODE (only what exists now), for Help > QODE's Files.
+// Unix: the program, /opt/qode, /usr/bin/qode-remove-lsp, the /usr/local/bin/qode link, the desktop entry, icons, man
+// pages and /usr/share/doc/<package>. Windows: the install folder, the Start-menu and desktop shortcuts, the PATH
+// entry, the Explorer menu keys and the Settings > Apps key, found through the installer's uninstall key; a portable or
+// self-built QODE: its own folder. Paths use '/', registry keys "HKCU\…".
+struct InstalledItem {
+    QString path;
+    QString what;
+    bool registry = false;
+};
+QList<InstalledItem> installedItems();
+// One paragraph (rich text) saying how to remove QODE with everything listed: Unix the package command
+// (QODE_KEEP_USER_DATA=1 keeps the data), Windows Settings > Apps (installed), deleting the folder (portable).
+QString removalHint();
+// Windows: the installer's AppId (Inno Setup), also the name of its key under ...\CurrentVersion\Uninstall (+ "_is1").
+inline constexpr const char *kInstallerAppId = "{EF440086-6264-4480-A849-B306BDBCF69F}";
+
 // Text a child process wrote (pip, npm, Gradle, an installer). Unix: QString::fromLocal8Bit, as before. Windows: UTF-8
 // when the bytes are valid UTF-8, else the system's ANSI code page (Java and many console tools write in it when their
 // output is a pipe; QODE's own code page is UTF-8, so fromLocal8Bit would not do).

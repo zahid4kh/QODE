@@ -62,6 +62,7 @@ SOURCES += \
     src/main.cpp \
     src/app/Application.cpp \
     src/app/DesktopNotify.cpp \
+    src/app/QodeFiles.cpp \
     src/app/InstanceRegistry.cpp \
     src/app/StartupProfile.cpp \
     src/settings/SettingsManager.cpp \
@@ -223,6 +224,7 @@ SOURCES += \
     src/dialogs/ThemeEditorDialog.cpp \
     src/dialogs/CompilerFlagsDialog.cpp \
     src/dialogs/FileDialogs.cpp \
+    src/dialogs/QodeFilesDialog.cpp \
     src/dialogs/IncludePathsDialog.cpp \
     src/dialogs/LspInstallDialog.cpp \
     src/dialogs/JdtlsInstallDialog.cpp \
@@ -317,6 +319,7 @@ HEADERS += \
     src/platform/Platform.h \
     src/platform/ProcessTree.h \
     src/app/DesktopNotify.h \
+    src/app/QodeFiles.h \
     src/app/InstanceRegistry.h \
     src/app/StartupProfile.h \
     src/settings/SettingsManager.h \
@@ -467,6 +470,7 @@ HEADERS += \
     src/dialogs/CompilerFlagsDialog.h \
     src/dialogs/IncludePathsDialog.h \
     src/dialogs/FileDialogs.h \
+    src/dialogs/QodeFilesDialog.h \
     src/dialogs/LspInstallDialog.h \
     src/dialogs/JdtlsInstallDialog.h \
     src/dialogs/LspRemoveDialog.h \

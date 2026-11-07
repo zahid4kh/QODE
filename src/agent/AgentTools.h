@@ -4,6 +4,7 @@
 #include "agent/AgentJournal.h"
 #include "ai/AiEdits.h"
 #include "agent/CodeIndex.h"
+#include "platform/Platform.h"
 
 #include <QHash>
 #include <QJsonArray>
@@ -108,6 +109,12 @@ public:
     // What the system prompt says about the set groups (empty when none is set).
     QString groupPrompt() const;
     const QString &root() const { return m_root; }
+    // The shell run_command runs commands in (a Platform::chatShells id; unknown or "" = the default). Set before each
+    // run: the run_command declaration names it.
+    void setShell(const QString &id);
+    // What the system prompt says about the computer beyond the base instructions: on Windows the version, the shell
+    // run_command uses and how to write for it, and the path forms. Unix: empty (the base instructions say Linux and bash).
+    QString environmentPrompt() const;
 
     // Declarations for the generateContent request: [{functionDeclarations: [...]}].
     QJsonArray toolsJson() const;
@@ -233,6 +240,7 @@ private:
     int m_turn = 0;
     QProcess *m_process = nullptr;
     bool m_cancelled = false;
+    Platform::ChatShell m_shell = Platform::chatShell(QString());
 };
 
 } // namespace agent

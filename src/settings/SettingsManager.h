@@ -216,6 +216,10 @@ public:
     void setInlineModel(const QString &model);
     QString aiEffort() const;
     void setAiEffort(const QString &effort);
+    // The shell the QODE chat's run_command uses (a Platform::chatShells id; "" = the default), global. Only Windows
+    // offers a choice (PowerShell or Git Bash).
+    QString aiShell() const;
+    void setAiShell(const QString &id);
     // The codebase index also ranks by meaning with Gemini embeddings (sends code sections to Google), global; default on.
     bool codeEmbeddings() const;
     void setCodeEmbeddings(bool on);

@@ -666,6 +666,25 @@ void AgentPanel::rebuildModelMenu()
         }
     }
 
+    // Windows: run_command's shell (PowerShell, or Git Bash when Git has one). Unix has only bash: no menu.
+    const QList<Platform::ChatShell> shells = Platform::chatShells();
+    if (shells.size() > 1) {
+        const Platform::ChatShell current = Platform::chatShell(SettingsManager::instance().aiShell());
+        m_modelMenu->addSeparator();
+        QMenu *shellMenu = m_modelMenu->addMenu(tr("Commands run in: %1").arg(current.name));
+        shellMenu->setToolTipsVisible(true);
+        auto *sg = new QActionGroup(shellMenu);
+        for (const Platform::ChatShell &s : shells) {
+            QAction *a = shellMenu->addAction(s.name);
+            a->setToolTip(QDir::toNativeSeparators(s.program));
+            a->setCheckable(true);
+            a->setActionGroup(sg);
+            a->setChecked(s.id == current.id);
+            const QString id = s.id;
+            connect(a, &QAction::triggered, this, [id] { SettingsManager::instance().setAiShell(id); });
+        }
+    }
+
     m_modelMenu->addSeparator();
     auto *wa = new QWidgetAction(m_modelMenu);
     auto *holder = new QWidget;
@@ -1109,7 +1128,8 @@ void AgentPanel::startRun(const QString &display, const QString &request, const 
     cfg.apiKey = AiEnv::apiKey(provider(), m_root);
     cfg.model = m_modelName;
     prepareToolGroups();
-    cfg.systemInstruction = AgentRun::systemPrompt(m_root) + m_tools.groupPrompt() + m_mcp->promptSection();
+    m_tools.setShell(SettingsManager::instance().aiShell());
+    cfg.systemInstruction = AgentRun::systemPrompt(m_root) + m_tools.environmentPrompt() + m_tools.groupPrompt() + m_mcp->promptSection();
     prepareMcpTools();
     cfg.contents = m_session.history();
     cfg.contents.append(QJsonObject{{"role", "user"}, {"parts", QJsonArray{QJsonObject{{"text", sent}}}}});

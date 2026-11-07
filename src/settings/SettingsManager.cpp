@@ -892,6 +892,16 @@ void SettingsManager::setAiEffort(const QString &effort)
     m_settings.setValue(QStringLiteral("ai/effort"), effort.trimmed());
 }
 
+QString SettingsManager::aiShell() const
+{
+    return m_settings.value(QStringLiteral("ai/shell")).toString();
+}
+
+void SettingsManager::setAiShell(const QString &id)
+{
+    m_settings.setValue(QStringLiteral("ai/shell"), id);
+}
+
 bool SettingsManager::codeEmbeddings() const
 {
     return m_settings.value(QStringLiteral("ai/codeEmbeddings"), true).toBool();

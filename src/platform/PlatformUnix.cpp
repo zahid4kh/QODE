@@ -374,6 +374,22 @@ QList<Platform::Shell> Platform::terminalShells()
     return {};
 }
 
+QList<Platform::ChatShell> Platform::chatShells()
+{
+    return {{QStringLiteral("bash"), QStringLiteral("bash"), QStringLiteral("bash"), QStringLiteral("/bin/bash")}};
+}
+
+Platform::ChatShell Platform::chatShell(const QString &)
+{
+    return chatShells().constFirst();
+}
+
+void Platform::setChatShellCommand(QProcess *process, const ChatShell &shell, const QString &command)
+{
+    process->setProgram(shell.program);
+    process->setArguments({QStringLiteral("-c"), command});
+}
+
 QString Platform::fromShellPath(const QString &path)
 {
     return path;

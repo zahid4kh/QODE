@@ -243,6 +243,28 @@ struct Shell {
 };
 QList<Shell> terminalShells();
 
+// The shells the QODE chat's run_command can run its commands in (AgentTools), the default first:
+// - id: what the setting stores: "bash", "powershell", "gitbash".
+// - name: what the model and the user are told: "bash", "Windows PowerShell 5.1", "PowerShell 7", "Git Bash".
+// - dialect: the language the model writes the command in: "bash" or "powershell".
+// Unix: bash (/bin/bash) only. Windows: PowerShell (pwsh when installed, else Windows PowerShell 5.1, which every
+// Windows has), then Git Bash when Git for Windows has one.
+struct ChatShell {
+    QString id;
+    QString name;
+    QString dialect;
+    QString program;
+};
+QList<ChatShell> chatShells();
+// The shell with that id, else the default (the first of chatShells).
+ChatShell chatShell(const QString &id);
+// Sets `process` up to run `command` (written for shell.dialect) in `shell`; call it after setProcessEnvironment (it
+// adds to that environment) and start() the process afterwards. Unix: bash -c command, as before. Windows, PowerShell:
+// the command goes in the environment variable QODE_CHAT_SCRIPT (a temporary file, deleted with `process`, when it is
+// too long for one), and a fixed -Command line runs it: no quoting, errors as text (-EncodedCommand would give CLIXML),
+// UTF-8 output, no progress bars, -ExecutionPolicy Bypass, and bash's exit code: 0 when the last command succeeded,
+// else the native program's exit code (1 for a failed cmdlet). Git Bash: bash.exe -c command.
+void setChatShellCommand(QProcess *process, const ChatShell &shell, const QString &command);
 // A path a shell or a model wrote, in Qt's form. Unix: unchanged. Windows: '\' becomes '/', and the drive forms of
 // Git Bash, Cygwin and WSL (/c/Users/x, /cygdrive/c/x, /mnt/c/x) become C:/Users/x when that drive exists.
 QString fromShellPath(const QString &path);

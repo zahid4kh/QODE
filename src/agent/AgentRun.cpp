@@ -3,6 +3,9 @@
 #include "ai/ClaudeClient.h"
 #include "ai/GeminiClient.h"
 
+#include "platform/Platform.h"
+
+#include <QDir>
 #include <QFile>
 #include <QJsonDocument>
 #include <QNetworkAccessManager>
@@ -52,8 +55,15 @@ QString AgentRun::systemPrompt(const QString &root)
 
 QString AgentRun::baseInstructions(const QString &root)
 {
+    const bool windows = Platform::osTag() == QLatin1String("win");
+    // Servers that need a separate install: Linux has the package managers (sudo), Windows winget or an installer.
+    const QString installOutside = windows
+        ? QStringLiteral("If it needs a separate install (clangd, Node.js, Python, Java), give the exact command from its install_help "
+                         "(winget …) in a code block to copy and run themselves; never run installers yourself.")
+        : QStringLiteral("If it needs sudo (clangd, Node.js, Python, Java), give the exact command for their "
+                         "distribution in a code block to copy and run themselves; never run sudo.");
     return QStringLiteral(
-               "You are the coding agent of QODE, a code editor, working inside the user's project on Linux. "
+               "You are the coding agent of QODE, a code editor, working inside the user's project on %2. "
                "Project root: %1 (tool paths are relative to it). You carry out the user's request yourself by calling tools: explore, edit, verify, then report.\n\n"
                "How to work\n"
                "- Orient first; never guess file contents or paths. semantic_search finds code by what it does across the whole project "
@@ -91,12 +101,11 @@ QString AgentRun::baseInstructions(const QString &root)
                "earlier requests in the chat are already done (their calls are noted in parentheses), so act only on the latest message, "
                "and a question (\"is the terminal open?\") gets an answer, not a change.\n"
                "- Language servers: check_language_servers first. If QODE can set one up, ask the user whether to download and set it up and "
-               "call install_language_server only after a yes. If it needs sudo (clangd, Node.js, Python, Java), give the exact command for their "
-               "distribution in a code block to copy and run themselves; never run sudo.\n\n"
+               "call install_language_server only after a yes. %3\n\n"
                "Final answer\n"
                "- Short markdown: what you changed and why, the files involved, what you verified and what you could not, and anything the user should "
                "check. Do not paste whole files or repeat diffs; the user sees every edit in the transcript. Refer to files by their project-relative path.")
-        .arg(root);
+        .arg(QDir::toNativeSeparators(root), windows ? QStringLiteral("Windows") : QStringLiteral("Linux"), installOutside);
 }
 
 void AgentRun::start(const Config &config)

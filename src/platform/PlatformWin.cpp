@@ -12,6 +12,7 @@
 #include <QSettings>
 #include <QStandardPaths>
 #include <QStringConverter>
+#include <QTemporaryFile>
 #include <QThread>
 #include <QUrl>
 #include <QVersionNumber>
@@ -1030,6 +1031,83 @@ QList<Platform::Shell> Platform::terminalShells()
     if (!lxss.childGroups().isEmpty())
         add(QStringLiteral("WSL"), system + QStringLiteral("\\wsl.exe"));
     return out;
+}
+
+QList<Platform::ChatShell> Platform::chatShells()
+{
+    QList<ChatShell> out;
+    const QString pwsh = QStandardPaths::findExecutable(QStringLiteral("pwsh"));
+    if (!pwsh.isEmpty()) {
+        out.append({QStringLiteral("powershell"), QStringLiteral("PowerShell 7"), QStringLiteral("powershell"), pwsh});
+    } else {
+        const QString system = qEnvironmentVariable("SystemRoot", QStringLiteral("C:\\Windows")) + QStringLiteral("\\System32");
+        out.append({QStringLiteral("powershell"), QStringLiteral("Windows PowerShell 5.1"), QStringLiteral("powershell"),
+                    system + QStringLiteral("\\WindowsPowerShell\\v1.0\\powershell.exe")});
+    }
+    const QString bash = gitBash();
+    if (!bash.isEmpty())
+        out.append({QStringLiteral("gitbash"), QStringLiteral("Git Bash"), QStringLiteral("bash"), QDir::toNativeSeparators(bash)});
+    return out;
+}
+
+Platform::ChatShell Platform::chatShell(const QString &id)
+{
+    const QList<ChatShell> all = chatShells();
+    for (const ChatShell &s : all)
+        if (s.id == id)
+            return s;
+    return all.constFirst();
+}
+
+void Platform::setChatShellCommand(QProcess *process, const ChatShell &shell, const QString &command)
+{
+    process->setProgram(shell.program);
+    if (shell.dialect != QLatin1String("powershell")) {
+        process->setArguments({QStringLiteral("-c"), command});
+        return;
+    }
+    // The command travels in an environment variable (a file when it is too long for one) and a fixed -Command line
+    // runs it: no quoting, and errors stay text (with -EncodedCommand Windows PowerShell writes them to stderr as
+    // CLIXML). The bootstrap makes PowerShell write UTF-8 (a pipe gets the OEM code page otherwise) and hides progress
+    // bars; the lines after the command give bash's exit code (-Command alone only knows 0 and 1). A parse error shows
+    // the command's own line numbers.
+    const QString script = command
+                           + QStringLiteral("\nif ($?) { exit 0 }\n"
+                                            "if ($global:LASTEXITCODE) { exit $global:LASTEXITCODE }\n"
+                                            "exit 1\n");
+    static const QString bootstrap = QStringLiteral(
+        "$ProgressPreference = 'SilentlyContinue'; "
+        "try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch {}; "
+        "$OutputEncoding = [System.Text.UTF8Encoding]::new($false); "
+        "$__qf = $env:QODE_CHAT_SCRIPT_FILE; "
+        "$__qs = if ($__qf) { [IO.File]::ReadAllText($__qf) } else { $env:QODE_CHAT_SCRIPT }; "
+        "Remove-Item Env:QODE_CHAT_SCRIPT* -ErrorAction SilentlyContinue; "
+        "try { $__qb = [ScriptBlock]::Create($__qs) } catch { [Console]::Error.WriteLine($_.Exception.InnerException.Message); exit 1 }; "
+        "$global:LASTEXITCODE = 0; "
+        ". $__qb");
+    QProcessEnvironment env = process->processEnvironment();
+    if (env.isEmpty())
+        env = QProcessEnvironment::systemEnvironment();
+    if (script.size() < 30000) { // an environment variable holds 32767 characters
+        env.insert(QStringLiteral("QODE_CHAT_SCRIPT"), script);
+    } else {
+        QString path;
+        {
+            QTemporaryFile file(QDir::tempPath() + QStringLiteral("/qode-chat-XXXXXX.ps1"));
+            file.setAutoRemove(false);
+            if (file.open()) {
+                file.write(script.toUtf8());
+                path = file.fileName();
+            }
+        } // closed for good here: an open QTemporaryFile cannot be read by another process
+        QObject::connect(process, &QObject::destroyed, [path] { QFile::remove(path); });
+        env.insert(QStringLiteral("QODE_CHAT_SCRIPT_FILE"), QDir::toNativeSeparators(path));
+    }
+    process->setProcessEnvironment(env);
+    const QStringList args{QStringLiteral("-NoLogo"), QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"),
+                           QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"), // npm.ps1 and a project's .ps1 run too
+                           QStringLiteral("-Command"), bootstrap};
+    process->setArguments(args);
 }
 
 QString Platform::fromShellPath(const QString &path)

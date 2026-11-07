@@ -229,7 +229,7 @@ void GradlePanel::setBuildDir(const QString &dir)
     m_loadedStamp = -1;
     if (m_proc) {
         m_proc->disconnect(this);
-        m_proc->kill();
+        Platform::killTree(m_proc); // Windows: gradlew.bat runs in cmd
         m_proc->deleteLater();
         m_proc = nullptr;
     }
@@ -311,7 +311,7 @@ void GradlePanel::reload()
         return;
     if (m_proc) {
         m_proc->disconnect(this);
-        m_proc->kill();
+        Platform::killTree(m_proc); // Windows: gradlew.bat runs in cmd
         m_proc->deleteLater();
     }
     showState(tr("Loading tasks…"), tr("Gradle is reading the build. The first run can take a while."), false);

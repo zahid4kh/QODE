@@ -636,6 +636,45 @@ bool Platform::shellInForeground(qint64 pid)
     return !child;
 }
 
+void Platform::killTree(QProcess *process)
+{
+    if (!process || process->state() == QProcess::NotRunning)
+        return;
+    const DWORD root = DWORD(process->processId());
+    // Collect the descendants first (a parent id is only a number: a child must be newer than its parent), then end
+    // them, deepest last found first, and the process itself through QProcess so it sees the end.
+    QList<DWORD> tree;
+    const HANDLE snap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (root && snap != INVALID_HANDLE_VALUE) {
+        QList<QPair<DWORD, DWORD>> all; // (pid, parent)
+        PROCESSENTRY32W e;
+        e.dwSize = sizeof e;
+        for (BOOL ok = ::Process32FirstW(snap, &e); ok; ok = ::Process32NextW(snap, &e))
+            all.append({e.th32ProcessID, e.th32ParentProcessID});
+        QList<DWORD> parents{root};
+        for (int i = 0; i < parents.size(); ++i) {
+            const qint64 parentStart = creationTime(parents.at(i));
+            for (const auto &[pid, parent] : std::as_const(all)) {
+                if (parent != parents.at(i) || pid == root || parents.contains(pid))
+                    continue;
+                const qint64 started = creationTime(pid);
+                if (parentStart && started && started < parentStart)
+                    continue;
+                parents << pid;
+                tree << pid;
+            }
+        }
+    }
+    if (snap != INVALID_HANDLE_VALUE)
+        ::CloseHandle(snap);
+    for (auto it = tree.crbegin(); it != tree.crend(); ++it)
+        if (const HANDLE h = ::OpenProcess(PROCESS_TERMINATE, FALSE, *it)) {
+            ::TerminateProcess(h, 1);
+            ::CloseHandle(h);
+        }
+    process->kill();
+}
+
 void Platform::restartSelf()
 {
     startOwnExe(QString::fromLatin1(kRestartArg).toStdWString() + L" " + std::to_wstring(::GetCurrentProcessId()));

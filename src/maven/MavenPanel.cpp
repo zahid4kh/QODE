@@ -307,7 +307,7 @@ void MavenPanel::killProcess(QProcess *&proc)
     if (!proc)
         return;
     proc->disconnect(this);
-    proc->kill();
+    Platform::killTree(proc); // Windows: mvnw.cmd runs in cmd
     proc->deleteLater();
     proc = nullptr;
 }

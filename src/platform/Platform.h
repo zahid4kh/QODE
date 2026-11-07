@@ -97,6 +97,11 @@ bool wrapperNeedsExecBit(const QString &dir, const QString &name);
 QString venvBinDir();
 QString venvProgram(const QString &venv, const QString &name);
 
+// Ends a short-lived tool started with setCommand and everything it started. Windows: a .bat / .cmd runs inside cmd,
+// and killing only cmd would leave its java / node running; the descendants are ended first. Unix: process->kill().
+// (Long-running servers use ProcessTree instead.)
+void killTree(QProcess *process);
+
 // Whether files have an exec bit QODE should offer to set (chmod +x). Unix: true. Windows: false (a file runs by its
 // extension, and QFileInfo::isExecutable only reports that).
 bool hasExecBit();

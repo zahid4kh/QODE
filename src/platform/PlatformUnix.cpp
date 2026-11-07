@@ -212,6 +212,12 @@ QString Platform::qmakeRunCommand(const QString &qmake, const QString &, const Q
         .arg(name.isEmpty() ? QStringLiteral("qmake6") : name, word(proRel), run);
 }
 
+void Platform::killTree(QProcess *process)
+{
+    if (process)
+        process->kill();
+}
+
 QString Platform::gitExecutable()
 {
     return QStandardPaths::findExecutable(QStringLiteral("git"));

@@ -88,6 +88,8 @@ private:
     void createMenus();
     void createToolBar();
     void createStatusBar();
+    void showEncodingMenu();   // the status bar's encoding: Reopen / Save with Encoding
+    void showLineEndingMenu(); // the status bar's LF / CRLF
     void restoreSettings();
     void saveSession();
     QJsonObject currentLayout() const;

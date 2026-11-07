@@ -154,11 +154,16 @@ bool isSensitive(const QString &path)
                                       QStringLiteral(".npmrc"), QStringLiteral(".pypirc"), QStringLiteral(".netrc"), QStringLiteral(".git-credentials"),
                                       QStringLiteral("credentials"), QStringLiteral("credentials.json"), QStringLiteral("secrets.json"),
                                       QStringLiteral("secrets.yml"), QStringLiteral("secrets.yaml"), QStringLiteral("service-account.json"),
-                                      QStringLiteral("gemini.key"), QStringLiteral("claude.key"), QStringLiteral("google-services.json"), QStringLiteral("keystore.properties")};
+                                      QStringLiteral("gemini.key"), QStringLiteral("claude.key"), QStringLiteral("google-services.json"), QStringLiteral("keystore.properties"),
+                                      QStringLiteral("_netrc")}; // _netrc: curl's and git's .netrc on Windows
     if (exact.contains(name))
         return true;
     static const QStringList suffixes = {QStringLiteral(".pem"), QStringLiteral(".key"), QStringLiteral(".p12"), QStringLiteral(".pfx"),
-                                         QStringLiteral(".jks"), QStringLiteral(".keystore"), QStringLiteral(".kdbx"), QStringLiteral(".ppk")};
+                                         QStringLiteral(".jks"), QStringLiteral(".keystore"), QStringLiteral(".kdbx"), QStringLiteral(".ppk"),
+                                         // Windows: private keys (.pvk), .NET strong-name keys (.snk), Azure / Visual Studio publish
+                                         // profiles with their passwords, Remote Desktop files (they can hold a saved password).
+                                         QStringLiteral(".pvk"), QStringLiteral(".snk"), QStringLiteral(".publishsettings"),
+                                         QStringLiteral(".pubxml.user"), QStringLiteral(".rdp")};
     for (const QString &s : suffixes)
         if (name.endsWith(s))
             return true;

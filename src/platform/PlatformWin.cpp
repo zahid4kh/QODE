@@ -249,6 +249,11 @@ int Platform::busyFileRetries()
     return 3;
 }
 
+QString Platform::legacyEncoding()
+{
+    return QStringLiteral("Windows-1252");
+}
+
 QString Platform::pathKey(const QString &path)
 {
     return QDir::fromNativeSeparators(path).toLower();

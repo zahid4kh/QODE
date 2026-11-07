@@ -22,7 +22,7 @@ public:
     ~Document() override;
 
     // Loading. On failure returns false and fills *error.
-    bool load(const QString &path, QString *error);
+    bool load(const QString &path, QString *error, const QString &encoding = {}); // encoding: TextEncoding::names(), "" = detect
     bool reload(QString *error);
     // Writing. save() uses the current path (must be non-empty).
     bool save(QString *error);
@@ -39,6 +39,12 @@ public:
     static constexpr int kLargeLines = 50'000;
     QString text() const;
     QString encoding() const { return m_encoding; }
+    // Writes the file in `encoding` on the next save (marks the document modified): Save with Encoding.
+    void setEncoding(const QString &encoding);
+    // Reads the file again as `encoding` (unsaved changes are lost): Reopen with Encoding.
+    bool reopenWithEncoding(const QString &encoding, QString *error);
+    LineEnding lineEnding() const { return m_lineEnding; }
+    void setLineEnding(LineEnding ending); // marks the document modified
     QString lineEndingName() const { return m_lineEnding == LineEnding::CRLF ? QStringLiteral("CRLF") : QStringLiteral("LF"); }
     QString languageName() const;
     const LanguageDefinition *language() const; // null = plain text
@@ -74,7 +80,6 @@ private:
     SyntaxHighlighter *m_highlighter;
     QString m_path;
     QString m_encoding = QStringLiteral("UTF-8");
-    bool m_bom = false;
     bool m_large = false;
     LineEnding m_lineEnding = LineEnding::LF;
     State m_state = State::Clean;

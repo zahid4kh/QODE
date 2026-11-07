@@ -117,6 +117,11 @@ int Platform::busyFileRetries()
     return 0;
 }
 
+QString Platform::legacyEncoding()
+{
+    return QStringLiteral("Latin-1");
+}
+
 QString Platform::pathKey(const QString &path)
 {
     return path;

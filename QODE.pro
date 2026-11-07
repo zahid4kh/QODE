@@ -230,6 +230,7 @@ SOURCES += \
     src/editor/Language.cpp \
     src/editor/SyntaxHighlighter.cpp \
     src/editor/Document.cpp \
+    src/editor/TextEncoding.cpp \
     src/editor/Breadcrumbs.cpp \
     src/editor/CsvData.cpp \
     src/editor/CsvTable.cpp \
@@ -469,6 +470,7 @@ HEADERS += \
     src/editor/Language.h \
     src/editor/SyntaxHighlighter.h \
     src/editor/Document.h \
+    src/editor/TextEncoding.h \
     src/editor/Breadcrumbs.h \
     src/editor/CsvData.h \
     src/editor/CsvTable.h \

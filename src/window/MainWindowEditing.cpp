@@ -5,6 +5,7 @@
 #include "editor/CodeEditor.h"
 #include "editor/Document.h"
 #include "editor/EditorManager.h"
+#include "editor/TextEncoding.h"
 #include "explorer/ProjectExplorer.h"
 #include "filesystem/FileManager.h"
 #include "history/LocalHistory.h"
@@ -130,9 +131,9 @@ void MainWindow::showLocalHistory(const QString &path)
         *exists = QFileInfo(file).isFile();
         if (!*exists || !f.open(QIODevice::ReadOnly))
             return {};
-        return QString::fromUtf8(f.readAll());
+        return TextEncoding::decode(f.readAll()).text;
     };
-    hooks.restore = [this](const QString &file, const QString &text) {
+    hooks.restore = [this](const QString &file, const QString &text, const QByteArray &bytes) {
         Document *open = m_editors->documentForPath(file);
         // What gets replaced stays in the history: the unsaved text, else the file's bytes (as the next save compares them).
         if (open && open->isModified())
@@ -154,7 +155,7 @@ void MainWindow::showLocalHistory(const QString &path)
         }
         QDir().mkpath(QFileInfo(file).absolutePath());
         QString error;
-        const QByteArray data = text.toUtf8();
+        const QByteArray &data = bytes; // the version exactly as stored: its encoding and line endings
         LocalHistory::recordWrite(file, data);
         if (!FileManager::writeFile(file, data, &error))
             return false;

@@ -21,9 +21,9 @@ public:
     struct Hooks {
         // The file's text now (the open editor's, else the disk's); *exists false when the file is gone.
         std::function<QString(const QString &path, bool *exists)> currentText;
-        // Keeps the current text as a "Before restore" version, then puts `text` back as the file's content (the editor's
-        // when it is open). False on failure.
-        std::function<bool(const QString &path, const QString &text)> restore;
+        // Keeps the current text as a "Before restore" version, then puts the version back: `text` into the editor when
+        // the file is open, else `bytes` (the version as stored, in its own encoding) onto the disk. False on failure.
+        std::function<bool(const QString &path, const QString &text, const QByteArray &bytes)> restore;
     };
     LocalHistoryDialog(const QString &path, const Hooks &hooks, QWidget *parent = nullptr);
 

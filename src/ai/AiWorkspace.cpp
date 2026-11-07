@@ -4,6 +4,7 @@
 
 #include "editor/CodeEditor.h"
 #include "editor/Document.h"
+#include "editor/TextEncoding.h"
 #include "editor/EditorManager.h"
 #include "lsp/LspTypes.h"
 
@@ -35,9 +36,10 @@ bool AiWorkspace::readFile(const QString &absolute, QString *text) const
     if (!QFileInfo(f).isFile() || f.size() > kMaxFileBytes || !f.open(QIODevice::ReadOnly))
         return false;
     const QByteArray data = f.readAll();
-    if (data.left(8000).contains('\0'))
+    const bool utf16 = data.startsWith("\xFF\xFE") || data.startsWith("\xFE\xFF"); // its zero bytes are text
+    if (!utf16 && data.left(8000).contains('\0'))
         return false;
-    *text = QString::fromUtf8(data);
+    *text = TextEncoding::decode(data).text; // UTF-8, UTF-16, else Latin-1 / Windows-1252: as the editor reads it
     return true;
 }
 

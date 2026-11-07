@@ -46,6 +46,9 @@ QString invalidFileName(const QString &name);
 // How often a save tries again when it fails (50, 100, 150 ms apart). Unix: 0. Windows: 3 (a virus scanner or the
 // indexer can hold a file that was just written for a moment).
 int busyFileRetries();
+// The encoding a text file that is not UTF-8 is read in (TextEncoding). Unix: "Latin-1". Windows: "Windows-1252", the
+// ANSI code page Windows tools wrote such files in (€ “ ” – — sit at 0x80-0x9F, where Latin-1 has control codes).
+QString legacyEncoding();
 QString pathKey(const QString &path);
 bool samePath(const QString &a, const QString &b);
 bool isUnder(const QString &path, const QString &root);

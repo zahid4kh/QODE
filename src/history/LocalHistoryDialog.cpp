@@ -1,4 +1,5 @@
 #include "LocalHistoryDialog.h"
+#include "editor/TextEncoding.h"
 
 #include "filesystem/FileManager.h"
 #include "git/DiffPane.h"
@@ -177,12 +178,12 @@ void LocalHistoryDialog::showVersion()
     if (row < 0 || row >= m_versions.size())
         return;
     const LocalHistory::Version &v = m_versions.at(row);
-    const QString text = QString::fromUtf8(LocalHistory::content(v));
+    const QString text = TextEncoding::decode(LocalHistory::content(v)).text;
     const QString name = when(v.time) + QStringLiteral(" — ") + LocalHistory::label(v.kind);
     DiffPane::Stats st;
     if (m_compare->currentIndex() == 1) {
         const bool first = row + 1 >= m_versions.size();
-        const QString before = first ? QString() : QString::fromUtf8(LocalHistory::content(m_versions.at(row + 1)));
+        const QString before = first ? QString() : TextEncoding::decode(LocalHistory::content(m_versions.at(row + 1))).text;
         m_pane->setTitles(first ? tr("(no older version)") : when(m_versions.at(row + 1).time) + QStringLiteral(" — ") + LocalHistory::label(m_versions.at(row + 1).kind), name);
         st = m_pane->setTexts(before, text);
     } else {
@@ -204,7 +205,7 @@ void LocalHistoryDialog::restoreSelected()
     if (row < 0 || row >= m_versions.size() || !m_hooks.restore)
         return;
     const QByteArray data = LocalHistory::content(m_versions.at(row));
-    if (!m_hooks.restore(m_file, QString::fromUtf8(data))) {
+    if (!m_hooks.restore(m_file, TextEncoding::decode(data).text, data)) {
         QMessageBox::warning(this, tr("Local History"), tr("Could not restore %1.").arg(FileManager::displayPath(m_file)));
         return;
     }

@@ -66,9 +66,10 @@ QList<Item> created(bool sizes)
     };
 
     add({QStringLiteral("config"), AppPaths::config(),
-         onUnix ? tr("Settings, API keys (claude.key, gemini.key), MCP servers (mcp.json), per-project state (projects/), "
+         onUnix ? tr("Settings, API keys (claude.key, gemini.key), MCP servers (mcp.json), per-project state (projects/), game scores (games/), "
                    "Qt's file dialog state (QtProject.conf)")
-              : tr("Settings, API keys (claude.key, gemini.key), MCP servers (mcp.json), per-project state (projects\\)"),
+              : tr("Settings, API keys (claude.key, gemini.key), MCP servers (mcp.json), per-project state (projects\\), "
+                   "game scores (games\\)"),
          true, true});
     add({QStringLiteral("data"), data,
          onUnix ? tr("Language servers QODE downloaded (lsp/), local history, scratch files, web preview storage")

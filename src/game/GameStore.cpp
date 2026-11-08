@@ -1,6 +1,6 @@
 #include "game/GameStore.h"
 
-#include "settings/SettingsManager.h"
+#include "platform/AppPaths.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -23,8 +23,7 @@ const QString KeyOptions = QStringLiteral("options");
 GameStore::GameStore(const QString &gameId)
     : m_id(gameId)
 {
-    const QString configDir = QFileInfo(SettingsManager::instance().configFilePath()).absolutePath();
-    m_path = configDir + QStringLiteral("/games/") + gameId + QStringLiteral(".json");
+    m_path = AppPaths::config(QStringLiteral("games/") + gameId + QStringLiteral(".json"));
     load();
 }
 

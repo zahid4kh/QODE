@@ -5,7 +5,8 @@
 #include <QString>
 #include <QVariant>
 
-// The saved data of one game in the game panel: ~/.config/QODE-AGENTIC/games/<id>.json, next to QODE.conf.
+// The saved data of one game in the game panel: AppPaths::config("games/<id>.json")
+// (~/.config/QODE-AGENTIC/games on Linux, %APPDATA%\QODE-AGENTIC\games on Windows).
 // Holds the best score, the game's own options (start level, …), a top-10 list and totals (games, play time).
 // Global, not per project: the same high score follows the user everywhere. Written on every change.
 class GameStore

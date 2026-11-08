@@ -830,7 +830,7 @@ void SnakeWidget::paintSnake(QPainter &p)
             const int g = 120 + int(30 * (1 - along));
             c = QColor(g, g - 6, g + 20);
         } else if (won) {
-            c = QColor::fromHsvF(std::fmod(along + m_time * 0.5, 1.0), 0.6, 1.0);
+            c = QColor::fromHsvF(float(std::fmod(along + m_time * 0.5, 1.0)), 0.6f, 1.0f);
         }
         return c;
     };

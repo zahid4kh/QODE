@@ -96,8 +96,7 @@ QodeFilesDialog::QodeFilesDialog(QWidget *parent) : QDialog(parent)
         row->setData(LocationCol, PathRole, i.path);
         row->setData(LocationCol, OpenableRole, !i.registry);
         row->setToolTip(WhatCol, i.what);
-        if (i.registry)
-            row->setToolTip(LocationCol, tr("A registry key (regedit shows it)"));
+        row->setToolTip(LocationCol, i.registry ? tr("%1\nA registry key (regedit shows it)").arg(i.path) : QDir::toNativeSeparators(i.path));
     }
 
     auto *hint = new QLabel(Platform::removalHint(), this);
@@ -160,7 +159,8 @@ void QodeFilesDialog::showCreated(const Scan &scan, bool counted)
         row->setData(LocationCol, PathRole, item.path);
         row->setData(LocationCol, OpenableRole, true);
         row->setTextAlignment(SizeCol, Qt::AlignRight | Qt::AlignVCenter);
-        row->setToolTip(WhatCol, item.what); // the column is often narrower than the text
+        row->setToolTip(WhatCol, item.what); // the columns are often narrower than the text
+        row->setToolTip(LocationCol, QDir::toNativeSeparators(item.path));
         total += qMax<qint64>(item.size, 0);
         for (const Entry &e : scan.children.value(item.path)) {
             const QString path = item.path + QLatin1Char('/') + e.name;

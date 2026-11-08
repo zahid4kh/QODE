@@ -2,19 +2,14 @@
 
 ## 1. Pull
 
-`CLAUDE.md` and `scripts\` are now tracked. Your untracked local copies on the laptop will block the pull
-("untracked working tree files would be overwritten"). Move them aside first:
-
 ```bat
 cd <repo>
 git switch windows-port
-move CLAUDE.md %TEMP%\CLAUDE.md.bak
-move scripts %TEMP%\scripts.bak
 git pull
 ```
 
-Then compare the backups with the pulled files (`fc /n` or any diff tool). If the laptop had changes that weren't
-pushed, copy them over and commit; otherwise delete the backups.
+`CLAUDE.md` and `scripts\` are now tracked. The pull replaces the laptop's ignored copies without asking. That's fine:
+they weren't edited on Windows after being copied to Ubuntu.
 
 Check: `git ls-files --eol scripts/win/compile.bat` should show `w/crlf`.
 

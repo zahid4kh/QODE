@@ -4,6 +4,7 @@
 
 #include "gradle/GradleTasks.h"
 
+class ElidedLabel;
 class GradleBuildView;
 class QLabel;
 class QNetworkAccessManager;
@@ -68,7 +69,7 @@ private:
     QProcess *m_proc = nullptr;
 
     QLabel *m_title;
-    QLabel *m_folder;
+    ElidedLabel *m_folder;
     QToolButton *m_refresh;
     QToolButton *m_allBtn;
     QLineEdit *m_filter;

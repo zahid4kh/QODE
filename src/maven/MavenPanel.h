@@ -4,6 +4,7 @@
 
 #include "maven/MavenProject.h"
 
+class ElidedLabel;
 class QComboBox;
 class QLabel;
 class QLineEdit;
@@ -78,7 +79,8 @@ private:
     QStringList m_profiles; // checked profile ids
     QString m_module;       // "" = the whole build
 
-    QLabel *m_title, *m_folder;
+    QLabel *m_title;
+    ElidedLabel *m_folder;
     QWidget *m_wrapperRow;
     QLabel *m_wrapperLabel;
     QToolButton *m_execBtn;

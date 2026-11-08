@@ -297,6 +297,7 @@ SOURCES += \
     src/python/PythonTools.cpp \
     src/python/PackageManager.cpp \
     src/window/Island.cpp \
+    src/window/ElidedLabel.cpp \
     src/window/SideSections.cpp \
     src/window/MainWindow.cpp \
     src/window/MainWindowAssist.cpp \
@@ -542,6 +543,7 @@ HEADERS += \
     src/python/PackageManager.h \
     src/lsp/LspTypes.h \
     src/window/Island.h \
+    src/window/ElidedLabel.h \
     src/window/SideSections.h \
     src/window/MainWindow.h
 

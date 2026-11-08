@@ -32,6 +32,8 @@
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
+#include "filesystem/FileManager.h"
+#include "window/ElidedLabel.h"
 
 namespace {
 constexpr int kTaskRole = Qt::UserRole + 1; // the task name on task items; groups have none
@@ -91,9 +93,10 @@ GradlePanel::GradlePanel(QWidget *parent)
     header->setStyleSheet(QStringLiteral("QWidget#mediaHeader { background: palette(alternate-base); border-bottom: 1px solid palette(shadow); }"
                                          "QWidget#mediaHeader QLabel { background: transparent; border: none; }"));
 
-    m_folder = new QLabel(this);
+    m_folder = new ElidedLabel(this);
     m_folder->setObjectName(QStringLiteral("emptyText"));
-    m_folder->setContentsMargins(10, 6, 10, 0);
+    // Padding in a style sheet: the app's QLabel#emptyText rule resets plain contents margins to its own box (none).
+    m_folder->setStyleSheet(QStringLiteral("QLabel { padding: 6px 10px 0 10px; }"));
     m_folder->setTextInteractionFlags(Qt::NoTextInteraction);
 
     m_filter = new QLineEdit(this);
@@ -234,7 +237,7 @@ void GradlePanel::setBuildDir(const QString &dir)
         m_proc = nullptr;
     }
     m_tree->clear();
-    m_folder->setText(dir.isEmpty() ? QString() : QDir::toNativeSeparators(QDir::home().relativeFilePath(dir)).prepend(QStringLiteral("~/")));
+    m_folder->setFullText(dir.isEmpty() ? QString() : FileManager::displayPath(dir)); // ~/x, or D:\x outside the home folder
     m_buildView->setRoot(dir);
     updateDetail();
     updateWrapper();

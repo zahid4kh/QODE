@@ -6,6 +6,7 @@
 #include "platform/Platform.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
+#include "filesystem/FileManager.h"
 
 #include <QDialogButtonBox>
 #include <QDir>
@@ -94,8 +95,7 @@ void JdkDialog::populate()
     QTreeWidgetItem *current = system;
     for (const JdkScanner::Jdk &j : std::as_const(m_jdks)) {
         auto *it = new QTreeWidgetItem(m_list, {j.version.isEmpty() ? QString::number(j.major) : j.version, j.vendor + (j.jre ? tr(" (JRE)") : QString()),
-                                                j.source, QDir::home().relativeFilePath(j.home).startsWith(QLatin1String("..")) ? j.home
-                                                                                                                                 : QStringLiteral("~/") + QDir::home().relativeFilePath(j.home)});
+                                                j.source, FileManager::displayPath(j.home)}); // ~/x, or D:\x on another drive
         it->setData(0, kHomeRole, j.home);
         it->setToolTip(3, j.home);
         if (j.home == keep)

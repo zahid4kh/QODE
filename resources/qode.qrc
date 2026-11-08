@@ -134,6 +134,7 @@
         <file>fonts/PlusJakartaSans-SemiBold.ttf</file>
         <file>fonts/PlusJakartaSans-SemiBoldItalic.ttf</file>
         <file>templates/_shared/versions.json</file>
+        <file>templates/_shared/gradle-wrapper/dot_gitattributes</file>
         <file>templates/_shared/gradle-wrapper/gradlew</file>
         <file>templates/_shared/gradle-wrapper/gradlew.bat</file>
         <file>templates/_shared/gradle-wrapper/gradle/wrapper/gradle-wrapper.jar</file>
@@ -193,6 +194,7 @@
         <file>templates/cpp-console/files/compile.bat</file>
         <file>templates/cpp-console/files/compile_flags.txt</file>
         <file>templates/cpp-console/files/dot_clang-format</file>
+        <file>templates/cpp-console/files/dot_gitattributes</file>
         <file>templates/cpp-console/files/dot_gitignore</file>
         <file>templates/cpp-console/files/run.sh</file>
         <file>templates/cpp-console/files/run.bat</file>
@@ -208,6 +210,7 @@
         <file>templates/c-console/files/compile.bat</file>
         <file>templates/c-console/files/compile_flags.txt</file>
         <file>templates/c-console/files/dot_clang-format</file>
+        <file>templates/c-console/files/dot_gitattributes</file>
         <file>templates/c-console/files/dot_gitignore</file>
         <file>templates/c-console/files/run.sh</file>
         <file>templates/c-console/files/run.bat</file>
@@ -223,6 +226,7 @@
         <file>templates/qt-widgets/files/compile.sh</file>
         <file>templates/qt-widgets/files/compile.bat</file>
         <file>templates/qt-widgets/files/dot_clang-format</file>
+        <file>templates/qt-widgets/files/dot_gitattributes</file>
         <file>templates/qt-widgets/files/dot_gitignore</file>
         <file>templates/qt-widgets/files/run.sh</file>
         <file>templates/qt-widgets/files/run.bat</file>

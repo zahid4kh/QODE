@@ -2,6 +2,7 @@
 // (Shift+F9) does, the stop's frames and variables, stepping and evaluating, all through the same DebugSession as the
 // debug panel. Calls return at once; AgentTools waits for a stop by polling debug_state.
 #include "MainWindow.h"
+#include "platform/Platform.h"
 
 #include "debug/DebugSession.h"
 #include "editor/Document.h"
@@ -49,7 +50,7 @@ QJsonObject variableJson(const DebugVariable &v)
 QString MainWindow::ideRelative(const QString &path) const
 {
     const QString root = m_projects->hasProject() ? m_projects->root() : QString();
-    return !root.isEmpty() && path.startsWith(root + QLatin1Char('/')) ? path.mid(root.size() + 1) : path;
+    return !root.isEmpty() && Platform::isUnder(path, root) ? path.mid(root.size() + 1) : path;
 }
 
 void MainWindow::setBreakpointLines(const QString &path, const QList<int> &zeroBased)

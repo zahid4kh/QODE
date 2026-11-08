@@ -38,7 +38,8 @@ private:
     QCheckBox *m_restart;
     QLabel *m_note;
     QString m_loaded;       // file name shown in the table
-    QStringList m_rawLines; // the file as read, for in-place rewriting
+    QStringList m_rawLines; // the file as read (without '\r'), for in-place rewriting
+    bool m_crlf = false;    // the file's line endings, written back the same way
     QList<Entry> m_original;
     bool m_dirty = false;
     bool m_loading = false;

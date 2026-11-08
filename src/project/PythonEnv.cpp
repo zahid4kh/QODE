@@ -1,6 +1,9 @@
 #include "PythonEnv.h"
 
+#include "platform/Platform.h"
 #include "settings/SettingsManager.h"
+#include "terminal/ShellSyntax.h"
+#include "editor/TextEncoding.h"
 
 #include <QDir>
 #include <QFile>
@@ -13,7 +16,7 @@ namespace PythonEnv {
 static bool isVenv(const QDir &root, const QString &name)
 {
     return QFileInfo::exists(root.filePath(name + QStringLiteral("/pyvenv.cfg")))
-        && QFileInfo::exists(root.filePath(name + QStringLiteral("/bin/activate")));
+        && QFileInfo::exists(root.filePath(name + QLatin1Char('/') + Platform::venvBinDir() + QStringLiteral("/activate")));
 }
 
 QString findVenv(const QString &projectRoot)
@@ -63,9 +66,9 @@ QString venvPython(const QString &projectRoot, const QString &venv)
     if (venv.isEmpty())
         return {};
     for (const char *name : {"python", "python3"}) {
-        const QFileInfo fi(QDir(projectRoot).filePath(venv + QStringLiteral("/bin/") + QString::fromLatin1(name)));
-        if (fi.exists() && fi.isExecutable())
-            return fi.absoluteFilePath();
+        const QString exe = Platform::venvProgram(QDir(projectRoot).filePath(venv), QString::fromLatin1(name));
+        if (!exe.isEmpty())
+            return exe;
     }
     return {};
 }
@@ -78,7 +81,7 @@ QString venvVersion(const QString &projectRoot, const QString &venv)
     // venv writes "version = 3.12.3", uv writes "version_info = 3.12.3" (virtualenv: "version_info" too).
     static const QRegularExpression re(QStringLiteral("^version(?:_info)?\\s*=\\s*(\\d+\\.\\d+(?:\\.\\d+)?)"),
                                        QRegularExpression::MultilineOption);
-    return re.match(QString::fromUtf8(f.readAll())).captured(1);
+    return re.match(TextEncoding::decode(f.readAll()).text).captured(1);
 }
 
 QString activationCommand(const QString &projectRoot, const QString &shellName)
@@ -86,12 +89,29 @@ QString activationCommand(const QString &projectRoot, const QString &shellName)
     const QString venv = activeVenv(projectRoot);
     if (venv.isEmpty())
         return {};
+    const ShellSyntax::Dialect dialect = ShellSyntax::dialectOf(shellName);
+    if (dialect == ShellSyntax::Dialect::Wsl)
+        return {}; // a Windows venv (Scripts\python.exe) does not run in WSL's Linux
+    const QString abs = QDir::toNativeSeparators(QDir(projectRoot).filePath(venv));
+    const QString scripts = abs + QDir::separator() + Platform::venvBinDir();
+    if (dialect == ShellSyntax::Dialect::PowerShell) {
+        // What Activate.ps1 does that matters, without running a script (the default execution policy forbids it).
+        return QStringLiteral("$env:VIRTUAL_ENV = %1; $env:PATH = %2 + ';' + $env:PATH")
+            .arg(ShellSyntax::quote(dialect, abs), ShellSyntax::quote(dialect, scripts));
+    }
+    if (dialect == ShellSyntax::Dialect::Cmd) {
+        const QString bat = scripts + QStringLiteral("\\activate.bat");
+        return QFileInfo::exists(bat) ? ShellSyntax::quote(dialect, bat) : QString();
+    }
+    QString name = shellName;
+    if (name.endsWith(QLatin1String(".exe"), Qt::CaseInsensitive))
+        name.chop(4);
     QString script = QStringLiteral("activate");
-    if (shellName == QLatin1String("fish"))
+    if (name == QLatin1String("fish"))
         script = QStringLiteral("activate.fish");
-    else if (shellName == QLatin1String("csh") || shellName == QLatin1String("tcsh"))
+    else if (name == QLatin1String("csh") || name == QLatin1String("tcsh"))
         script = QStringLiteral("activate.csh");
-    const QString rel = venv + QStringLiteral("/bin/") + script;
+    const QString rel = venv + QLatin1Char('/') + Platform::venvBinDir() + QLatin1Char('/') + script;
     if (!QFileInfo::exists(QDir(projectRoot).filePath(rel)))
         return {};
     // Single-quote so names with spaces or shell metacharacters survive.

@@ -7,13 +7,17 @@
   "description": "A Qt 6 desktop window written in code (no .ui files) with qmake or CMake, plus compile and run scripts. QODE reads the project for clangd, so completion works from the start.",
   "requires": ["qt6", "tool:cmake?buildSystem=CMake", "tool:make?buildSystem=qmake", "tool:g++"],
   "options": [
-    {"key": "buildSystem", "label": "Build system", "type": "choice", "choices": ["qmake", "CMake"], "default": "qmake", "hint": "qmake is what QODE itself uses. compile.sh and run.sh work with either."},
+    {"key": "buildSystem", "label": "Build system", "type": "choice", "choices": ["qmake", "CMake"], "default": "qmake", "hint": "qmake is what QODE itself uses. compile.sh and run.sh work with either.", "win": {"hint": "qmake is what QODE itself uses. compile.bat and run.bat work with either, with the Qt kit found now (an MSVC kit uses Visual Studio's compiler, a MinGW kit its own)."}},
     {"key": "resources", "label": "Add a Qt resource file", "type": "bool", "default": "true", "hint": "resources/app.qrc embeds the window icon in the program."},
     {"key": "ccache", "label": "Use ccache when installed", "type": "bool", "default": "true", "hint": "ccache remembers what the compiler produced, so rebuilding code that did not change is nearly instant. Skipped automatically if ccache is not installed."},
-    {"key": "mold", "label": "Use mold linker when installed", "type": "bool", "default": "true", "hint": "mold is a very fast drop-in replacement for the system linker. Qt programs link many libraries, so it helps noticeably. Skipped automatically if mold is not installed."},
+    {"key": "mold", "os": "!win", "label": "Use mold linker when installed", "type": "bool", "default": "true", "hint": "mold is a very fast drop-in replacement for the system linker. Qt programs link many libraries, so it helps noticeably. Skipped automatically if mold is not installed."},
     {"key": "clangFormat", "label": "Add a .clang-format file", "type": "bool", "default": "true", "hint": "Format Document uses it (LLVM style, 4 spaces)."}
   ],
   "when": {
+    "compile.sh": "!os=win",
+    "run.sh": "!os=win",
+    "compile.bat": "os=win",
+    "run.bat": "os=win",
     "CMakeLists.txt": "buildSystem=CMake",
     "{{nameId}}.pro": "buildSystem=qmake",
     "resources": "resources",
@@ -21,5 +25,10 @@
   },
   "executable": ["compile.sh", "run.sh"],
   "runCommand": "./run.sh",
+  "win": {
+    "runCommand": "./run.bat",
+    "requires": ["qt6", "tool:cmake?buildSystem=CMake", "tool:msvc?qtKit=msvc"],
+    "description": "A Qt 6 desktop window written in code (no .ui files) with qmake or CMake, plus compile.bat and run.bat, which use the Qt kit from the Qt installer. QODE reads the project for clangd, so completion works from the start."
+  },
   "openFiles": ["src/MainWindow.cpp"]
 }

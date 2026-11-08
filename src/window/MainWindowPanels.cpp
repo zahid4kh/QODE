@@ -31,6 +31,7 @@
 #include "webdev/DevServer.h"
 #include "webdev/DevServerBar.h"
 #include "webdev/WebPreview.h"
+#include "filesystem/FileManager.h"
 
 #include <QAction>
 #include <QApplication>
@@ -290,14 +291,12 @@ void MainWindow::showPythonPackages()
         updatePythonUi();
         restartPythonServer();
         statusBar()->showMessage(tr("Created the virtual environment %1").arg(name), 6000);
-        const QString shell = QFileInfo(qEnvironmentVariable("SHELL", QStringLiteral("/bin/bash"))).fileName();
-        const QString cmd = PythonEnv::activationCommand(m_projects->project().root, shell);
-        if (cmd.isEmpty())
+        if (PythonEnv::activationCommand(m_projects->project().root, m_terminal->currentShellFile()).isEmpty())
             return;
         if (QMessageBox::question(m_pkgDialog, tr("Activate it?"),
                                   tr("Activate %1 in the terminal now? New terminals activate it automatically.").arg(name)) == QMessageBox::Yes) {
-            showTerminal();
-            m_terminal->runCommand(cmd);
+            showTerminal(); // may start the first pane: its shell decides the command
+            m_terminal->runCommand(PythonEnv::activationCommand(m_projects->project().root, m_terminal->currentShellFile()));
         }
     });
     m_pkgDialog->show();
@@ -343,20 +342,14 @@ void MainWindow::addSpringStarters()
         QMessageBox::warning(this, tr("Add Spring Starters"), change.error);
         return;
     }
-    QFile f(change.file);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        QMessageBox::warning(this, tr("Add Spring Starters"), tr("Could not write %1: %2").arg(change.file, f.errorString()));
+    // In the file's own encoding (a BOM or UTF-16 stays), written atomically with Windows' busy-file retries.
+    QString error;
+    if (!FileManager::writeText(change.file, change.text, &error)) {
+        QMessageBox::warning(this, tr("Add Spring Starters"), tr("Could not write %1: %2").arg(change.file, error));
         return;
     }
-    f.write(change.text.toUtf8());
-    f.close();
-    for (const auto &extra : change.extra) {
-        QFile x(extra.first);
-        if (x.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-            x.write(extra.second.toUtf8());
-            x.close();
-        }
-    }
+    for (const auto &extra : change.extra)
+        FileManager::writeText(extra.first, extra.second);
     m_editors->openFile(change.file);
     statusBar()->showMessage(tr("Added %1 to %2").arg(change.added.join(QStringLiteral(", ")), QFileInfo(change.file).fileName()), 6000);
     if (!change.note.isEmpty())

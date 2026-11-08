@@ -1,4 +1,5 @@
 #include "GradlePanel.h"
+#include "platform/Platform.h"
 
 #include "gradle/GradleBuildView.h"
 #include "jvm/JvmTools.h"
@@ -31,6 +32,8 @@
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
+#include "filesystem/FileManager.h"
+#include "window/ElidedLabel.h"
 
 namespace {
 constexpr int kTaskRole = Qt::UserRole + 1; // the task name on task items; groups have none
@@ -90,9 +93,10 @@ GradlePanel::GradlePanel(QWidget *parent)
     header->setStyleSheet(QStringLiteral("QWidget#mediaHeader { background: palette(alternate-base); border-bottom: 1px solid palette(shadow); }"
                                          "QWidget#mediaHeader QLabel { background: transparent; border: none; }"));
 
-    m_folder = new QLabel(this);
+    m_folder = new ElidedLabel(this);
     m_folder->setObjectName(QStringLiteral("emptyText"));
-    m_folder->setContentsMargins(10, 6, 10, 0);
+    // Padding in a style sheet: the app's QLabel#emptyText rule resets plain contents margins to its own box (none).
+    m_folder->setStyleSheet(QStringLiteral("QLabel { padding: 6px 10px 0 10px; }"));
     m_folder->setTextInteractionFlags(Qt::NoTextInteraction);
 
     m_filter = new QLineEdit(this);
@@ -228,12 +232,12 @@ void GradlePanel::setBuildDir(const QString &dir)
     m_loadedStamp = -1;
     if (m_proc) {
         m_proc->disconnect(this);
-        m_proc->kill();
+        Platform::killTree(m_proc); // Windows: gradlew.bat runs in cmd
         m_proc->deleteLater();
         m_proc = nullptr;
     }
     m_tree->clear();
-    m_folder->setText(dir.isEmpty() ? QString() : QDir::toNativeSeparators(QDir::home().relativeFilePath(dir)).prepend(QStringLiteral("~/")));
+    m_folder->setFullText(dir.isEmpty() ? QString() : FileManager::displayPath(dir)); // ~/x, or D:\x outside the home folder
     m_buildView->setRoot(dir);
     updateDetail();
     updateWrapper();
@@ -275,15 +279,28 @@ void GradlePanel::upgradeWrapper()
             QMessageBox::information(this, tr("Upgrade Gradle Wrapper"), tr("The wrapper already uses Gradle %1, the current release.").arg(latest));
             return;
         }
+        const bool major = current.value.section(QLatin1Char('.'), 0, 0) != latest.section(QLatin1Char('.'), 0, 0);
         const auto answer = QMessageBox::question(
             this, tr("Upgrade Gradle Wrapper"),
-            tr("Upgrade the wrapper from Gradle %1 to %2?\n\nThis runs, in the terminal:\n./gradlew wrapper --gradle-version %2\n"
-               "and then ./gradlew wrapper once more, so the wrapper scripts and jar come from the new version too. Check the "
-               "release notes for breaking changes before a major upgrade.")
-                .arg(current.value, latest));
+            tr("Upgrade the wrapper from Gradle %1 to %2?\n\nQODE sets the new version in gradle/wrapper/gradle-wrapper.properties, "
+               "then runs, in the terminal:\n%3 wrapper --gradle-version %2\nso the wrapper scripts and jar come from the new "
+               "version too.%4")
+                .arg(current.value, latest, GradleTasks::runner(m_dir),
+                     major ? tr("\n\nThis is a major upgrade: plugins of the build (Kotlin, Android, Compose …) may need newer "
+                                "versions too. Check Gradle's upgrade guide if the build fails afterwards.")
+                           : QString()));
         if (answer != QMessageBox::Yes)
             return;
-        emit runRequested(QStringLiteral("%1 wrapper --gradle-version %2 --distribution-type bin && %1 wrapper").arg(GradleTasks::runner(m_dir), latest), m_dir);
+        // The properties first: the wrapper task runs the Gradle they name, and the old one may not start at all (Gradle
+        // 8.7 on JDK 25).
+        QString error;
+        if (!JvmTools::setWrapperVersion(m_dir, latest, &error)) {
+            QMessageBox::warning(this, tr("Upgrade Gradle Wrapper"), error);
+            return;
+        }
+        updateWrapper();
+        emit wrapperChanged();
+        emit runRequested(QStringLiteral("%1 wrapper --gradle-version %2 --distribution-type bin").arg(GradleTasks::runner(m_dir), latest), m_dir);
     });
 }
 
@@ -310,7 +327,7 @@ void GradlePanel::reload()
         return;
     if (m_proc) {
         m_proc->disconnect(this);
-        m_proc->kill();
+        Platform::killTree(m_proc); // Windows: gradlew.bat runs in cmd
         m_proc->deleteLater();
     }
     showState(tr("Loading tasks…"), tr("Gradle is reading the build. The first run can take a while."), false);
@@ -348,8 +365,9 @@ void GradlePanel::reload()
     QStringList args = {QStringLiteral("-q"), QStringLiteral("--console=plain"), QStringLiteral("tasks")};
     if (m_all)
         args << QStringLiteral("--all");
-    const QString runner = GradleTasks::runner(m_dir);
-    proc->start(runner == QLatin1String("./gradlew") ? m_dir + QStringLiteral("/gradlew") : runner, args);
+    const QString wrapper = Platform::wrapperFile(m_dir, QStringLiteral("gradlew"));
+    Platform::setCommand(proc, wrapper.isEmpty() ? QStringLiteral("gradle") : wrapper, args);
+    proc->start();
 }
 
 void GradlePanel::showState(const QString &title, const QString &text, bool retry)

@@ -1,5 +1,7 @@
 #include "http/HttpEnv.h"
 
+#include "editor/TextEncoding.h"
+
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -13,7 +15,8 @@ QJsonObject readJson(const QString &path, bool jsonc = false)
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly))
         return {};
-    QByteArray data = f.readAll();
+    // Decoded like the editor: a BOM or UTF-16 (Windows PowerShell 5's >) would make fromJson fail.
+    QByteArray data = TextEncoding::decode(f.readAll()).text.toUtf8();
     if (jsonc)
         data = HttpEnv::stripJsonc(data);
     return QJsonDocument::fromJson(data).object();
@@ -111,7 +114,7 @@ QHash<QString, QString> dotenv(const QString &fileDir, const QString &projectRoo
         QFile f(dir + QStringLiteral("/.env"));
         if (dir.isEmpty() || !f.open(QIODevice::ReadOnly))
             continue;
-        for (const QString &raw : QString::fromUtf8(f.readAll()).split(QLatin1Char('\n'))) {
+        for (const QString &raw : TextEncoding::decode(f.readAll()).text.split(QLatin1Char('\n'))) { // CRLF: trimmed below
             QString line = raw.trimmed();
             if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
                 continue;

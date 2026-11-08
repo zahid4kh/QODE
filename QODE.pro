@@ -17,7 +17,8 @@ qtHaveModule(multimedia) {
 }
 
 # Desktop notifications (Claude Code finished or waiting) go over D-Bus; without it only the taskbar entry is flagged.
-qtHaveModule(dbus) {
+# Not on Windows: its Qt kit ships QtDBus, but there is no session bus to talk to.
+!win32:qtHaveModule(dbus) {
     QT += dbus
     DEFINES += QODE_HAS_DBUS
 }
@@ -28,7 +29,9 @@ CONFIG -= app_bundle
 TEMPLATE = app
 TARGET = qode
 VERSION = 2.0.0
-LIBS += -lz # JarSource reads library source jars
+# JarSource reads library source jars with zlib: the system's on Unix, the copy inside Qt Core on Windows.
+unix: LIBS += -lz
+win32: QT += zlib-private
 DEFINES += QT_DEPRECATED_WARNINGS QT_NO_CAST_TO_ASCII QT_NO_CAST_FROM_BYTEARRAY
 DEFINES += QODE_VERSION=\\\"$$VERSION\\\"
 
@@ -58,8 +61,8 @@ SOURCES += \
     src/webdev/WebPreview.cpp \
     src/main.cpp \
     src/app/Application.cpp \
-    src/app/ChildReaper.cpp \
     src/app/DesktopNotify.cpp \
+    src/app/QodeFiles.cpp \
     src/app/InstanceRegistry.cpp \
     src/app/StartupProfile.cpp \
     src/settings/SettingsManager.cpp \
@@ -74,6 +77,7 @@ SOURCES += \
     src/palette/FuzzyMatcher.cpp \
     src/palette/PalettePopup.cpp \
     src/filesystem/FileManager.cpp \
+    src/filesystem/WatchGuard.cpp \
     src/project/ProjectFiles.cpp \
     src/project/ProjectManager.cpp \
     src/project/QmakeProject.cpp \
@@ -187,6 +191,7 @@ SOURCES += \
     src/jvm/JvmReference.cpp \
     src/jvm/KotlinAnnotations.cpp \
     src/jvm/JdkScanner.cpp \
+    src/jvm/JdkInstaller.cpp \
     src/jvm/JdkDialog.cpp \
     src/jvm/MavenCentral.cpp \
     src/jvm/DependencyEdit.cpp \
@@ -218,6 +223,8 @@ SOURCES += \
     src/dialogs/RunConfigDialog.cpp \
     src/dialogs/ThemeEditorDialog.cpp \
     src/dialogs/CompilerFlagsDialog.cpp \
+    src/dialogs/FileDialogs.cpp \
+    src/dialogs/QodeFilesDialog.cpp \
     src/dialogs/IncludePathsDialog.cpp \
     src/dialogs/LspInstallDialog.cpp \
     src/dialogs/JdtlsInstallDialog.cpp \
@@ -228,6 +235,7 @@ SOURCES += \
     src/editor/Language.cpp \
     src/editor/SyntaxHighlighter.cpp \
     src/editor/Document.cpp \
+    src/editor/TextEncoding.cpp \
     src/editor/Breadcrumbs.cpp \
     src/editor/CsvData.cpp \
     src/editor/CsvTable.cpp \
@@ -247,6 +255,16 @@ SOURCES += \
     src/editor/EditorConfig.cpp \
     src/history/LocalHistory.cpp \
     src/history/LocalHistoryDialog.cpp \
+    src/game/GameArt.cpp \
+    src/game/GamePanel.cpp \
+    src/game/GamePicker.cpp \
+    src/game/GameStore.cpp \
+    src/game/SnakeGame.cpp \
+    src/game/SnakeWidget.cpp \
+    src/game/TeqrisGame.cpp \
+    src/game/TeqrisWidget.cpp \
+    src/game/Tetromino.cpp \
+    src/window/MainWindowGame.cpp \
     src/git/DiffPane.cpp \
     src/window/MainWindowEditing.cpp \
     src/window/MainWindowLens.cpp \
@@ -262,6 +280,7 @@ SOURCES += \
     src/terminal/TerminalScreen.cpp \
     src/terminal/ShellProcess.cpp \
     src/terminal/ShellIntegration.cpp \
+    src/terminal/ShellSyntax.cpp \
     src/terminal/TerminalView.cpp \
     src/terminal/ProblemScanner.cpp \
     src/terminal/Terminal.cpp \
@@ -278,6 +297,7 @@ SOURCES += \
     src/python/PythonTools.cpp \
     src/python/PackageManager.cpp \
     src/window/Island.cpp \
+    src/window/ElidedLabel.cpp \
     src/window/SideSections.cpp \
     src/window/MainWindow.cpp \
     src/window/MainWindowAssist.cpp \
@@ -306,8 +326,11 @@ HEADERS += \
     src/webdev/EnvDialog.h \
     src/webdev/WebPreview.h \
     src/app/Application.h \
-    src/app/ChildReaper.h \
+    src/platform/AppPaths.h \
+    src/platform/Platform.h \
+    src/platform/ProcessTree.h \
     src/app/DesktopNotify.h \
+    src/app/QodeFiles.h \
     src/app/InstanceRegistry.h \
     src/app/StartupProfile.h \
     src/settings/SettingsManager.h \
@@ -326,6 +349,7 @@ HEADERS += \
     src/palette/FuzzyMatcher.h \
     src/palette/PalettePopup.h \
     src/filesystem/FileManager.h \
+    src/filesystem/WatchGuard.h \
     src/project/Project.h \
     src/project/ProjectFiles.h \
     src/project/ProjectManager.h \
@@ -420,6 +444,7 @@ HEADERS += \
     src/jvm/JvmReference.h \
     src/jvm/KotlinAnnotations.h \
     src/jvm/JdkScanner.h \
+    src/jvm/JdkInstaller.h \
     src/jvm/JdkDialog.h \
     src/jvm/MavenCentral.h \
     src/jvm/DependencyEdit.h \
@@ -455,6 +480,8 @@ HEADERS += \
     src/dialogs/ThemeEditorDialog.h \
     src/dialogs/CompilerFlagsDialog.h \
     src/dialogs/IncludePathsDialog.h \
+    src/dialogs/FileDialogs.h \
+    src/dialogs/QodeFilesDialog.h \
     src/dialogs/LspInstallDialog.h \
     src/dialogs/JdtlsInstallDialog.h \
     src/dialogs/LspRemoveDialog.h \
@@ -464,6 +491,7 @@ HEADERS += \
     src/editor/Language.h \
     src/editor/SyntaxHighlighter.h \
     src/editor/Document.h \
+    src/editor/TextEncoding.h \
     src/editor/Breadcrumbs.h \
     src/editor/CsvData.h \
     src/editor/CsvTable.h \
@@ -472,6 +500,15 @@ HEADERS += \
     src/editor/EditorConfig.h \
     src/history/LocalHistory.h \
     src/history/LocalHistoryDialog.h \
+    src/game/GameArt.h \
+    src/game/GamePanel.h \
+    src/game/GamePicker.h \
+    src/game/GameStore.h \
+    src/game/SnakeGame.h \
+    src/game/SnakeWidget.h \
+    src/game/TeqrisGame.h \
+    src/game/TeqrisWidget.h \
+    src/game/Tetromino.h \
     src/git/DiffPane.h \
     src/editor/CompletionPopup.h \
     src/editor/HoverRender.h \
@@ -488,6 +525,7 @@ HEADERS += \
     src/terminal/TerminalScreen.h \
     src/terminal/ShellProcess.h \
     src/terminal/ShellIntegration.h \
+    src/terminal/ShellSyntax.h \
     src/terminal/TerminalView.h \
     src/terminal/ProblemScanner.h \
     src/terminal/Terminal.h \
@@ -505,8 +543,17 @@ HEADERS += \
     src/python/PackageManager.h \
     src/lsp/LspTypes.h \
     src/window/Island.h \
+    src/window/ElidedLabel.h \
     src/window/SideSections.h \
     src/window/MainWindow.h
+
+# The OS layer (src/platform/): one implementation per OS behind the same headers (AppPaths: one file for both).
+SOURCES += src/platform/AppPaths.cpp
+unix: SOURCES += src/platform/PlatformUnix.cpp src/platform/ProcessTreeUnix.cpp
+win32: SOURCES += src/platform/PlatformWin.cpp src/platform/ProcessTreeWin.cpp src/platform/ConPtyWin.cpp
+win32: HEADERS += src/platform/ConPty.h # the terminal's pseudo console (Windows only)
+win32: LIBS += -ladvapi32 # PlatformWin: the user's SID
+win32: LIBS += -lshell32 # PlatformWin: Explorer with a file selected (SHOpenFolderAndSelectItems)
 
 RESOURCES += resources/qode.qrc
 
@@ -516,19 +563,37 @@ MOC_DIR = $$OUT_PWD/.moc
 RCC_DIR = $$OUT_PWD/.rcc
 UI_DIR = $$OUT_PWD/.ui
 
-# make install
-isEmpty(PREFIX): PREFIX = /usr/local
-target.path = $$PREFIX/bin
-desktop.files = resources/qode.desktop
-desktop.path = $$PREFIX/share/applications
-icon.files = resources/icons/qode.svg
-icon.path = $$PREFIX/share/icons/hicolor/scalable/apps
-INSTALLS += target desktop icon
-# Each PNG size is installed as hicolor/<size>/apps/qode.png, the name the desktop entry's Icon= looks up.
-for(sz, $$list(16 32 48 64 128 256 512)) {
-    pngicon = icon$${sz}
-    $${pngicon}.path = $$PREFIX/share/icons/hicolor/$${sz}x$${sz}/apps
-    $${pngicon}.extra = $(INSTALL_FILE) $$PWD/resources/icons/qode-$${sz}.png $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/$${sz}x$${sz}/apps/qode.png
-    $${pngicon}.uninstall = -$(DEL_FILE) $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/$${sz}x$${sz}/apps/qode.png
-    INSTALLS += $$pngicon
+win32 {
+    # qode.exe: icon, version resource (Properties > Details) and a manifest (UTF-8 code page, long paths).
+    # Qt's win32-msvc mkspec already passes -utf-8 -permissive- -Zc:__cplusplus -MP and links as a GUI app.
+    RC_ICONS = resources/icons/qode.ico
+    QMAKE_TARGET_PRODUCT = QODE
+    QMAKE_TARGET_DESCRIPTION = QODE
+    QMAKE_TARGET_COMPANY = QODE
+    QMAKE_TARGET_COPYRIGHT = QODE
+    # Merged by the linker into the manifest it embeds anyway (Common Controls 6, asInvoker). Not QMAKE_MANIFEST:
+    # with RC_ICONS that also puts the file into the generated .rc, and the link fails on a duplicate MANIFEST resource.
+    QMAKE_LFLAGS += /MANIFESTINPUT:$$shell_quote($$system_path($$PWD/resources/windows/qode.manifest))
+    # Absolute paths in the Makefile: with relative ones qmake writes header dependencies one "..\" too deep
+    # (..\..\..\qt from build-win\). nmake does not notice, because Windows stops ".." at the drive root, but jom does.
+    QMAKE_PROJECT_DEPTH = 0
+}
+
+# make install (Linux; Windows is packaged with windeployqt and an installer instead)
+unix {
+    isEmpty(PREFIX): PREFIX = /usr/local
+    target.path = $$PREFIX/bin
+    desktop.files = resources/qode.desktop
+    desktop.path = $$PREFIX/share/applications
+    icon.files = resources/icons/qode.svg
+    icon.path = $$PREFIX/share/icons/hicolor/scalable/apps
+    INSTALLS += target desktop icon
+    # Each PNG size is installed as hicolor/<size>/apps/qode.png, the name the desktop entry's Icon= looks up.
+    for(sz, $$list(16 32 48 64 128 256 512)) {
+        pngicon = icon$${sz}
+        $${pngicon}.path = $$PREFIX/share/icons/hicolor/$${sz}x$${sz}/apps
+        $${pngicon}.extra = $(INSTALL_FILE) $$PWD/resources/icons/qode-$${sz}.png $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/$${sz}x$${sz}/apps/qode.png
+        $${pngicon}.uninstall = -$(DEL_FILE) $(INSTALL_ROOT)$$PREFIX/share/icons/hicolor/$${sz}x$${sz}/apps/qode.png
+        INSTALLS += $$pngicon
+    }
 }

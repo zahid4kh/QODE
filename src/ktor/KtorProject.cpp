@@ -1,4 +1,6 @@
 #include "ktor/KtorProject.h"
+#include "platform/Platform.h"
+#include "platform/AppPaths.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -244,11 +246,13 @@ KtorProject KtorProject::detect(const QString &root)
                                          || QFileInfo::exists(top + QStringLiteral("/settings.gradle")));
         p.workDir = rootBuilds ? top : dir;
         if (maven) {
-            const QString w = p.workDir + QStringLiteral("/mvnw");
-            p.tool = QFileInfo::exists(w) ? (QFileInfo(w).isExecutable() ? QStringLiteral("./mvnw") : QStringLiteral("sh mvnw")) : QStringLiteral("mvn");
+            p.tool = Platform::wrapperCommand(p.workDir, QStringLiteral("mvnw"));
+            if (p.tool.isEmpty())
+                p.tool = QStringLiteral("mvn");
         } else {
-            const QString w = p.workDir + QStringLiteral("/gradlew");
-            p.tool = QFileInfo::exists(w) ? (QFileInfo(w).isExecutable() ? QStringLiteral("./gradlew") : QStringLiteral("sh gradlew")) : QStringLiteral("gradle");
+            p.tool = Platform::wrapperCommand(p.workDir, QStringLiteral("gradlew"));
+            if (p.tool.isEmpty())
+                p.tool = QStringLiteral("gradle");
         }
         p.appName = QFileInfo(dir).fileName();
 
@@ -322,7 +326,7 @@ QStringList KtorProject::jvmOptions(const Options &o, int debugPort) const
 QString KtorProject::runScriptPath() const
 {
     const QByteArray key = QCryptographicHash::hash((workDir + QLatin1Char('|') + moduleDir).toUtf8(), QCryptographicHash::Sha1).toHex().left(12);
-    return QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE-AGENTIC/ktor/run-")
+    return AppPaths::cache(QStringLiteral("ktor/run-"))
            + QString::fromLatin1(key) + QStringLiteral(".gradle");
 }
 

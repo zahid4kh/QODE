@@ -1,4 +1,6 @@
 #include "RunConfigDialog.h"
+#include "platform/AppPaths.h"
+#include "platform/Platform.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -38,36 +40,50 @@ QList<QPair<QString, QString>> RunConfigDialog::presets(const QString &filePath)
     using P = QPair<QString, QString>;
     const QString key = keyFor(filePath);
     auto one = [](const char *name, const char *cmd) { return QList<P>{P(QString::fromLatin1(name), QString::fromLatin1(cmd))}; };
-    // C and C++ binaries are written next to the source file.
+    // C and C++ binaries are written next to the source file ({name}.exe on Windows).
+    const QString exe = Platform::exeSuffix();
+    auto build = [&exe](const char *name, const char *compile) {
+        const QString out = QStringLiteral("{dir}/{name}") + exe;
+        return P(QString::fromLatin1(name), QString::fromLatin1(compile).arg(out) + QStringLiteral(" && ") + out);
+    };
     if (key == QLatin1String("c"))
-        return {P(QStringLiteral("Compile with gcc and run"), QStringLiteral("gcc {file} -o {dir}/{name} && {dir}/{name}")),
-                P(QStringLiteral("gcc with warnings (-Wall -Wextra)"), QStringLiteral("gcc -Wall -Wextra {file} -o {dir}/{name} && {dir}/{name}")),
-                P(QStringLiteral("gcc, link math library (-lm)"), QStringLiteral("gcc {file} -o {dir}/{name} -lm && {dir}/{name}")),
-                P(QStringLiteral("Compile with clang and run"), QStringLiteral("clang {file} -o {dir}/{name} && {dir}/{name}"))};
+        return {build("Compile with gcc and run", "gcc {file} -o %1"),
+                build("gcc with warnings (-Wall -Wextra)", "gcc -Wall -Wextra {file} -o %1"),
+                build("gcc, link math library (-lm)", "gcc {file} -o %1 -lm"),
+                build("Compile with clang and run", "clang {file} -o %1")};
     if (key == QLatin1String("cpp") || key == QLatin1String("cc") || key == QLatin1String("cxx"))
-        return {P(QStringLiteral("Compile with g++ (C++17) and run"), QStringLiteral("g++ -std=c++17 {file} -o {dir}/{name} && {dir}/{name}")),
-                P(QStringLiteral("g++ C++20"), QStringLiteral("g++ -std=c++20 {file} -o {dir}/{name} && {dir}/{name}")),
-                P(QStringLiteral("g++ C++23"), QStringLiteral("g++ -std=c++23 {file} -o {dir}/{name} && {dir}/{name}")),
-                P(QStringLiteral("g++ with warnings (-Wall -Wextra)"), QStringLiteral("g++ -std=c++17 -Wall -Wextra {file} -o {dir}/{name} && {dir}/{name}")),
-                P(QStringLiteral("Compile with clang++ and run"), QStringLiteral("clang++ -std=c++17 {file} -o {dir}/{name} && {dir}/{name}"))};
+        return {build("Compile with g++ (C++17) and run", "g++ -std=c++17 {file} -o %1"),
+                build("g++ C++20", "g++ -std=c++20 {file} -o %1"),
+                build("g++ C++23", "g++ -std=c++23 {file} -o %1"),
+                build("g++ with warnings (-Wall -Wextra)", "g++ -std=c++17 -Wall -Wextra {file} -o %1"),
+                build("Compile with clang++ and run", "clang++ -std=c++17 {file} -o %1")};
     // Kotlin scripts run as they are; compiled Kotlin / Java goes to the cache, never next to the file.
-    const QString cache = shellQuote(QDir::homePath() + QStringLiteral("/.cache/QODE-AGENTIC/run"));
-    if (key == QLatin1String("kts"))
-        return {P(QStringLiteral("Run with kotlinc -script"), QStringLiteral("kotlinc -script {file}")),
-                P(QStringLiteral("Run with kotlin (Kotlin 2.x)"), QStringLiteral("kotlin {file}")),
-                P(QStringLiteral("Run directly (#!/usr/bin/env kotlin, executable)"), QStringLiteral("{file}"))};
+    const QString cache = shellQuote(AppPaths::cache(QStringLiteral("run")));
+    if (key == QLatin1String("kts")) {
+        QList<P> kts = {P(QStringLiteral("Run with kotlinc -script"), QStringLiteral("kotlinc -script {file}")),
+                        P(QStringLiteral("Run with kotlin (Kotlin 2.x)"), QStringLiteral("kotlin {file}"))};
+        if (Platform::hasExecBit()) // Windows runs a file by its extension, never by a #! line
+            kts.append(P(QStringLiteral("Run directly (#!/usr/bin/env kotlin, executable)"), QStringLiteral("{file}")));
+        return kts;
+    }
     if (key == QLatin1String("kt"))
         return {P(QStringLiteral("Compile with kotlinc and run"),
                   QStringLiteral("mkdir -p %1 && kotlinc {file} -include-runtime -d %1/{name}.jar && java -jar %1/{name}.jar").arg(cache))};
     if (key == QLatin1String("java"))
         return {P(QStringLiteral("Run with java"), QStringLiteral("java {file}")),
                 P(QStringLiteral("Compile with javac and run"), QStringLiteral("javac -g -d %1/java-{name} {file} && java -cp %1/java-{name} {name}").arg(cache))};
+    if (key == QLatin1String("py")) {
+        const QString python = Platform::pythonCommand();
+        return {P(QStringLiteral("Run with ") + python, python + QStringLiteral(" {file}"))};
+    }
+    if (key == QLatin1String("sh")) {
+        const QString bash = Platform::bashProgram();
+        return {P(QStringLiteral("Run with bash"), (bash == QLatin1String("bash") ? bash : shellQuote(bash)) + QStringLiteral(" {file}"))};
+    }
     static const QHash<QString, QList<P>> map = {
-        {QStringLiteral("py"), one("Run with python3", "python3 {file}")},
         {QStringLiteral("js"), one("Run with node", "node {file}")},
         {QStringLiteral("mjs"), one("Run with node", "node {file}")},
         {QStringLiteral("ts"), one("Run with tsx", "npx tsx {file}")},
-        {QStringLiteral("sh"), one("Run with bash", "bash {file}")},
         {QStringLiteral("rb"), one("Run with ruby", "ruby {file}")},
         {QStringLiteral("php"), one("Run with php", "php {file}")},
         {QStringLiteral("pl"), one("Run with perl", "perl {file}")},

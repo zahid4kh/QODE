@@ -1,4 +1,5 @@
 #include "PackageManager.h"
+#include "platform/Platform.h"
 
 #include "lsp/LspServers.h"
 #include "project/PythonEnv.h"
@@ -49,7 +50,7 @@ QString PackageManager::python() const
 void PackageManager::refresh()
 {
     if (python().isEmpty()) {
-        emit listFailed(tr("This environment has no Python interpreter (%1/bin/python is missing).").arg(m_venv));
+        emit listFailed(tr("This environment has no Python interpreter (%1/%2/python%3 is missing).").arg(m_venv, Platform::venvBinDir(), Platform::exeSuffix()));
         return;
     }
     listInto(false);
@@ -80,7 +81,7 @@ void PackageManager::listInto(bool outdated)
         if (proc != m_list)
             return;
         const QByteArray out = proc->readAllStandardOutput();
-        const QString err = QString::fromLocal8Bit(proc->readAllStandardError()).trimmed();
+        const QString err = Platform::decodeOutput(proc->readAllStandardError()).trimmed();
         proc->deleteLater();
         m_list = nullptr;
         if (status != QProcess::NormalExit || code != 0) {
@@ -155,7 +156,7 @@ void PackageManager::run(const PythonTools::Command &cmd, const QString &title)
     m_op->setWorkingDirectory(m_root);
     QProcess *proc = m_op;
     connect(proc, &QProcess::readyRead, this, [this, proc] {
-        const QString text = QString::fromLocal8Bit(proc->readAll());
+        const QString text = Platform::decodeOutput(proc->readAll());
         m_collected += text;
         emit output(text);
     });
@@ -169,7 +170,7 @@ void PackageManager::run(const PythonTools::Command &cmd, const QString &title)
     connect(proc, &QProcess::finished, this, [this, proc](int code, QProcess::ExitStatus status) {
         if (proc != m_op)
             return;
-        const QString tail = QString::fromLocal8Bit(proc->readAll());
+        const QString tail = Platform::decodeOutput(proc->readAll());
         m_collected += tail;
         if (!tail.isEmpty())
             emit output(tail);

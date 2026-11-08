@@ -1,10 +1,12 @@
 #include "AgentTools.h"
+#include "filesystem/WatchGuard.h"
+#include "platform/Platform.h"
 #include "AgentToolHelpers.h"
 #include "history/LocalHistory.h"
 
 #include "ai/AiEnv.h"
-#include "app/ChildReaper.h"
 #include "palette/FuzzyMatcher.h"
+#include "platform/ProcessTree.h"
 
 #include <QDir>
 #include <QDirIterator>
@@ -16,10 +18,9 @@
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QRegularExpression>
+#include <QSysInfo>
 #include <QTimer>
 #include <algorithm>
-#include <csignal>
-#include <unistd.h>
 
 namespace agent {
 
@@ -91,40 +92,50 @@ QString numberedRange(const Lines &L, int first, int last, int *stoppedAt = null
     return out;
 }
 
-QString clipTail(const QByteArray &data, int limit = 8000)
+// The run_command declaration for the shell it runs in. Unix (bash) keeps the text it always had.
+QString runCommandDescription(const Platform::ChatShell &shell)
 {
-    QString text = QString::fromUtf8(data);
-    if (data.size() > limit)
-        text = QStringLiteral("...(earlier output cut)...\n") + QString::fromUtf8(data.right(limit));
-    return text;
-}
-
-// Rejects the commands no coding task needs: privilege escalation, disk tools, power commands, piping downloads into a shell.
-QString commandDenied(const QString &command)
-{
-    struct Rule {
-        const char *pattern, *reason;
-    };
-    static const Rule rules[] = {
-        {R"(\bsudo\b|\bsu\s|\bpkexec\b|\bdoas\b)", "privileged commands (sudo/su/pkexec) are not allowed"},
-        {R"(\brm\b[^|;&]*\s-[a-zA-Z]*[rR][a-zA-Z]*[^|;&]*\s(/|~|\$HOME|/\*|~/\*|\.\.?)(\s|$))", "recursive delete of /, home or the project root is not allowed"},
-        {R"(\bmkfs(\.\w+)?\b|\bwipefs\b|\bfdisk\b|\bparted\b)", "disk formatting is not allowed"},
-        {R"(\bdd\b[^|;&]*\bof=/dev/)", "writing to block devices is not allowed"},
-        {R"(\b(shutdown|reboot|poweroff|halt)\b|systemctl\s+(poweroff|reboot|halt))", "power commands are not allowed"},
-        {R"(:\(\)\s*\{)", "fork bombs are not allowed"},
-        {R"((curl|wget)\b[^|;&]*\|\s*(sudo\s+)?(ba|z)?sh\b)", "piping downloads into a shell is not allowed"},
-        {R"(\.ssh\b|\.gnupg\b|\.aws\b)", "commands touching credential locations are not allowed"},
-        {R"(\bgit\s+push\b)", "pushing is left to the user"},
-    };
-    for (const Rule &r : rules)
-        if (QRegularExpression(QString::fromLatin1(r.pattern)).match(command).hasMatch())
-            return QString::fromLatin1(r.reason);
-    return {};
+    const QString common = QStringLiteral("returns exit code, stdout and stderr (last 8 KB each). Your edits are saved first; the user approves "
+                                          "every command. No input; sudo and destructive system commands are blocked.");
+    if (shell.id == QLatin1String("bash"))
+        return QStringLiteral("Run a shell command (bash -c) for builds, tests and linters; ") + common;
+    if (shell.id == QLatin1String("gitbash"))
+        return QStringLiteral("Run a shell command in Git Bash on Windows (bash -c) for builds, tests and linters; ") + common
+               + QStringLiteral(" Unix tools (ls, grep, sed, find) work; Windows programs (.exe, .bat, .cmd) run too.");
+    const bool v5 = shell.name.contains(QLatin1String("5.1"));
+    return QStringLiteral("Run a %1 command (not bash) for builds, tests and linters; ").arg(shell.name) + common
+           + (v5 ? QStringLiteral(" Write PowerShell 5.1: separate commands with ';' (&& and || do not exist: write a; if ($?) { b }), "
+                                  "$env:NAME for environment variables.")
+                 : QStringLiteral(" Write PowerShell (&& and || work), $env:NAME for environment variables."))
+           + QStringLiteral(" Run project scripts as .\\gradlew.bat, .\\mvnw.cmd. The exit code is the native program's.");
 }
 
 } // namespace
 
 // --- setup ----------------------------------------------------------------------------------------------------------
+
+void AgentTools::setShell(const QString &id)
+{
+    m_shell = Platform::chatShell(id);
+    for (Spec &s : m_specs)
+        if (s.name == QLatin1String("run_command"))
+            s.description = runCommandDescription(m_shell);
+}
+
+QString AgentTools::environmentPrompt() const
+{
+    if (m_shell.id == QLatin1String("bash"))
+        return {};
+    QString shellNote;
+    if (m_shell.dialect == QLatin1String("powershell"))
+        shellNote = QStringLiteral("write PowerShell, not bash (Get-ChildItem, Select-String, Get-Content; no grep / sed / cat flags)");
+    else
+        shellNote = QStringLiteral("Git Bash: bash and the Unix tools work; C:/x paths can be written /c/x there");
+    return QStringLiteral("\n\nThis computer\n"
+                          "- %1. run_command runs %2: %3.\n"
+                          "- Tool paths are project-relative with / (\\ works too). In commands both / and \\ work.")
+        .arg(QSysInfo::prettyProductName(), m_shell.name, shellNote);
+}
 
 void AgentTools::setRoot(const QString &root)
 {
@@ -328,7 +339,7 @@ QString AgentTools::extraCall(const ExtraTool &tool, const QJsonObject &args)
 
 bool AgentTools::resolve(const QString &input, QString *absolute, QString *error, bool forWrite) const
 {
-    QString p = input.trimmed();
+    QString p = Platform::fromShellPath(input.trimmed()); // Windows: src\a.kt, /c/Users/… (Git Bash)
     if (p.isEmpty())
         p = QStringLiteral(".");
     if (p.startsWith(QLatin1Char('~'))) {
@@ -340,15 +351,18 @@ bool AgentTools::resolve(const QString &input, QString *absolute, QString *error
     // Judge a not-yet-existing path by where it would really land (through symlinks of its existing part).
     QString tail;
     QFileInfo info(full);
-    while (!info.exists() && !info.isSymLink() && info.absoluteFilePath() != QLatin1String("/")) {
+    while (!info.exists() && !info.isSymLink()) {
+        const QString up = info.absolutePath();
+        if (up == info.absoluteFilePath()) // the root: / on Unix, C:/ (or a drive that is not there) on Windows
+            break;
         tail = QLatin1Char('/') + info.fileName() + tail;
-        info = QFileInfo(info.absolutePath());
+        info = QFileInfo(up);
     }
     const QString canonRoot = QFileInfo(m_root).canonicalFilePath();
     const QString canon = info.canonicalFilePath().isEmpty() ? info.absoluteFilePath() : info.canonicalFilePath();
     const QString real = QDir::cleanPath(canon + tail);
     const QString base = canonRoot.isEmpty() ? m_root : canonRoot;
-    if (real != base && !real.startsWith(base + QLatin1Char('/'))) {
+    if (!Platform::samePath(real, base) && !Platform::isUnder(real, base)) {
         *error = QStringLiteral("'%1' is outside the project").arg(input);
         return false;
     }
@@ -364,7 +378,7 @@ bool AgentTools::resolve(const QString &input, QString *absolute, QString *error
             return false;
         }
         for (const QString &part : inside.split(QLatin1Char('/'), Qt::SkipEmptyParts))
-            if (part == QLatin1String(".git")) {
+            if (Platform::samePath(part, QStringLiteral(".git"))) { // .GIT is the same folder on Windows
                 *error = QStringLiteral("the .git folder is off limits");
                 return false;
             }
@@ -414,7 +428,7 @@ QStringList AgentTools::indexedFiles() const
             continue;
         bool gone = false;
         for (const QString &g : std::as_const(m_gone))
-            gone = gone || f == g || f.startsWith(g + QLatin1Char('/'));
+            gone = gone || f == g || Platform::isUnder(f, g);
         if (!gone || QFileInfo::exists(f)) // a deletion that was undone brings the file back
             out << f;
     }
@@ -866,7 +880,7 @@ ToolResult AgentTools::gitTool(const QString &what, const QJsonObject &a)
     env.insert(QStringLiteral("GIT_EDITOR"), QStringLiteral("true"));
     env.insert(QStringLiteral("LC_ALL"), QStringLiteral("C"));
     p.setProcessEnvironment(env);
-    p.start(QStringLiteral("git"), args);
+    p.start(Platform::gitExecutable(), args);
     if (!p.waitForFinished(30000)) {
         p.kill();
         return fail(QStringLiteral("git did not finish"));
@@ -1141,11 +1155,12 @@ ToolResult AgentTools::movePath(const QJsonObject &a, bool copy)
         return fail(QStringLiteral("'%1' does not exist").arg(relative(from)));
     if (QFileInfo::exists(to))
         return fail(QStringLiteral("'%1' already exists; choose another target").arg(relative(to)));
-    if (to.startsWith(from + QLatin1Char('/')))
+    if (Platform::isUnder(to, from))
         return fail(QStringLiteral("cannot put a folder inside itself"));
     QDir().mkpath(QFileInfo(to).absolutePath());
     if (!copy) {
         flushEdits(); // the buffers follow the file, but the disk copy must hold the agent's edits
+        const WatchGuard::Scope guard(from); // Windows: nothing below a folder may be watched while it moves
         if (!QDir().rename(from, to))
             return fail(QStringLiteral("could not move '%1'").arg(relative(from)));
         m_gone.insert(from);
@@ -1220,13 +1235,14 @@ ToolResult AgentTools::runCommand(const QJsonObject &a)
     env.insert(QStringLiteral("GIT_PAGER"), QStringLiteral("cat"));
     env.insert(QStringLiteral("NO_COLOR"), QStringLiteral("1"));
     proc.setProcessEnvironment(env);
-    ChildReaper::track(&proc); // own process group, so a timeout or Stop kills the whole tree (and so does QODE ending)
+    ProcessTree::track(&proc); // own process group, so a timeout or Stop kills the whole tree (and so does QODE ending)
     QElapsedTimer clock;
     clock.start();
-    proc.start(QStringLiteral("/bin/bash"), {QStringLiteral("-c"), command});
+    Platform::setChatShellCommand(&proc, m_shell, command);
+    proc.start();
     if (!proc.waitForStarted(3000)) {
         m_process = nullptr;
-        return fail(QStringLiteral("could not start bash"));
+        return fail(QStringLiteral("could not start %1").arg(m_shell.name));
     }
     proc.closeWriteChannel(); // programs that wait for input end instead of hanging
 
@@ -1249,10 +1265,10 @@ ToolResult AgentTools::runCommand(const QJsonObject &a)
         loop.exec();
 
     if (proc.state() != QProcess::NotRunning) {
-        const pid_t pid = pid_t(proc.processId());
-        ::kill(-pid, SIGTERM);
+        const qint64 pid = proc.processId();
+        ProcessTree::stop(pid);
         if (!proc.waitForFinished(2000)) {
-            ::kill(-pid, SIGKILL);
+            ProcessTree::kill(pid);
             proc.waitForFinished(1000);
         }
     }
@@ -1720,10 +1736,10 @@ void AgentTools::registerAll()
          [](const QJsonObject &a) { return QStringLiteral("Delete %1").arg(str(a, "path")); },
          [this](const QJsonObject &a) {
              QString abs, err;
-             return QStringLiteral("Move to the trash:\n\n%1").arg(resolve(str(a, "path"), &abs, &err) ? abs : str(a, "path"));
+             return QStringLiteral("Move to the trash:\n\n%1").arg(resolve(str(a, "path"), &abs, &err) ? QDir::toNativeSeparators(abs) : str(a, "path"));
          }});
 
-    add({"run_command", "Run a shell command (bash -c) for builds, tests and linters; returns exit code, stdout and stderr (last 8 KB each). Your edits are saved first; the user approves every command. No input; sudo and destructive system commands are blocked.",
+    add({"run_command", runCommandDescription(m_shell),
          makeSchema({{"command", "string", "The command line."}, {"cwd", "string", "Working folder, relative to the project root. Default: the root.", false},
                      {"timeout_seconds", "integer", "Kill after this many seconds. Default 60, max 900.", false}}),
          Risk::Dangerous, [this](const QJsonObject &a) { return runCommand(a); },
@@ -1732,7 +1748,9 @@ void AgentTools::registerAll()
              QString cwd = m_root, err;
              if (!str(a, "cwd").trimmed().isEmpty())
                  resolve(str(a, "cwd"), &cwd, &err);
-             return QStringLiteral("Run in %1:\n\n%2").arg(cwd, str(a, "command"));
+             if (Platform::chatShells().size() > 1) // Windows: say which of the shells runs it
+                 return QStringLiteral("Run in %1 (%2):\n\n%3").arg(QDir::toNativeSeparators(cwd), m_shell.name, str(a, "command"));
+             return QStringLiteral("Run in %1:\n\n%2").arg(QDir::toNativeSeparators(cwd), str(a, "command"));
          }});
 
     add({"list_changes", "What the agent changed in this chat, per turn (what undo_changes would revert).", makeSchema({}), Risk::ReadOnly,
@@ -1820,10 +1838,10 @@ void AgentTools::registerAll()
          }, {}});
 
     add({"check_language_servers", "Language servers: which one serves a file (or all of them), whether it is installed and running, whether QODE can "
-                                   "download and set it up itself, missing prerequisites (Node.js, Python, Java), the Linux distribution and the install "
-                                   "instructions. If QODE can install it, ask the user whether to, and call install_language_server only after a yes. "
-                                   "If it needs sudo (a package manager), give the user the exact command for their distribution in a code block to copy; "
-                                   "never run it.",
+                                   "download and set it up itself, missing prerequisites (Node.js, Python, Java), the operating system (Linux "
+                                   "distribution or Windows version) and the install instructions. If QODE can install it, ask the user whether to, and "
+                                   "call install_language_server only after a yes. If it needs a package manager (sudo apt …, winget …), give the user "
+                                   "the exact command for their system in a code block to copy; never run it.",
          makeSchema({{"path", "string", "A file: report the servers it needs. Omit for every server.", false}}), Risk::ReadOnly,
          [this](const QJsonObject &a) {
              QJsonObject args = a;

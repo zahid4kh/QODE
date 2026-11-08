@@ -1,4 +1,6 @@
 #include "ProjectExplorer.h"
+#include "filesystem/WatchGuard.h"
+#include "platform/Platform.h"
 
 #include "cpp/CppTools.h"
 
@@ -46,6 +48,14 @@ ProjectExplorer::ProjectExplorer(QWidget *parent)
     m_fsModel = new QFileSystemModel(this);
     m_fsModel->setFilter(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden);
     m_fsModel->setReadOnly(true);
+    // Windows: the model's watches on expanded folders pin their parents; let go around a folder rename or move, then
+    // rescan (watching again only covers folders fetched from then on).
+    WatchGuard::registerOwner(
+        this, [this](const QString &) { m_fsModel->setOption(QFileSystemModel::DontWatchForChanges, true); },
+        [this] {
+            m_fsModel->setOption(QFileSystemModel::DontWatchForChanges, false);
+            refresh();
+        });
 
     m_proxy = new ProjectModel(this);
     m_proxy->setSourceModel(m_fsModel);
@@ -399,7 +409,7 @@ void ProjectExplorer::showContextMenu(const QPoint &pos)
             menu.addAction(tr("New File"), this, [this, dir] { createFileIn(dir); });
             if (m_newMenuHook)
                 m_newMenuHook(&menu, dir);
-            if (FileManager::isScript(path))
+            if (Platform::hasExecBit() && FileManager::isScript(path)) // chmod +x: Unix only
                 addScriptActions(&menu, path);
         }
         menu.addSeparator();
@@ -462,7 +472,7 @@ void ProjectExplorer::addClipboardActions(QMenu *menu, const QString &path, cons
     QAction *paste = menu->addAction(tr("Paste"), this, [this, dir] { pasteInto(dir); });
     paste->setEnabled(clipboardHasContent());
     menu->addSeparator();
-    menu->addAction(copyIcon, tr("Copy Path"), this, [path] { QApplication::clipboard()->setText(path); });
+    menu->addAction(copyIcon, tr("Copy Path"), this, [path] { QApplication::clipboard()->setText(QDir::toNativeSeparators(path)); });
     const QString rel = QDir(m_root).relativeFilePath(path);
     menu->addAction(tr("Copy Relative Path"), this, [rel] { QApplication::clipboard()->setText(rel); });
     menu->addAction(tr("Copy Name"), this, [path] { QApplication::clipboard()->setText(QFileInfo(path).fileName()); });

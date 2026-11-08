@@ -1,4 +1,5 @@
 #include "MoveRefactor.h"
+#include "filesystem/FileManager.h"
 #include "history/LocalHistory.h"
 
 #include "RefactorCtx.h"
@@ -171,6 +172,8 @@ Emitter &Ctx::emitter(const QString &path)
 QString Ctx::dirOf(const QString &path)
 {
     const int i = path.lastIndexOf(QLatin1Char('/'));
+    if (i == 2 && path.at(1) == QLatin1Char(':')) // C:/x -> C:/ (a Unix path never has ':' second)
+        return path.left(3);
     return i <= 0 ? QStringLiteral("/") : path.left(i);
 }
 
@@ -245,16 +248,20 @@ bool readText(const QString &path, QString *text, bool *bom)
     return true;
 }
 
-bool writeText(const QString &path, const QString &text, bool bom)
+bool writeText(const QString &path, const QString &fileText, bool bom)
 {
+    // A CRLF file stays CRLF: the import lines the plan inserted end in a bare \n.
+    QString text = fileText;
+    const qsizetype crlf = text.count(QStringLiteral("\r\n"));
+    if (crlf > 0 && crlf >= text.count(QLatin1Char('\n')) - crlf) {
+        text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+        text.replace(QLatin1Char('\n'), QStringLiteral("\r\n"));
+    }
     QByteArray data = text.toUtf8();
     if (bom)
         data.prepend("\xEF\xBB\xBF");
     LocalHistory::recordWrite(path, data, LocalHistory::Kind::Refactor);
-    QFile f(path);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        return false;
-    return f.write(data) == data.size();
+    return FileManager::writeFile(path, data, nullptr); // a temp file renamed over it: never half-written
 }
 
 QString applyEdits(const QString &text, const QVector<TextEdit> &edits)

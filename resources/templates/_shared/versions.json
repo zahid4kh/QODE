@@ -1,13 +1,13 @@
 {
-  "gradleVersion": "8.14.3",
-  "kotlinVersion": "2.2.21",
-  "composePluginVersion": "1.10.0",
-  "coroutinesVersion": "1.10.2",
-  "serializationVersion": "1.9.0",
-  "koinVersion": "4.1.0",
+  "gradleVersion": "9.9.0",
+  "kotlinVersion": "2.4.21",
+  "composePluginVersion": "1.12.2",
+  "coroutinesVersion": "1.11.0",
+  "serializationVersion": "1.12.0",
+  "koinVersion": "4.2.2",
   "foojayVersion": "1.0.0",
-  "springBootVersion": "4.1.1",
+  "springBootVersion": "4.1.2",
   "springDependencyManagementVersion": "1.1.7",
-  "ktorVersion": "3.6.0",
+  "ktorVersion": "3.6.1",
   "logbackVersion": "1.5.37"
 }

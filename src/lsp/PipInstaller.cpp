@@ -1,4 +1,5 @@
 #include "PipInstaller.h"
+#include "platform/Platform.h"
 
 #include "LspServers.h"
 
@@ -37,21 +38,24 @@ QString PipInstaller::installedVersion()
         return {};
     QProcess p;
     p.setProcessChannelMode(QProcess::MergedChannels);
-    p.start(installRoot() + QStringLiteral("/bin/python"),
+    p.start(Platform::venvProgram(installRoot(), QStringLiteral("python")),
             {QStringLiteral("-c"), QStringLiteral("import importlib.metadata as m; print(m.version('basedpyright'))")});
     if (!p.waitForFinished(4000)) {
         p.kill();
         return {};
     }
-    return QString::fromLocal8Bit(p.readAll()).trimmed();
+    return Platform::decodeOutput(p.readAll()).trimmed();
 }
 
 QList<PythonTools::Command> PipInstaller::buildSteps(bool useUv) const
 {
     QList<PythonTools::Command> steps;
-    const QString python = installRoot() + QStringLiteral("/bin/python");
-    if (!QFileInfo(python).isExecutable())
+    QString python = Platform::venvProgram(installRoot(), QStringLiteral("python"));
+    if (python.isEmpty()) {
         steps << PythonTools::createVenv(installRoot(), useUv, LspServers::pythonExecutable());
+        // Where the venv about to be made puts it (bin/python, Scripts\python.exe on Windows).
+        python = installRoot() + QLatin1Char('/') + Platform::venvBinDir() + QStringLiteral("/python") + Platform::exeSuffix();
+    }
     steps << PythonTools::install(python, packages(), true, useUv);
     return steps;
 }
@@ -82,9 +86,13 @@ void PipInstaller::start()
         return;
     m_useUv = usesUv();
     if (!m_useUv && LspServers::pythonExecutable().isEmpty()) {
-        emit failed(tr("Python 3 was not found. The Python language server is installed into a virtual environment, so install "
-                       "Python first (Debian / Ubuntu: sudo apt install python3 python3-venv; Fedora: sudo dnf install python3; "
-                       "Arch: sudo pacman -S python; or https://www.python.org) and try again."));
+        emit failed(Platform::osTag() == QLatin1String("win")
+                        ? tr("Python 3 was not found. The Python language server is installed into a virtual environment, so "
+                             "install Python first (winget install Python.PythonInstallManager, or https://www.python.org), then "
+                             "try again.")
+                        : tr("Python 3 was not found. The Python language server is installed into a virtual environment, so install "
+                             "Python first (Debian / Ubuntu: sudo apt install python3 python3-venv; Fedora: sudo dnf install python3; "
+                             "Arch: sudo pacman -S python; or https://www.python.org) and try again."));
         return;
     }
     if (!QDir().mkpath(QFileInfo(installRoot()).absolutePath())) {
@@ -92,7 +100,7 @@ void PipInstaller::start()
         return;
     }
     m_retriedWithPip = false;
-    m_createdVenv = !QFileInfo(installRoot() + QStringLiteral("/bin/python")).isExecutable();
+    m_createdVenv = Platform::venvProgram(installRoot(), QStringLiteral("python")).isEmpty();
     m_steps = buildSteps(m_useUv);
     m_next = 0;
     runNext();
@@ -120,7 +128,7 @@ void PipInstaller::runNext()
     env.remove(QStringLiteral("VIRTUAL_ENV")); // a venv active in QODE's own shell must not leak into the new one
     m_proc->setProcessEnvironment(env);
     connect(m_proc, &QProcess::readyRead, this, [this] {
-        const QString text = QString::fromLocal8Bit(m_proc->readAll());
+        const QString text = Platform::decodeOutput(m_proc->readAll());
         m_collected += text;
         emit output(text);
     });
@@ -134,7 +142,7 @@ void PipInstaller::runNext()
 
 void PipInstaller::stepFinished(int code, QProcess::ExitStatus status)
 {
-    const QString text = QString::fromLocal8Bit(m_proc->readAll());
+    const QString text = Platform::decodeOutput(m_proc->readAll());
     m_collected += text;
     emit output(text);
     m_proc->deleteLater();
@@ -154,15 +162,15 @@ void PipInstaller::fail(const QString &error)
         m_useUv = false;
         emit output(tr("uv did not succeed — trying again with python3 and pip."));
         if (m_createdVenv)
-            QDir(installRoot()).removeRecursively();
-        m_createdVenv = !QFileInfo(installRoot() + QStringLiteral("/bin/python")).isExecutable();
+            Platform::removeTree(installRoot());
+        m_createdVenv = Platform::venvProgram(installRoot(), QStringLiteral("python")).isEmpty();
         m_steps = buildSteps(false);
         m_next = 0;
         runNext();
         return;
     }
     if (m_createdVenv)
-        QDir(installRoot()).removeRecursively(); // leave nothing half-built behind
+        Platform::removeTree(installRoot()); // leave nothing half-built behind
     QString message = error;
     if (m_collected.contains(QLatin1String("ensurepip")) || m_collected.contains(QLatin1String("python3-venv")))
         message = tr("Python could not create a virtual environment because its venv module is missing. On Debian / Ubuntu run "
@@ -185,7 +193,7 @@ void PipInstaller::cancel()
     m_proc->deleteLater();
     m_proc = nullptr;
     if (m_createdVenv)
-        QDir(installRoot()).removeRecursively();
+        Platform::removeTree(installRoot());
     emit failed(tr("Cancelled."));
 }
 

@@ -48,8 +48,12 @@ QList<BuildProblem> ProblemScanner::feed(const QByteArray &data)
 void ProblemScanner::scanLine(const QString &line, QList<BuildProblem> *out)
 {
     static const QRegularExpression entering(QStringLiteral("Entering directory [`'\"](.+)['\"]"));
+    // Paths may start with a Windows drive ("C:\…" or "C:/…"): its colon is the only one a path can hold.
     static const QRegularExpression gcc(
-        QStringLiteral("^\\s*([^\\s:][^:]*?):(\\d+):(?:(\\d+):)?\\s*(fatal error|error|warning)(?:\\s*\\[[^\\]]*\\])?\\s*:\\s*(.*)$"));
+        QStringLiteral("^\\s*((?:[A-Za-z]:(?=[\\\\/]))?[^\\s:][^:]*?):(\\d+):(?:(\\d+):)?\\s*(fatal error|error|warning)(?:\\s*\\[[^\\]]*\\])?\\s*:\\s*(.*)$"));
+    // MSVC, tsc, C#: "C:\src\a.cpp(12,5): error C2065: 'x': undeclared identifier", MSBuild adding " [x.vcxproj]".
+    static const QRegularExpression msvc(
+        QStringLiteral("^\\s*((?:[A-Za-z]:(?=[\\\\/]))?[^\\s:(][^:(]*?)\\((\\d+)(?:,(\\d+))?\\)\\s*:\\s*(fatal error|error|warning)\\s+([A-Z]+\\d+)\\s*:\\s*(.*?)(?:\\s+\\[[^\\]]+\\])?$"));
     static const QRegularExpression rustHead(QStringLiteral("^(error|warning)(?:\\[\\w+\\])?: (.+)$"));
     static const QRegularExpression rustAt(QStringLiteral("^\\s*--> (.+?):(\\d+):(\\d+)\\s*$"));
     static const QRegularExpression ld(
@@ -57,8 +61,11 @@ void ProblemScanner::scanLine(const QString &line, QList<BuildProblem> *out)
     static const QRegularExpression cmake(QStringLiteral("^CMake (Error|Warning)(?: \\(dev\\))? at (.+?):(\\d+) \\((\\w+)\\):"));
     // Kotlin through Gradle / Maven: "e: file:///abs/Main.kt:12:5 Unresolved reference 'x'." (also "w:", older builds
     // without the file:// prefix or with (12, 5)); Maven's javac: "[ERROR] /abs/Main.java:[12,5] cannot find symbol".
-    static const QRegularExpression kotlinc(QStringLiteral("^([ew]): (?:file://)?(/[^:]+?\\.kts?)(?::(\\d+):(\\d+)|: \\((\\d+), (\\d+)\\):?) (.+)$"));
-    static const QRegularExpression maven(QStringLiteral("^\\[(ERROR|WARNING)\\] (/[^:\\[]+?\\.(?:java|kt|kts|groovy|scala)):\\[(\\d+),(\\d+)\\] (.+)$"));
+    // On Windows the path is file:///C:/…, C:\… or /C:/….
+    static const QRegularExpression kotlinc(
+        QStringLiteral("^([ew]): (?:file://)?/?((?:[A-Za-z]:)?[\\\\/][^:]+?\\.kts?)(?::(\\d+):(\\d+)|: \\((\\d+), (\\d+)\\):?) (.+)$"));
+    static const QRegularExpression maven(
+        QStringLiteral("^\\[(ERROR|WARNING)\\] (/?(?:[A-Za-z]:)?[\\\\/][^:\\[]+?\\.(?:java|kt|kts|groovy|scala)):\\[(\\d+),(\\d+)\\] (.+)$"));
 
     if (m_cmakePending) {
         const QString text = line.trimmed();
@@ -130,6 +137,16 @@ void ProblemScanner::scanLine(const QString &line, QList<BuildProblem> *out)
             add(p, out);
             return;
         }
+        if (const QRegularExpressionMatch m = msvc.match(line); m.hasMatch()) {
+            BuildProblem p;
+            p.path = m.captured(1);
+            p.line = m.captured(2).toInt();
+            p.column = m.captured(3).toInt();
+            p.error = m.captured(4) != QLatin1String("warning");
+            p.message = m.captured(5) + QStringLiteral(": ") + m.captured(6).trimmed();
+            add(p, out);
+            return;
+        }
         if (const QRegularExpressionMatch m = rustHead.match(line); m.hasMatch()) {
             m_rustError = m.captured(1) == QLatin1String("error");
             m_rustMessage = m.captured(2).trimmed();
@@ -177,6 +194,9 @@ QString ProblemScanner::resolve(const QString &raw) const
     QString path = raw.trimmed();
     if (path.startsWith(QLatin1String("~/")))
         path = QDir::homePath() + path.mid(1);
+    static const QRegularExpression slashDrive(QStringLiteral("^/[A-Za-z]:[\\\\/]")); // "/C:/x" (a file URI's path)
+    if (slashDrive.match(path).hasMatch())
+        path.remove(0, 1);
     if (QFileInfo(path).isAbsolute())
         return QFileInfo(path).isFile() ? QDir::cleanPath(path) : QString();
     QStringList folders;

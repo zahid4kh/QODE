@@ -108,7 +108,7 @@ QIcon make(const char *icon, Tint tint, Cache &c)
     if (it != c.icons.constEnd())
         return it.value();
     QColor col = colorFor(tint, c.palette);
-    col.setAlphaF(0.92);
+    col.setAlphaF(0.92f);
     const QIcon ic = Icons::tinted(QStringLiteral(":/new-icons/") + QString::fromLatin1(icon) + QStringLiteral(".svg"), col);
     c.icons.insert(key, ic);
     return ic;
@@ -123,7 +123,7 @@ QIcon makeKotlin(bool script, Cache &c)
     if (it != c.icons.constEnd())
         return it.value();
     QColor col = colorFor(Tint::Keyword, c.palette);
-    col.setAlphaF(0.92);
+    col.setAlphaF(0.92f);
     const QColor badge = colorFor(Tint::String, c.palette);
     QIcon icon;
     for (int size : {14, 16, 20, 24, 32}) {

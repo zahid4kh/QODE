@@ -1,4 +1,5 @@
 #include "Document.h"
+#include "editor/TextEncoding.h"
 
 #include "SyntaxHighlighter.h"
 #include "filesystem/FileManager.h"
@@ -125,7 +126,7 @@ void Document::setPath(const QString &path)
     emit pathChanged(path);
 }
 
-bool Document::load(const QString &path, QString *error)
+bool Document::load(const QString &path, QString *error, const QString &encoding)
 {
     const FileManager::ReadResult r = FileManager::readFile(path);
     if (!r.ok) {
@@ -134,29 +135,23 @@ bool Document::load(const QString &path, QString *error)
         return false;
     }
 
-    QByteArray data = r.data;
-    m_bom = data.startsWith("\xEF\xBB\xBF");
-    if (m_bom)
-        data.remove(0, 3);
     m_ec = EditorConfig::forFile(path);
-
-    // Try UTF-8 first; if the bytes are not valid UTF-8, fall back to Latin-1 which is
-    // lossless byte-for-byte, so saving reproduces the original file exactly.
-    QStringDecoder utf8(QStringConverter::Utf8, QStringConverter::Flag::Stateless);
-    QString text = m_ec.charset == QLatin1String("latin1") ? QString() : utf8.decode(data);
-    if (m_ec.charset == QLatin1String("latin1") || utf8.hasError()) {
-        m_encoding = QStringLiteral("Latin-1");
-        text = QString::fromLatin1(data);
-    } else {
-        m_encoding = m_bom ? QStringLiteral("UTF-8 BOM") : QStringLiteral("UTF-8");
-    }
+    // A BOM decides (UTF-8, UTF-16), else UTF-8, else the platform's legacy encoding (Latin-1 / Windows-1252), which maps
+    // every byte, so saving reproduces the original file exactly. charset = latin1 and Reopen with Encoding force one.
+    QString forced = encoding;
+    if (forced.isEmpty() && m_ec.charset == QLatin1String("latin1"))
+        forced = QStringLiteral("Latin-1");
+    const TextEncoding::Decoded decoded = TextEncoding::decode(r.data, forced);
+    QString text = decoded.text;
+    m_encoding = decoded.encoding;
 
     const int crlf = text.count(QStringLiteral("\r\n"));
     const int lf = text.count(QLatin1Char('\n')) - crlf;
     m_lineEnding = (crlf > 0 && crlf >= lf) ? LineEnding::CRLF : LineEnding::LF;
     if (crlf > 0)
         text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
-    applyEditorConfigEncoding();
+    if (encoding.isEmpty()) // an encoding chosen by hand wins over .editorconfig until the next plain load
+        applyEditorConfigEncoding();
     if (m_ec.tabWidth > 0) { // before the text goes in: changing it afterwards lays every line out again
         QTextOption option = m_doc->defaultTextOption();
         option.setTabStopDistance(QFontMetricsF(m_doc->defaultFont()).horizontalAdvance(QLatin1Char(' ')) * m_ec.tabWidth);
@@ -186,13 +181,16 @@ void Document::applyEditorConfigEncoding()
 {
     if (m_ec.crlf >= 0)
         m_lineEnding = m_ec.crlf ? LineEnding::CRLF : LineEnding::LF;
-    if (m_ec.charset == QLatin1String("latin1")) {
+    if (m_ec.charset == QLatin1String("latin1"))
         m_encoding = QStringLiteral("Latin-1");
-        m_bom = false;
-    } else if (m_ec.charset.startsWith(QLatin1String("utf-8"))) {
-        m_bom = m_ec.charset == QLatin1String("utf-8-bom");
-        m_encoding = m_bom ? QStringLiteral("UTF-8 BOM") : QStringLiteral("UTF-8");
-    }
+    else if (m_ec.charset == QLatin1String("utf-8"))
+        m_encoding = QStringLiteral("UTF-8");
+    else if (m_ec.charset == QLatin1String("utf-8-bom"))
+        m_encoding = QStringLiteral("UTF-8 BOM");
+    else if (m_ec.charset == QLatin1String("utf-16le"))
+        m_encoding = QStringLiteral("UTF-16 LE");
+    else if (m_ec.charset == QLatin1String("utf-16be"))
+        m_encoding = QStringLiteral("UTF-16 BE");
 }
 
 void Document::refreshEditorConfig()
@@ -208,20 +206,28 @@ QByteArray Document::encode()
     QString text = this->text();
     if (m_lineEnding == LineEnding::CRLF)
         text.replace(QLatin1Char('\n'), QStringLiteral("\r\n"));
-    QByteArray out;
-    if (m_encoding == QLatin1String("Latin-1")) {
-        out = text.toLatin1();
-        // Characters typed after loading that Latin-1 can't represent: upgrade to UTF-8.
-        if (QString::fromLatin1(out) != text) {
-            out = text.toUtf8();
-            m_encoding = QStringLiteral("UTF-8");
-        }
-    } else {
-        out = text.toUtf8();
-        if (m_bom)
-            out.prepend("\xEF\xBB\xBF");
-    }
-    return out;
+    return TextEncoding::encode(text, &m_encoding); // a legacy encoding that cannot hold a typed character becomes UTF-8
+}
+
+void Document::setEncoding(const QString &encoding)
+{
+    if (encoding == m_encoding)
+        return;
+    m_encoding = encoding;
+    m_doc->setModified(true); // written in it on the next save
+}
+
+void Document::setLineEnding(LineEnding ending)
+{
+    if (ending == m_lineEnding)
+        return;
+    m_lineEnding = ending;
+    m_doc->setModified(true);
+}
+
+bool Document::reopenWithEncoding(const QString &encoding, QString *error)
+{
+    return m_path.isEmpty() || load(m_path, error, encoding);
 }
 
 bool Document::save(QString *error)

@@ -1,6 +1,7 @@
 #include "spring/SpringStarters.h"
 
 #include "project/BuildFileEdit.h"
+#include "editor/TextEncoding.h"
 
 #include <QFile>
 #include <QRegularExpression>
@@ -36,7 +37,7 @@ Dep lib(const char *config, const char *group, const char *artifact, const char 
 QString readText(const QString &path)
 {
     QFile f(path);
-    return f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll()) : QString();
+    return f.open(QIODevice::ReadOnly) ? TextEncoding::decode(f.readAll()).text : QString();
 }
 
 } // namespace

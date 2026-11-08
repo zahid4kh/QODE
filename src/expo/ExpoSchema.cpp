@@ -1,4 +1,6 @@
 #include "ExpoSchema.h"
+#include "platform/AppPaths.h"
+#include "platform/Platform.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -28,7 +30,7 @@ ExpoSchema::ExpoSchema(QObject *parent) : QObject(parent), m_net(new QNetworkAcc
 
 QString ExpoSchema::cacheDir()
 {
-    return QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE-AGENTIC/expo");
+    return AppPaths::cache(QStringLiteral("expo"));
 }
 
 QString ExpoSchema::pathFor(const QString &sdk)
@@ -73,7 +75,7 @@ qint64 ExpoSchema::cacheSize()
 bool ExpoSchema::clearCache()
 {
     const QString dir = cacheDir();
-    return !QFileInfo::exists(dir) || QDir(dir).removeRecursively();
+    return !QFileInfo::exists(dir) || Platform::removeTree(dir);
 }
 
 void ExpoSchema::request(const QString &sdk)

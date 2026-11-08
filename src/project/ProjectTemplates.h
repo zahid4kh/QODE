@@ -50,6 +50,9 @@ public:
         QString runCommand;     // stored as the project's run command ("./run.sh"), empty = leave it to the detectors
         QMap<QString, QString> when; // file or folder (relative, rendered) -> option key, "!key" = only when unset
         QList<Option> options;
+        // Options of another OS ("os": "!win" in the manifest, e.g. mold on Windows): not shown, but their files may still
+        // test them, so they get a fixed value ("false" for a bool, else the default).
+        QMap<QString, QString> hiddenValues;
         QMap<QString, QList<ImageOutput>> imageOutputs; // by the key of an image option
     };
 

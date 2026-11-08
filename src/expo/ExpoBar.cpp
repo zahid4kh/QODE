@@ -1,4 +1,6 @@
 #include "ExpoBar.h"
+#include "filesystem/WatchGuard.h"
+#include "platform/Platform.h"
 
 #include "ExpoWebServer.h"
 #include "settings/Icons.h"
@@ -36,6 +38,7 @@ ExpoBar::ExpoBar(QWidget *parent)
     connect(m_redetect, &QTimer::timeout, this, &ExpoBar::redetect);
     connect(m_watcher, &QFileSystemWatcher::directoryChanged, m_redetect, qOverload<>(&QTimer::start));
     connect(m_watcher, &QFileSystemWatcher::fileChanged, m_redetect, qOverload<>(&QTimer::start));
+    WatchGuard::registerWatcher(m_watcher, [this] { m_redetect->start(); }); // Windows: let go while a folder is renamed
 
     auto *l = new QHBoxLayout(this);
     l->setContentsMargins(4, 0, 4, 0);
@@ -107,7 +110,7 @@ const ExpoApp *ExpoBar::appForFile(const QString &path) const
 {
     const ExpoApp *best = nullptr;
     for (const ExpoApp &a : m_apps)
-        if ((path == a.dir || path.startsWith(a.dir + QLatin1Char('/'))) && (!best || a.dir.size() > best->dir.size()))
+        if ((Platform::samePath(path, a.dir) || Platform::isUnder(path, a.dir)) && (!best || a.dir.size() > best->dir.size()))
             best = &a;
     return best;
 }

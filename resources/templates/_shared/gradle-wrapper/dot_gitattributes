@@ -1,0 +1,4 @@
+# The same line endings on every OS, whatever core.autocrlf says: the shell script needs LF, cmd needs CRLF
+/gradlew        text eol=lf
+*.bat           text eol=crlf
+*.jar           binary

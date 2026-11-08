@@ -4,12 +4,22 @@ A C{{std}} console program built with {{compiler}}.
 
 ## Build and run
 
+{{#if !os=win}}
 ```
 ./compile.sh     # builds into build/{{nameId}}
 ./run.sh         # builds what changed, then runs it
 ```
 
 `compile.sh` builds every `.c` under `src/`, so adding a file needs no edits.
+{{/if}}
+{{#if os=win}}
+```
+compile.bat      # builds into build\{{nameId}}.exe
+run.bat          # builds, then runs it
+```
+
+`compile.bat` builds every `.c` under `src\`, so adding a file needs no edits.
+{{/if}}
 Headers go in `include/`.
 {{#if buildSystem=CMake}}
 
@@ -18,14 +28,25 @@ language server (clangd) reads; `compile_flags.txt` covers the time before the f
 {{/if}}
 {{#if buildSystem=Scripts}}
 
+{{#if !os=win}}
 `compile_flags.txt` tells the language server (clangd) which flags you compile with. Keep it
 in step when you change the flags in `compile.sh`.
+{{/if}}
+{{#if os=win}}
+`compile_flags.txt` tells the language server (clangd) which flags you compile with. Keep it
+in step when you change the flags in `compile.bat`.
+{{/if}}
 {{/if}}
 {{#if tests}}
 
 ## Tests
 
+{{#if !os=win}}
 `./compile.sh test` builds and runs `tests/test_main.c`.
+{{/if}}
+{{#if os=win}}
+`compile.bat test` builds and runs `tests\test_main.c`.
+{{/if}}
 {{/if}}
 {{#if ccache}}
 

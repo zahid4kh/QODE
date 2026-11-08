@@ -14,6 +14,7 @@
 NewFileDialog::NewFileDialog(Kind kind, const QString &directory, const QString &initialName, QWidget *parent)
     : QDialog(parent)
     , m_directory(directory)
+    , m_renaming(kind == Kind::Rename ? initialName : QString())
 {
     QString title, okText;
     switch (kind) {
@@ -62,7 +63,9 @@ void NewFileDialog::validate()
     QString err;
     if (!name().isEmpty()) {
         err = FileManager::validateName(name());
-        if (err.isEmpty() && QFileInfo::exists(QDir(m_directory).filePath(name())))
+        // A rename that only changes case (Foo.kt -> foo.kt) finds "itself" on Windows: that is no clash.
+        const bool caseOnly = !m_renaming.isEmpty() && name() != m_renaming && name().compare(m_renaming, Qt::CaseInsensitive) == 0;
+        if (err.isEmpty() && !caseOnly && QFileInfo::exists(QDir(m_directory).filePath(name())))
             err = tr("\"%1\" already exists.").arg(name());
     }
     m_hint->setText(err);

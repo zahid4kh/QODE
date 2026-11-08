@@ -10,7 +10,7 @@ struct SpringProject
     bool maven = false;
     QString workDir;  // where the build tool is started: the folder with the wrapper / settings file / pom
     QString moduleDir; // the module that applies the Spring Boot plugin (== workDir for a single-module build)
-    QString tool;     // "./gradlew", "gradle", "./mvnw" or "mvn"
+    QString tool;     // "./gradlew", "gradle", "./mvnw" or "mvn" (Windows ".\gradlew.bat", ".\mvnw.cmd")
     QString appName;  // spring.application.name, else the module folder name
 
     // User choices for one run (all optional); stored per project by SpringBar.

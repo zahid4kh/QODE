@@ -44,7 +44,7 @@ public:
     // Lines were inserted (delta > 0) or removed after line `edited`: the stored tokens move with their text.
     void shiftSemanticLines(int edited, int delta);
     void clearSemanticTokens() { setSemanticTokens({}, {}); }
-    static uint lineHash(const QString &text) { return qHash(text); }
+    static uint lineHash(const QString &text) { return uint(qHash(text)); }
 
 protected:
     void highlightBlock(const QString &text) override;

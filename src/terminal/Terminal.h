@@ -31,17 +31,23 @@ public:
 
     // The panel with several sessions supplies its own header.
     void setHeaderVisible(bool on);
-    QString shellName() const;
+    // The shell this pane runs ("" = ShellProcess::defaultShell()); takes effect at the next (re)start.
+    void setShellProgram(const QString &program);
+    QString shellProgram() const { return m_program; }
+    QString shellFile() const; // the shell's file name: "bash", "pwsh.exe", "bash.exe" (Git Bash, ShellSyntax::dialectOf)
+    QString shellName() const; // for the tab: shellFile() without ".exe"
     void setWorkingDirectory(const QString &dir);
     QString workingDirectory() const { return m_cwd; }
 
-    // Asked each time a fresh shell starts (argument: shell name); a non-empty result is typed in first.
+    // Asked each time a fresh shell starts (argument: shellFile()); a non-empty result is typed in first, as it is
+    // (written for that shell).
     void setStartupCommandProvider(std::function<QString(const QString &)> provider) { m_startupProvider = std::move(provider); }
 
     // Starts the shell if it is not running yet (never runs any project command itself).
     void ensureStarted();
-    // Types `command` into the shell (interrupting whatever is running) so its output shows in the panel.
-    void runCommand(const QString &command);
+    // Types `shCommand` into the shell (interrupting whatever is running) so its output shows in the panel. It is
+    // written for sh and rewritten for the pane's shell when that is PowerShell or cmd (ShellSyntax).
+    void runCommand(const QString &shCommand);
     // Writes raw input (a key press such as "j" for the program running in the shell).
     void sendInput(const QByteArray &data);
     void restart();
@@ -76,6 +82,7 @@ private:
     void updateHeader();
     void newCommand();
     bool shellInForeground() const;
+    QString shellDirectory() const;
     void onShellMark(const QString &mark);
     void commandEnded(int exitCode);
     void setFailure(const FailedCommand &failure); // exitCode 0 = none: hides the button
@@ -87,6 +94,8 @@ private:
     QWidget *m_header = nullptr;
     QToolButton *m_restartBtn;
     QString m_cwd;
+    QString m_program;
+    QString m_shellCwd; // the folder the shell integration last reported (633;P;Cwd=), "" if none
     std::function<QString(const QString &)> m_startupProvider;
     QString m_pendingCommand;
     QTimer *m_pendingTimer;

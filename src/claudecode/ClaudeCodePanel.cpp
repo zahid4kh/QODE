@@ -1,4 +1,5 @@
 #include "ClaudeCodePanel.h"
+#include "platform/Platform.h"
 
 #include "agent/AgentTools.h"
 #include "agent/AgentTurnView.h"
@@ -24,6 +25,7 @@
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
+#include "editor/TextEncoding.h"
 
 #include <QApplication>
 #include <QButtonGroup>
@@ -513,8 +515,7 @@ void ClaudeCodePanel::showSetup(Setup state, const QString &message)
         m_setupText->setText(tr("Checking Claude Code…"));
         break;
     case Setup::NotInstalled:
-        m_setupText->setText(tr("<p>Claude Code is not installed. QODE runs the <code>claude</code> command line tool for you, "
-                                "so install it first: run this in a terminal (it goes to <code>~/.local/bin</code>), then check again.</p>"));
+        m_setupText->setText(installHint()); // Windows: also says when Git for Windows is missing
         break;
     case Setup::SignIn: {
         m_setupText->setText(tr("<p>Sign in to use Claude Code. The sign-in belongs to Claude Code itself, so <code>claude</code> in a "
@@ -924,7 +925,7 @@ QString ClaudeCodePanel::editorFile() const
     if (!doc || doc->isUntitled() || m_root.isEmpty())
         return {};
     const QString p = doc->filePath();
-    return p.startsWith(m_root + QLatin1Char('/')) && !AiEnv::isSensitive(p) ? p : QString();
+    return Platform::isUnder(p, m_root) && !AiEnv::isSensitive(p) ? p : QString();
 }
 
 void ClaudeCodePanel::updateSelection()
@@ -1878,7 +1879,7 @@ void ClaudeCodePanel::noteChange(const QString &name, const QJsonObject &in, con
         // No hunks (an older CLI): find the new text in the file.
         QFile f(c.path);
         if (!neu.isEmpty() && f.open(QIODevice::ReadOnly)) {
-            const QString text = QString::fromUtf8(f.readAll());
+            const QString text = TextEncoding::decode(f.readAll()).text;
             const qsizetype at = text.indexOf(neu);
             c.lines << (at < 0 ? 0 : int(text.left(at).count(QLatin1Char('\n'))) + 1);
         }
@@ -2366,8 +2367,9 @@ QPair<QString, QString> projectCommands(const QString &root)
         if (test.isEmpty())
             test = QStringLiteral("go test ./...");
     }
-    if (lint.isEmpty() && dir.exists(QStringLiteral("gradlew")))
-        lint = QStringLiteral("./gradlew check");
+    if (lint.isEmpty())
+        if (const QString gradlew = Platform::wrapperCommand(dir.path(), QStringLiteral("gradlew")); !gradlew.isEmpty())
+            lint = gradlew + QStringLiteral(" check");
     return {lint, test};
 }
 } // namespace

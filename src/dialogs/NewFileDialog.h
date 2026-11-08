@@ -21,6 +21,7 @@ private:
     void validate();
 
     QString m_directory;
+    QString m_renaming; // the name being renamed (Kind::Rename), else empty
     QLineEdit *m_name;
     QLabel *m_hint;
     QPushButton *m_ok;

@@ -1,4 +1,5 @@
 #include "project/VersionCatalog.h"
+#include "editor/TextEncoding.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -215,7 +216,7 @@ const Catalog &load(const QString &file)
     Cached &c = cache[file];
     if (c.size != info.size() || c.modified != info.lastModified()) {
         QFile f(file);
-        c.catalog = f.open(QIODevice::ReadOnly) ? parse(QString::fromUtf8(f.readAll())) : Catalog();
+        c.catalog = f.open(QIODevice::ReadOnly) ? parse(TextEncoding::decode(f.readAll()).text) : Catalog();
         c.size = info.size();
         c.modified = info.lastModified();
     }

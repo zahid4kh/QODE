@@ -1,6 +1,7 @@
 #include "ClaudeCodeCli.h"
 
 #include "ai/AiEnv.h"
+#include "platform/Platform.h"
 #include "settings/SettingsManager.h"
 
 #include <QDir>
@@ -38,10 +39,15 @@ QString tail(const QString &output, const QString &skip)
 // often lacks it, and would then find an older npm copy in /usr/local/bin instead of the one the terminal runs.
 QStringList searchPath()
 {
-    const QString local = QDir::homePath() + QStringLiteral("/.local/bin");
-    QStringList path = qEnvironmentVariable("PATH").split(QLatin1Char(':'), Qt::SkipEmptyParts);
+    // Windows: the native installer uses %USERPROFILE%\.local\bin too. Native separators, so the check below matches.
+    const QString local = QDir::toNativeSeparators(QDir::homePath() + QStringLiteral("/.local/bin"));
+    QStringList path = qEnvironmentVariable("PATH").split(QDir::listSeparator(), Qt::SkipEmptyParts);
     if (!path.contains(local))
         path.prepend(local);
+    // Windows: npm's global folder (claude.cmd from npm install -g) and the other per-user tool folders. Unix: none.
+    for (const QString &dir : Platform::extraBinDirs())
+        if (!path.contains(dir, Qt::CaseInsensitive))
+            path << dir;
     return path;
 }
 } // namespace
@@ -64,7 +70,25 @@ QString executable()
 
 QString installCommand()
 {
+    // Windows: Anthropic's PowerShell installer, written so that it also runs from cmd or Git Bash.
+    if (Platform::osTag() == QLatin1String("win"))
+        return QStringLiteral("powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://claude.ai/install.ps1 | iex\"");
     return QStringLiteral("curl -fsSL https://claude.ai/install.sh | bash");
+}
+
+QString installHint()
+{
+    if (Platform::osTag() != QLatin1String("win"))
+        return QObject::tr("<p>Claude Code is not installed. QODE runs the <code>claude</code> command line tool for you, "
+                           "so install it first: run this in a terminal (it goes to <code>~/.local/bin</code>), then check again.</p>");
+    QString text = QObject::tr("<p>Claude Code is not installed. QODE runs the <code>claude</code> command line tool for you, "
+                               "so install it first: run this in a terminal (it goes to <code>%USERPROFILE%\\.local\\bin</code>; "
+                               "<code>npm install -g @anthropic-ai/claude-code</code> works too), then check again.</p>");
+    if (Platform::gitBashExecutable().isEmpty())
+        text += QObject::tr("<p>On Windows Claude Code also needs <b>Git for Windows</b> (it runs its commands in Git Bash): "
+                            "install it from <a href=\"https://git-scm.com/downloads/win\">git-scm.com</a> or with "
+                            "<code>winget install Git.Git</code>.</p>");
+    return text;
 }
 
 AuthMode authMode()
@@ -80,7 +104,7 @@ void setAuthMode(AuthMode mode)
 QProcessEnvironment environment(const QString &projectRoot)
 {
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert(QStringLiteral("PATH"), searchPath().join(QLatin1Char(':')));
+    env.insert(QStringLiteral("PATH"), searchPath().join(QDir::listSeparator()));
     if (authMode() == AuthMode::ApiKey) {
         const QString key = AiEnv::apiKey(AiEnv::Provider::Claude, projectRoot);
         if (!key.isEmpty())
@@ -92,6 +116,11 @@ QProcessEnvironment environment(const QString &projectRoot)
     // this is set. A value the user set is kept.
     if (!env.contains(QStringLiteral("CLAUDE_CODE_ENABLE_TODO_TOOLS")))
         env.insert(QStringLiteral("CLAUDE_CODE_ENABLE_TODO_TOOLS"), QStringLiteral("1"));
+    // Windows: the CLI runs its commands in Git Bash and stops at once when it cannot find bash.exe (Git not on PATH).
+    // A value the user set is kept. Unix: no Git Bash, nothing set.
+    if (!env.contains(QStringLiteral("CLAUDE_CODE_GIT_BASH_PATH")))
+        if (const QString bash = Platform::gitBashExecutable(); !bash.isEmpty())
+            env.insert(QStringLiteral("CLAUDE_CODE_GIT_BASH_PATH"), QDir::toNativeSeparators(bash));
     return env;
 }
 
@@ -105,7 +134,7 @@ Auth::~Auth()
     for (QProcess *p : {m_statusProc, m_loginProc})
         if (p) {
             p->disconnect(this);
-            p->kill();
+            Platform::killTree(p); // Windows: npm's claude.cmd runs node inside cmd
             p->waitForFinished(500);
         }
 }
@@ -123,9 +152,8 @@ void Auth::refresh()
     }
     auto *p = m_statusProc = new QProcess(this);
     p->setProcessEnvironment(environment(m_root));
-    p->setProgram(exe);
-    p->setArguments({QStringLiteral("auth"), QStringLiteral("status"), QStringLiteral("--json")});
-    QTimer::singleShot(20000, p, [p] { p->kill(); });
+    Platform::setCommand(p, exe, {QStringLiteral("auth"), QStringLiteral("status"), QStringLiteral("--json")}); // Windows: claude.cmd too
+    QTimer::singleShot(20000, p, [p] { Platform::killTree(p); });
     connect(p, &QProcess::finished, this, [this, p] {
         AuthStatus s;
         s.checked = true;
@@ -177,8 +205,7 @@ void Auth::login(bool console)
     auto *p = m_loginProc = new QProcess(this);
     p->setProcessEnvironment(environment(m_root));
     p->setProcessChannelMode(QProcess::MergedChannels);
-    p->setProgram(exe);
-    p->setArguments({QStringLiteral("auth"), QStringLiteral("login"), console ? QStringLiteral("--console") : QStringLiteral("--claudeai")});
+    Platform::setCommand(p, exe, {QStringLiteral("auth"), QStringLiteral("login"), console ? QStringLiteral("--console") : QStringLiteral("--claudeai")});
     connect(p, &QProcess::readyRead, this, &Auth::readLogin);
     connect(p, &QProcess::finished, this, [this, p](int code, QProcess::ExitStatus st) {
         readLogin();
@@ -242,7 +269,7 @@ void Auth::cancelLogin()
     if (!m_loginProc)
         return;
     m_cancelled = true;
-    m_loginProc->kill();
+    Platform::killTree(m_loginProc);
 }
 
 void Auth::logout()
@@ -256,7 +283,8 @@ void Auth::logout()
         p->deleteLater();
         refresh();
     });
-    p->start(exe, {QStringLiteral("auth"), QStringLiteral("logout")});
+    Platform::setCommand(p, exe, {QStringLiteral("auth"), QStringLiteral("logout")});
+    p->start();
 }
 
 } // namespace claudecode

@@ -2,10 +2,12 @@
 #include "MainWindow.h"
 
 #include "SideSections.h"
+#include "dialogs/QodeFilesDialog.h"
 #include "editor/Breadcrumbs.h"
 #include "editor/CodeEditor.h"
 #include "editor/Document.h"
 #include "editor/EditorManager.h"
+#include "editor/TextEncoding.h"
 #include "editor/ZoomPopup.h"
 #include "explorer/ProjectExplorer.h"
 #include "expo/ExpoBar.h"
@@ -30,6 +32,7 @@
 #include <QActionGroup>
 #include <QDesktopServices>
 #include <QDir>
+#include <QEvent>
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QInputDialog>
@@ -38,6 +41,7 @@
 #include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
+#include <QMessageBox>
 #include <QProgressBar>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -47,6 +51,8 @@
 #include <QToolBar>
 #include <QToolButton>
 #include <QUrl>
+
+#include <functional>
 
 void MainWindow::createActions()
 {
@@ -116,6 +122,8 @@ void MainWindow::createActions()
     m_editorPaneAct->setToolTip(tr("Show or hide the editor and terminal beside the QODE chat (Ctrl+Alt+E)"));
     m_editorPaneAct->setCheckable(true);
     m_editorPaneAct->setChecked(true); // QODE starts on the editor column (the welcome page)
+    m_gameAct = make(tr("Game Panel"), QKeySequence(C | A | K::Key_P), QStringLiteral(":/new-icons/gamepad-2.svg"));
+    m_gameAct->setToolTip(tr("Play a game while QODE or Claude Code works (Ctrl+Alt+P)"));
     m_gradleAct = make(tr("Gradle Tasks"), {}, QStringLiteral(":/new-icons/gradle.svg"));
     m_gradleAct->setToolTip(tr("Show the Gradle tasks of this project (build, test, package, …) and run them"));
     m_mavenAct = make(tr("Maven"), {}, QStringLiteral(":/new-icons/apachemaven.svg"));
@@ -303,6 +311,7 @@ void MainWindow::createActions()
     connect(m_pythonPkgAct, &QAction::triggered, this, &MainWindow::showPythonPackages);
     connect(m_gradleAct, &QAction::triggered, this, &MainWindow::toggleGradlePanel);
     connect(m_mavenAct, &QAction::triggered, this, &MainWindow::toggleMavenPanel);
+    connect(m_gameAct, &QAction::triggered, this, &MainWindow::toggleGamePanel);
     connect(m_springAct, &QAction::triggered, this, &MainWindow::toggleSpringPanel);
     connect(m_springStarterAct, &QAction::triggered, this, &MainWindow::addSpringStarters);
     connect(m_ktorAct, &QAction::triggered, this, &MainWindow::toggleKtorPanel);
@@ -515,6 +524,7 @@ void MainWindow::createMenus()
     view->addAction(m_claudeCodeAct);
     view->addAction(m_mcpAct);
     view->addAction(m_editorPaneAct);
+    view->addAction(m_gameAct);
     view->addSeparator();
     view->addAction(m_splitRightAct);
     view->addAction(m_splitDownAct);
@@ -606,6 +616,7 @@ void MainWindow::createMenus()
     createLspMenu(menuBar()->addMenu(tr("&LSP")));
 
     QMenu *help = menuBar()->addMenu(tr("&Help"));
+    help->addAction(tr("QODE's Files…"), this, [this] { (new QodeFilesDialog(this))->open(); });
     help->addAction(tr("Startup Time…"), this, &MainWindow::showStartupTime);
     help->addSeparator();
     help->addAction(m_aboutAct);
@@ -632,6 +643,7 @@ void MainWindow::createToolBar()
     tb->addAction(m_aiAct);
     tb->addAction(m_claudeCodeAct);
     tb->addAction(m_editorPaneAct);
+    tb->addAction(m_gameAct);
     tb->addSeparator();
     m_mainToolBar = tb;
     // A web project runs its dev server instead of single files: the server controls replace the two run buttons.
@@ -783,6 +795,24 @@ void MainWindow::createStatusBar()
     m_langLabel = mk(90);
     m_encLabel = mk(70);
     m_eolLabel = mk(40);
+    // Both open a menu on a click: the encoding (Reopen / Save with Encoding) and the line endings (LF / CRLF).
+    struct Click : QObject {
+        std::function<void()> run;
+        Click(QObject *parent, std::function<void()> f) : QObject(parent), run(std::move(f)) {}
+        bool eventFilter(QObject *, QEvent *e) override
+        {
+            if (e->type() != QEvent::MouseButtonRelease)
+                return false;
+            run();
+            return true;
+        }
+    };
+    m_encLabel->setCursor(Qt::PointingHandCursor);
+    m_encLabel->setToolTip(tr("Encoding: click to reopen or save the file in another one"));
+    m_encLabel->installEventFilter(new Click(m_encLabel, [this] { showEncodingMenu(); }));
+    m_eolLabel->setCursor(Qt::PointingHandCursor);
+    m_eolLabel->setToolTip(tr("Line endings: click to switch between LF and CRLF"));
+    m_eolLabel->installEventFilter(new Click(m_eolLabel, [this] { showLineEndingMenu(); }));
     m_posLabel = mk(110);
     m_modeLabel = mk(36);
     statusBar()->setSizeGripEnabled(false);
@@ -792,6 +822,63 @@ void MainWindow::createStatusBar()
         m_fileLabel->setVisible(idle);
         m_gitStatusWidget->setVisible(idle && m_git->isRepo());
     });
+}
+
+void MainWindow::showEncodingMenu()
+{
+    Document *d = m_editors->currentDocument();
+    if (!d)
+        return;
+    QMenu menu(this);
+    QMenu *reopen = menu.addMenu(tr("Reopen with Encoding"));
+    QMenu *save = menu.addMenu(tr("Save with Encoding"));
+    reopen->setEnabled(!d->isUntitled());
+    for (const QString &enc : TextEncoding::names()) {
+        QAction *r = reopen->addAction(enc);
+        r->setCheckable(true);
+        r->setChecked(enc == d->encoding());
+        connect(r, &QAction::triggered, this, [this, d, enc] {
+            if (d->isModified()
+                && QMessageBox::question(this, tr("Reopen with Encoding"),
+                                         tr("Reading \"%1\" again as %2 drops its unsaved changes. Go on?").arg(d->fileName(), enc))
+                       != QMessageBox::Yes)
+                return;
+            QString error;
+            if (!d->reopenWithEncoding(enc, &error))
+                QMessageBox::warning(this, tr("Reopen with Encoding"), error);
+            updateStatus();
+        });
+        QAction *s = save->addAction(enc);
+        s->setCheckable(true);
+        s->setChecked(enc == d->encoding());
+        connect(s, &QAction::triggered, this, [this, d, enc] {
+            d->setEncoding(enc);
+            QString error;
+            if (!d->isUntitled() && !d->save(&error))
+                QMessageBox::warning(this, tr("Save with Encoding"), error);
+            updateStatus(); // a legacy encoding that cannot hold the text was saved as UTF-8 instead
+        });
+    }
+    menu.exec(m_encLabel->mapToGlobal(QPoint(0, 0)) - QPoint(0, menu.sizeHint().height()));
+}
+
+void MainWindow::showLineEndingMenu()
+{
+    Document *d = m_editors->currentDocument();
+    if (!d)
+        return;
+    QMenu menu(this);
+    for (const auto &[ending, label] : {std::pair{Document::LineEnding::LF, tr("LF (Linux, macOS)")},
+                                        std::pair{Document::LineEnding::CRLF, tr("CRLF (Windows)")}}) {
+        QAction *a = menu.addAction(label);
+        a->setCheckable(true);
+        a->setChecked(d->lineEnding() == ending);
+        connect(a, &QAction::triggered, this, [this, d, e = ending] {
+            d->setLineEnding(e); // written on the next save; the document shows as modified
+            updateStatus();
+        });
+    }
+    menu.exec(m_eolLabel->mapToGlobal(QPoint(0, 0)) - QPoint(0, menu.sizeHint().height()));
 }
 
 void MainWindow::updateZoomButton()

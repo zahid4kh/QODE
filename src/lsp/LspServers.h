@@ -58,6 +58,13 @@ JavaRuntime findJava(int minMajor);
 // wrapper); anything else is run as the wrapper with the Java runtime named. `workspaceDir` holds the server's
 // configuration and data for one project. False (with `error`) when no usable Java is found.
 bool jdtlsCommand(const QString &launcher, const QString &workspaceDir, QString *program, QStringList *arguments, QString *error);
+// jdtls' launcher inside its archive: "bin/jdtls" (Windows: "bin/jdtls.bat").
+QString jdtlsLauncherName();
+// Deletes an older version folder of a managed install (Kotlin LSP, jdtls) that the running server may still use: it is
+// renamed aside first and deleted only when that works. Windows refuses the rename while files inside are open, and
+// deleting only the files that are not open would break the running server: the folder then stays until the next
+// install. Unix: always deleted.
+void removeVersionFolder(const QString &dir);
 // A Node.js executable: PATH first, then the usual version-manager folders (a desktop-launched QODE does not see the
 // PATH nvm / fnm set up in a shell). Empty when there is none.
 QString nodeExecutable();

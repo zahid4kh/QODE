@@ -1,4 +1,6 @@
 #include "LspServers.h"
+#include "platform/Platform.h"
+#include "platform/AppPaths.h"
 
 #include <QDir>
 #include <QFile>
@@ -51,7 +53,7 @@ namespace LspServers {
 
 QString managedDir(const QString &id)
 {
-    return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QStringLiteral("/QODE-AGENTIC/lsp/") + id;
+    return AppPaths::data(QStringLiteral("lsp/")) + id;
 }
 
 QString managedExecutable(const LspServerSpec &spec)
@@ -68,7 +70,7 @@ bool isManaged(const LspServerSpec &spec, const QString &path)
         return false;
     const QString real = QFileInfo(path).canonicalFilePath();
     const QString root = QFileInfo(managedDir(spec.managedId)).canonicalFilePath();
-    return !real.isEmpty() && !root.isEmpty() && real.startsWith(root + QLatin1Char('/'));
+    return !real.isEmpty() && !root.isEmpty() && Platform::isUnder(real, root);
 }
 
 QList<const LspServerSpec *> sharingInstall(const LspServerSpec &spec)
@@ -92,7 +94,7 @@ static int javaMajor(const QString &javaPath)
     p.start(javaPath, {QStringLiteral("-version")});
     int major = 0;
     if (p.waitForFinished(5000)) {
-        const auto m = QRegularExpression(QStringLiteral("version \"(\\d+)(?:\\.(\\d+))?")).match(QString::fromLocal8Bit(p.readAll()));
+        const auto m = QRegularExpression(QStringLiteral("version \"(\\d+)(?:\\.(\\d+))?")).match(Platform::decodeOutput(p.readAll()));
         if (m.hasMatch())
             major = m.captured(1) == QLatin1String("1") && !m.captured(2).isEmpty() ? m.captured(2).toInt() : m.captured(1).toInt();
     } else {
@@ -107,7 +109,7 @@ JavaRuntime findJava(int minMajor)
     QStringList candidates;
     const QString javaHome = qEnvironmentVariable("JAVA_HOME");
     if (!javaHome.isEmpty())
-        candidates << javaHome + QStringLiteral("/bin/java");
+        candidates << javaHome + QStringLiteral("/bin/java") + Platform::exeSuffix();
     const QString onPath = QStandardPaths::findExecutable(QStringLiteral("java"));
     if (!onPath.isEmpty())
         candidates << onPath;
@@ -120,6 +122,18 @@ JavaRuntime findJava(int minMajor)
         for (const QString &n : std::as_const(names))
             candidates << dir + QLatin1Char('/') + n + QStringLiteral("/bin/java");
     }
+    if (AppPaths::isPortable()) // portable QODE downloads JDKs into its own folder (JdkInstaller::defaultRoot)
+        for (const QString &n : QDir(AppPaths::data(QStringLiteral("jdks"))).entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name | QDir::Reversed))
+            candidates << AppPaths::data(QStringLiteral("jdks/")) + n + QStringLiteral("/bin/java") + Platform::exeSuffix();
+    // Windows: Program Files\<vendor>\<jdk>, then the registry's and Scoop's JDKs. Unix: none.
+    for (const Platform::JdkPlace &place : Platform::jdkFolders()) {
+        QStringList names = QDir(place.path).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+        std::sort(names.begin(), names.end(), [](const QString &a, const QString &b) { return QString::compare(a, b, Qt::CaseInsensitive) > 0; });
+        for (const QString &n : std::as_const(names))
+            candidates << place.path + QLatin1Char('/') + n + QStringLiteral("/bin/java") + Platform::exeSuffix();
+    }
+    for (const Platform::JdkPlace &place : Platform::jdkHomes())
+        candidates << place.path + QStringLiteral("/bin/java") + Platform::exeSuffix();
     JavaRuntime best;
     QSet<QString> seen;
     for (const QString &c : std::as_const(candidates)) {
@@ -153,7 +167,9 @@ bool jdtlsCommand(const QString &launcher, const QString &workspaceDir, QString 
     QDir base(QFileInfo(QFileInfo(launcher).canonicalFilePath()).absolutePath());
     base.cdUp();
     const bool arm = QSysInfo::currentCpuArchitecture().startsWith(QLatin1String("arm64")) || QSysInfo::currentCpuArchitecture() == QLatin1String("aarch64");
-    const QString config = base.filePath(arm && base.exists(QStringLiteral("config_linux_arm")) ? QStringLiteral("config_linux_arm") : QStringLiteral("config_linux"));
+    // config_linux / config_linux_arm; Windows: config_win (no ARM variant is published).
+    const QString os = QStringLiteral("config_") + Platform::osTag();
+    const QString config = base.filePath(arm && base.exists(os + QStringLiteral("_arm")) ? os + QStringLiteral("_arm") : os);
     const QStringList jars = QDir(base.filePath(QStringLiteral("plugins"))).entryList({QStringLiteral("org.eclipse.equinox.launcher_*.jar")}, QDir::Files);
     if (!jars.isEmpty() && QFileInfo(config).isDir()) {
         *program = java.executable;
@@ -181,6 +197,22 @@ bool jdtlsCommand(const QString &launcher, const QString &workspaceDir, QString 
     return true;
 }
 
+QString jdtlsLauncherName()
+{
+    return Platform::osTag() == QLatin1String("win") ? QStringLiteral("bin/jdtls.bat") : QStringLiteral("bin/jdtls");
+}
+
+void removeVersionFolder(const QString &dir)
+{
+    const QString aside = dir.endsWith(QLatin1String(".old")) ? dir : dir + QStringLiteral(".old");
+    if (aside != dir) {
+        Platform::removeTree(aside); // a leftover of an earlier install
+        if (!QDir().rename(dir, aside))
+            return; // Windows: still in use
+    }
+    Platform::removeTree(aside);
+}
+
 QString nodeExecutable()
 {
     const QString onPath = QStandardPaths::findExecutable(QStringLiteral("node"));
@@ -205,19 +237,27 @@ QString nodeExecutable()
     dirs << home + QStringLiteral("/.volta/bin") << home + QStringLiteral("/.local/share/mise/shims")
          << home + QStringLiteral("/.asdf/shims") << home + QStringLiteral("/.local/bin") << QStringLiteral("/usr/local/bin")
          << QStringLiteral("/usr/bin") << QStringLiteral("/snap/bin");
+    for (const QString &dir : Platform::extraBinDirs()) // Windows: Program Files\nodejs, nvm-windows, fnm, Volta, Scoop
+        dirs << QDir::fromNativeSeparators(dir);
     for (const QString &dir : std::as_const(dirs)) {
-        const QFileInfo fi(dir + QStringLiteral("/node"));
+        const QFileInfo fi(dir + QStringLiteral("/node") + Platform::exeSuffix());
         if (fi.isFile() && fi.isExecutable())
             return fi.absoluteFilePath();
     }
     return {};
 }
 
+// npm's launchers for a package's commands (node_modules/.bin, npm itself next to node): Windows ".cmd", Unix none.
+static QString npmShimSuffix()
+{
+    return Platform::osTag() == QLatin1String("win") ? QStringLiteral(".cmd") : QString();
+}
+
 QString npmExecutable()
 {
     const QString node = nodeExecutable();
     if (!node.isEmpty()) {
-        const QFileInfo fi(QFileInfo(node).absolutePath() + QStringLiteral("/npm"));
+        const QFileInfo fi(QFileInfo(node).absolutePath() + QStringLiteral("/npm") + npmShimSuffix()); // Windows: npm.cmd
         if (fi.isFile() && fi.isExecutable())
             return fi.absoluteFilePath();
     }
@@ -226,17 +266,7 @@ QString npmExecutable()
 
 QString pythonExecutable()
 {
-    for (const char *name : {"python3", "python"}) {
-        const QString onPath = QStandardPaths::findExecutable(QString::fromLatin1(name));
-        if (!onPath.isEmpty())
-            return onPath;
-    }
-    for (const char *dir : {"/usr/bin", "/usr/local/bin", "/bin"}) {
-        const QFileInfo fi(QString::fromLatin1(dir) + QStringLiteral("/python3"));
-        if (fi.isFile() && fi.isExecutable())
-            return fi.absoluteFilePath();
-    }
-    return {};
+    return Platform::pythonInterpreter(); // Windows: through py, never the Store stub
 }
 
 QString uvExecutable()
@@ -246,7 +276,7 @@ QString uvExecutable()
         return onPath;
     const QString home = QDir::homePath();
     for (const QString &dir : {home + QStringLiteral("/.local/bin"), home + QStringLiteral("/.cargo/bin"), QStringLiteral("/usr/local/bin")}) {
-        const QFileInfo fi(dir + QStringLiteral("/uv"));
+        const QFileInfo fi(dir + QStringLiteral("/uv") + Platform::exeSuffix()); // Windows' installer: ~\.local\bin\uv.exe
         if (fi.isFile() && fi.isExecutable())
             return fi.absoluteFilePath();
     }
@@ -294,6 +324,8 @@ const QList<LspServerSpec> &all()
 {
     static const QList<LspServerSpec> specs = [] {
         QList<LspServerSpec> l;
+        // The install help names Windows' commands and folders there (winget, %LOCALAPPDATA%, .exe / .bat / .cmd).
+        const bool windows = Platform::osTag() == QLatin1String("win");
         LspServerSpec clangd;
         clangd.id = QStringLiteral("clangd");
         clangd.displayName = QStringLiteral("clangd (C/C++)");
@@ -306,7 +338,14 @@ const QList<LspServerSpec> &all()
                              QStringLiteral("inl")};
         clangd.fallbackFlags = true;
         clangd.managedId = clangd.id;
-        clangd.installHelp = QStringLiteral(
+        clangd.installHelp = windows ? QStringLiteral(
+            "clangd is the C/C++ language server from the LLVM project. Install it with one of:\n\n"
+            "  LLVM:    winget install LLVM.LLVM   (or the installer from https://github.com/llvm/llvm-project/releases)\n"
+            "  MSYS2:   pacman -S mingw-w64-ucrt-x86_64-clang-tools-extra\n\n"
+            "QODE also looks in C:\\Program Files\\LLVM\\bin and C:\\msys64\\ucrt64\\bin when clangd is not on your PATH, "
+            "or point QODE at clangd.exe with LSP > Set Server Path. Releases are also published at "
+            "https://github.com/clangd/clangd/releases")
+                                     : QStringLiteral(
             "clangd is the C/C++ language server from the LLVM project. Install it with your package manager:\n\n"
             "  Debian / Ubuntu:   sudo apt install clangd\n"
             "  Fedora:            sudo dnf install clang-tools-extra\n"
@@ -327,8 +366,18 @@ const QList<LspServerSpec> &all()
         kotlin.installable = true;
         kotlin.wantsConfiguration = true; // inlay hint options (section "jetbrains.kotlin"), asked again for every request
         kotlin.managedId = QStringLiteral("kotlin");
-        kotlin.managedBinary = QStringLiteral("current/bin/intellij-server");
-        kotlin.installHelp = QStringLiteral(
+        kotlin.managedBinary = QStringLiteral("current/bin/intellij-server") + Platform::exeSuffix();
+        kotlin.installHelp = windows ? QStringLiteral(
+            "The Kotlin language server is JetBrains' official server (Alpha). It ships its own Java runtime, so you do "
+            "not need to install Java for it.\n\n"
+            "Easiest: LSP > Kotlin > Download and Set Up. QODE downloads the standalone Windows archive from "
+            "download.jetbrains.com (about 350 MB) and unpacks it to %LOCALAPPDATA%\\QODE-AGENTIC\\lsp\\kotlin. Nothing is "
+            "installed system-wide.\n\n"
+            "By hand: download the standalone archive (kotlin-server-<version>.win.zip) from "
+            "https://github.com/Kotlin/kotlin-lsp/releases, unpack it, and point QODE at its bin\\intellij-server.exe with "
+            "LSP > Set Server Path (or put the kotlin-lsp.cmd it contains on your PATH). Do not use the .vsix file: that is "
+            "the VS Code extension.\n\n")
+            : QStringLiteral(
             "The Kotlin language server is JetBrains' official server (Alpha). It ships its own Java runtime, so you do "
             "not need to install Java for it.\n\n"
             "Easiest: LSP > Kotlin > Download and Set Up. QODE downloads the standalone Linux archive from "
@@ -337,7 +386,8 @@ const QList<LspServerSpec> &all()
             "By hand: download the standalone archive (kotlin-server-<version>.tar.gz) from "
             "https://github.com/Kotlin/kotlin-lsp/releases, unpack it, and put bin/intellij-server on your PATH as "
             "\"kotlin-lsp\" (for example ln -s <folder>/bin/intellij-server ~/.local/bin/kotlin-lsp), or point QODE at it "
-            "with LSP > Set Server Path. Do not use the .vsix file: that is the VS Code extension.\n\n"
+            "with LSP > Set Server Path. Do not use the .vsix file: that is the VS Code extension.\n\n");
+        kotlin.installHelp += QStringLiteral(
             "Projects should be Gradle or Maven projects (a build.gradle(.kts) or pom.xml in the project folder) so the "
             "server can find your dependencies.");
         l.append(kotlin);
@@ -350,9 +400,18 @@ const QList<LspServerSpec> &all()
         java.installer = LspServerSpec::Installer::Jdtls;
         java.installable = true;
         java.managedId = QStringLiteral("jdtls");
-        java.managedBinary = QStringLiteral("current/bin/jdtls");
+        java.managedBinary = QStringLiteral("current/") + jdtlsLauncherName();
         java.resolvesCompletions = true;
-        java.installHelp = QStringLiteral(
+        java.installHelp = windows ? QStringLiteral(
+            "The Java language server is the Eclipse JDT Language Server (jdtls), the one VS Code, Neovim and Eclipse use. It "
+            "needs a Java runtime of version 21 or newer to run (any JDK; your projects can still target older Java versions).\n\n"
+            "Easiest: LSP > Java > Download and Set Up. QODE downloads the milestone build from download.eclipse.org "
+            "(about 50 MB) and unpacks it to %LOCALAPPDATA%\\QODE-AGENTIC\\lsp\\jdtls. Nothing is installed system-wide.\n\n"
+            "Java 21 or newer: winget install EclipseAdoptium.Temurin.21.JDK, or an installer from https://adoptium.net "
+            "(QODE finds JDKs in Program Files, the registry, Scoop and JAVA_HOME).\n\n"
+            "By hand: download and extract a build from https://download.eclipse.org/jdtls/milestones/ and point QODE at its "
+            "bin\\jdtls.bat with LSP > Set Server Path.\n\n")
+            : QStringLiteral(
             "The Java language server is the Eclipse JDT Language Server (jdtls), the one VS Code, Neovim and Eclipse use. It "
             "needs a Java runtime of version 21 or newer to run (any JDK; your projects can still target older Java versions).\n\n"
             "Easiest: LSP > Java > Download and Set Up. QODE downloads the milestone build from download.eclipse.org "
@@ -360,13 +419,14 @@ const QList<LspServerSpec> &all()
             "Java 21 or newer: sudo apt install openjdk-21-jdk (Debian / Ubuntu), sudo dnf install java-21-openjdk-devel (Fedora), "
             "sudo pacman -S jdk21-openjdk (Arch), or https://adoptium.net\n\n"
             "By hand: download and extract a build from https://download.eclipse.org/jdtls/milestones/ and point QODE at its "
-            "bin/jdtls with LSP > Set Server Path (a \"jdtls\" package from your distribution works too).\n\n"
+            "bin/jdtls with LSP > Set Server Path (a \"jdtls\" package from your distribution works too).\n\n");
+        java.installHelp += QStringLiteral(
             "Projects should be Maven or Gradle projects (pom.xml or build.gradle(.kts) in the project folder) so the server "
             "finds their dependencies; the first import can take a minute while Maven / Gradle download them.");
         l.append(java);
 
         // The web servers: one private `npm install` (NpmInstaller "web") provides all four, so they share a managedId.
-        auto webServer = [](const QString &id, const QString &name, const QString &exe, const QStringList &exts) {
+        auto webServer = [windows](const QString &id, const QString &name, const QString &exe, const QStringList &exts) {
             LspServerSpec s;
             s.id = id;
             s.displayName = name;
@@ -376,9 +436,17 @@ const QList<LspServerSpec> &all()
             s.installer = LspServerSpec::Installer::Npm;
             s.installable = true;
             s.managedId = QStringLiteral("web");
-            s.managedBinary = QStringLiteral("node_modules/.bin/") + exe;
+            s.managedBinary = QStringLiteral("node_modules/.bin/") + exe + npmShimSuffix();
             s.needsNode = true;
-            s.installHelp = QStringLiteral(
+            s.installHelp = windows ? QStringLiteral(
+                "%1 is one of the web language servers. They are Node.js programs, so Node.js (with npm) must be installed.\n\n"
+                "Easiest: LSP > %2 > Download and Set Up. QODE runs \"npm install\" into %LOCALAPPDATA%\\QODE-AGENTIC\\lsp\\web, "
+                "which sets up the TypeScript / JavaScript, HTML, CSS and JSON servers together. Nothing is installed globally.\n\n"
+                "By hand: npm install -g typescript typescript-language-server vscode-langservers-extracted\n"
+                "Then make sure \"%3\" is on your PATH, or point QODE at it with LSP > Set Server Path.\n\n"
+                "Node.js: winget install OpenJS.NodeJS.LTS, or https://nodejs.org (restart QODE afterwards so it sees the new PATH).")
+                               .arg(name, name, exe)
+                                    : QStringLiteral(
                 "%1 is one of the web language servers. They are Node.js programs, so Node.js (with npm) must be installed.\n\n"
                 "Easiest: LSP > %2 > Download and Set Up. QODE runs \"npm install\" into ~/.local/share/QODE-AGENTIC/lsp/web, which "
                 "sets up the TypeScript / JavaScript, HTML, CSS and JSON servers together. Nothing is installed globally.\n\n"
@@ -461,9 +529,19 @@ const QList<LspServerSpec> &all()
         bash.installer = LspServerSpec::Installer::Npm;
         bash.installable = true;
         bash.managedId = QStringLiteral("bash");
-        bash.managedBinary = QStringLiteral("node_modules/.bin/bash-language-server");
+        bash.managedBinary = QStringLiteral("node_modules/.bin/bash-language-server") + npmShimSuffix();
         bash.needsNode = true;
-        bash.installHelp = QStringLiteral(
+        bash.installHelp = windows ? QStringLiteral(
+            "The Bash language server (bash-language-server, the one VS Code uses) completes commands, variables and functions, "
+            "shows man / help pages on hover, and jumps to and renames functions and variables. It is a Node.js program, so "
+            "Node.js (with npm) must be installed (winget install OpenJS.NodeJS.LTS, or https://nodejs.org).\n\n"
+            "Its warnings come from ShellCheck, a separate program: without it the server runs but reports no problems. "
+            "Install it with winget install koalaman.shellcheck (or scoop install shellcheck).\n\n"
+            "Easiest: LSP > Bash > Download and Set Up. QODE runs \"npm install\" into %LOCALAPPDATA%\\QODE-AGENTIC\\lsp\\bash. "
+            "Nothing is installed globally.\n\n"
+            "By hand: npm install -g bash-language-server, then make sure \"bash-language-server\" is on your PATH, or point "
+            "QODE at it with LSP > Set Server Path.")
+                                   : QStringLiteral(
             "The Bash language server (bash-language-server, the one VS Code uses) completes commands, variables and functions, "
             "shows man / help pages on hover, and jumps to and renames functions and variables. It is a Node.js program, so "
             "Node.js (with npm) must be installed.\n\n"
@@ -485,9 +563,22 @@ const QList<LspServerSpec> &all()
         python.installer = LspServerSpec::Installer::Pip;
         python.installable = true;
         python.managedId = QStringLiteral("python");
-        python.managedBinary = QStringLiteral("bin/basedpyright-langserver");
+        python.managedBinary = Platform::venvBinDir() + QStringLiteral("/basedpyright-langserver") + Platform::exeSuffix(); // Scripts\*.exe on Windows
         python.wantsConfiguration = true; // pythonPath (the project's venv) and the analysis settings
-        python.installHelp = QStringLiteral(
+        python.installHelp = windows ? QStringLiteral(
+            "The Python language server is basedpyright, a fork of Microsoft's Pyright: syntax and type errors, undefined names, "
+            "hover, go to definition, completion, rename and find references. It needs Python 3 but no Node.js (it brings its "
+            "own).\n\n"
+            "Easiest: LSP > Python > Download and Set Up. QODE creates a private virtual environment in "
+            "%LOCALAPPDATA%\\QODE-AGENTIC\\lsp\\python and installs basedpyright and ruff into it (with uv when you have it, "
+            "otherwise pip). Nothing is installed globally.\n\n"
+            "By hand: pipx install basedpyright (or pip install basedpyright in any environment), then make sure "
+            "\"basedpyright-langserver\" is on your PATH, or point QODE at it with LSP > Set Server Path.\n\n"
+            "Python 3: winget install Python.PythonInstallManager (or the installer from https://www.python.org). The "
+            "\"python\" that opens the Microsoft Store is not Python; QODE ignores it.\n\n"
+            "Open a project that has a virtual environment (a folder with pyvenv.cfg, such as .venv) and the server resolves "
+            "imports from its installed packages.")
+                                     : QStringLiteral(
             "The Python language server is basedpyright, a fork of Microsoft's Pyright: syntax and type errors, undefined names, "
             "hover, go to definition, completion, rename and find references. It needs Python 3 but no Node.js (it brings its "
             "own).\n\n"
@@ -513,7 +604,7 @@ const QList<LspServerSpec> &all()
         ruff.installer = LspServerSpec::Installer::Pip;
         ruff.installable = true;
         ruff.managedId = QStringLiteral("python");
-        ruff.managedBinary = QStringLiteral("bin/ruff");
+        ruff.managedBinary = Platform::venvBinDir() + QStringLiteral("/ruff") + Platform::exeSuffix();
         ruff.companion = true;
         ruff.installHelp = QStringLiteral(
             "Ruff is an extremely fast Python linter and formatter. Next to basedpyright it reports lint problems as you type "
@@ -580,6 +671,13 @@ QString locate(const LspServerSpec &spec, const QString &configuredPath)
         }
         if (!best.isEmpty())
             return best;
+        // Windows: tools whose installer does not touch PATH (LLVM, MSYS2, Node.js, Scoop). Unix: no folders.
+        const QStringList extra = Platform::extraBinDirs() + Platform::languageServerDirs();
+        if (!extra.isEmpty()) {
+            const QString found = QStandardPaths::findExecutable(name, extra);
+            if (!found.isEmpty())
+                return found;
+        }
     }
     return managedExecutable(spec);
 }

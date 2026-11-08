@@ -1,6 +1,7 @@
 #include "ktor/KtorReloader.h"
+#include "platform/Platform.h"
 
-#include "app/ChildReaper.h"
+#include "platform/ProcessTree.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -8,14 +9,11 @@
 #include <QRegularExpression>
 #include <QTimer>
 
-#include <csignal>
-#include <unistd.h>
-
 KtorReloader::KtorReloader(QObject *parent)
     : QObject(parent), m_proc(new QProcess(this)), m_killTimer(new QTimer(this)), m_debounce(new QTimer(this))
 {
     m_proc->setProcessChannelMode(QProcess::MergedChannels);
-    ChildReaper::track(m_proc); // own process group, stopped by the watchdog if QODE ends abruptly
+    ProcessTree::track(m_proc); // own process group, stopped by the watchdog if QODE ends abruptly
     connect(m_proc, &QProcess::readyRead, this, &KtorReloader::onOutput);
     connect(m_proc, &QProcess::finished, this, [this](int code, QProcess::ExitStatus status) {
         m_killTimer->stop();
@@ -43,7 +41,7 @@ KtorReloader::KtorReloader(QObject *parent)
     });
     m_killTimer->setSingleShot(true);
     m_killTimer->setInterval(3000);
-    connect(m_killTimer, &QTimer::timeout, this, [this] { signalGroup(SIGKILL); });
+    connect(m_killTimer, &QTimer::timeout, this, [this] { killTree(); });
     m_debounce->setSingleShot(true);
     m_debounce->setInterval(400);
     connect(m_debounce, &QTimer::timeout, this, [this] {
@@ -67,9 +65,9 @@ KtorReloader::~KtorReloader()
 {
     if (m_proc->state() != QProcess::NotRunning) {
         m_stopping = true;
-        signalGroup(SIGTERM);
+        stopTree();
         if (!m_proc->waitForFinished(1500))
-            signalGroup(SIGKILL);
+            killTree();
         m_proc->waitForFinished(500);
     }
 }
@@ -111,8 +109,15 @@ void KtorReloader::launch(const QStringList &args)
     m_proc->setWorkingDirectory(m_project.workDir);
     m_pending.clear();
     m_stopping = false;
-    // The build tool as the server's command names it: "./gradlew" / "./mvnw" relative to the work folder.
-    m_proc->start(m_project.tool.startsWith(QLatin1String("./")) ? m_project.workDir + m_project.tool.mid(1) : m_project.tool, args);
+    // The build tool as the server's command names it: "./gradlew" / "./mvnw" (".\gradlew.bat" / ".\mvnw.cmd" on Windows)
+    // relative to the work folder, else gradle / mvn from PATH.
+    const QString &tool = m_project.tool;
+    const bool wrapper = tool.startsWith(QLatin1String("./")) || tool.startsWith(QLatin1String(".\\"));
+    QString name = tool.mid(2);
+    if (name.endsWith(QLatin1String(".bat"), Qt::CaseInsensitive) || name.endsWith(QLatin1String(".cmd"), Qt::CaseInsensitive))
+        name.chop(4);
+    Platform::setCommand(m_proc, wrapper ? Platform::wrapperFile(m_project.workDir, name) : tool, args);
+    m_proc->start();
 }
 
 void KtorReloader::stop()
@@ -124,7 +129,7 @@ void KtorReloader::stop()
     m_failure.clear();
     if (m_proc->state() != QProcess::NotRunning) {
         m_stopping = true;
-        signalGroup(SIGTERM);
+        stopTree();
         m_killTimer->start();
     }
     if (was)
@@ -137,16 +142,19 @@ void KtorReloader::compileSoon()
         m_debounce->start();
 }
 
-void KtorReloader::signalGroup(int sig)
+void KtorReloader::stopTree()
 {
-    const qint64 pid = m_proc->processId();
-    if (pid > 0)
-        ::kill(-static_cast<pid_t>(pid), sig);
+    ProcessTree::stop(m_proc);
+}
+
+void KtorReloader::killTree()
+{
+    ProcessTree::kill(m_proc->processId());
 }
 
 void KtorReloader::onOutput()
 {
-    m_pending += QString::fromLocal8Bit(m_proc->readAll());
+    m_pending += Platform::decodeOutput(m_proc->readAll());
     int nl;
     while ((nl = m_pending.indexOf(QLatin1Char('\n'))) >= 0) {
         QString line = m_pending.left(nl);
@@ -163,12 +171,13 @@ void KtorReloader::scan(const QString &line)
     // Maven's Kotlin plugin: "[ERROR] /home/me/app/src/main/kotlin/Routing.kt: (12, 5) Unresolved reference 'x'."
     // javac: "/home/me/app/src/main/java/A.java:12: error: cannot find symbol"
     static const QRegularExpression kotlinError(QStringLiteral(R"(^e: (?:file://)?(\S+?):(\d+):\d+ (.*))"));
-    static const QRegularExpression mavenError(QStringLiteral(R"(^\[ERROR\] (?:file://)?(/\S+?): \((\d+), \d+\) (.*))"));
-    static const QRegularExpression javacError(QStringLiteral(R"(^(/\S+\.java):(\d+): error: (.*))"));
+    // Windows paths too: D:\app\x.kt, D:/app/x.kt, /D:/app/x.kt after file://.
+    static const QRegularExpression mavenError(QStringLiteral(R"(^\[ERROR\] (?:file://)?((?:/?[A-Za-z]:)?[/\]\S+?): \((\d+), \d+\) (.*))"));
+    static const QRegularExpression javacError(QStringLiteral(R"(^((?:[A-Za-z]:)?[/\]\S+\.java):(\d+): error: (.*))"));
     for (const QRegularExpression *re : {&kotlinError, &mavenError, &javacError}) {
         const QRegularExpressionMatch m = re->match(line);
         if (m.hasMatch()) {
-            m_cycleErrors << QStringLiteral("%1:%2: %3").arg(QFileInfo(m.captured(1)).fileName(), m.captured(2), m.captured(3));
+            m_cycleErrors << QStringLiteral("%1:%2: %3").arg(QFileInfo(QDir::fromNativeSeparators(m.captured(1))).fileName(), m.captured(2), m.captured(3));
             emit output(line + QLatin1Char('\n'));
             return;
         }

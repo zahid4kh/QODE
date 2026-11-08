@@ -1,5 +1,6 @@
 #include "WelcomePage.h"
 
+#include "filesystem/FileManager.h"
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
@@ -23,12 +24,7 @@ enum Role { RolePath = Qt::UserRole + 1, RoleName, RoleShort };
 
 QString shortPath(const QString &path)
 {
-    const QString home = QDir::homePath();
-    if (path == home)
-        return QStringLiteral("~");
-    if (path.startsWith(home + QLatin1Char('/')))
-        return QStringLiteral("~") + path.mid(home.size());
-    return path;
+    return FileManager::displayPath(path); // ~/x; Windows: C:\x, ~\x
 }
 
 class RecentDelegate : public QStyledItemDelegate
@@ -214,7 +210,7 @@ void WelcomePage::setRecentProjects(const QStringList &paths)
         it->setData(RolePath, path);
         it->setData(RoleName, QFileInfo(path).fileName().isEmpty() ? path : QFileInfo(path).fileName());
         it->setData(RoleShort, shortPath(path));
-        it->setToolTip(path);
+        it->setToolTip(QDir::toNativeSeparators(path));
         it->setSizeHint(QSize(0, kRowHeight));
         ++shown;
     }

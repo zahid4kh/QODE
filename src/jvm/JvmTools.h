@@ -72,6 +72,19 @@ bool isJvmBuild(const QString &root); // Gradle or Maven build at the root
 // --- Gradle wrapper ---------------------------------------------------------------------------------------------------
 QString wrapperProperties(const QString &dir); // gradle/wrapper/gradle-wrapper.properties, "" when missing
 Found wrapperVersion(const QString &dir);
+// Points the wrapper at another Gradle release (the distributionUrl in gradle-wrapper.properties; a distributionSha256Sum
+// of the old release is dropped). Works when the old Gradle cannot start (on a JDK too new for it), which
+// `gradlew wrapper --gradle-version` needs. False with `error` set when the file is missing or cannot be written.
+bool setWrapperVersion(const QString &dir, const QString &version, QString *error = nullptr);
+
+// --- Which Java runs which Gradle (docs.gradle.org/current/userguide/compatibility.html, Gradle 9.9) -------------------
+int compareVersions(const QString &a, const QString &b); // <0, 0, >0 for "8.14.3" vs "9.1" ("9.0-rc-1" counts as 9.0)
+int gradleMinJava(const QString &gradle); // 17 for Gradle 9 and newer, else 8
+// The newest Java `gradle` runs on, 0 when the release is newer than the table (then any Java from gradleMinJava is
+// taken to work).
+int gradleMaxJava(const QString &gradle);
+bool gradleRunsOn(const QString &gradle, int java);
+QString gradleForJava(int java); // the first Gradle release that runs on `java` ("9.1.0"), "" beyond the table
 // gradlew exists but is not executable (a zip download or a checkout on a file system without modes).
 bool wrapperNeedsExecBit(const QString &dir);
 

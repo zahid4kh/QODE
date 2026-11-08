@@ -1,7 +1,9 @@
 #include "LspClient.h"
+#include "platform/Platform.h"
 
 #include <QCoreApplication>
 #include <QDesktopServices>
+#include <QDir>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -39,8 +41,7 @@ LspClient::LspClient(const QString &program, const QStringList &arguments, const
                      QObject *parent)
     : QObject(parent), m_proc(new QProcess(this)), m_root(rootPath), m_initOptions(initializationOptions)
 {
-    m_proc->setProgram(program);
-    m_proc->setArguments(arguments);
+    Platform::setCommand(m_proc, program, arguments); // Windows: an npm .cmd launcher (typescript-language-server.cmd) runs through cmd
     if (QFileInfo(rootPath).isDir())
         m_proc->setWorkingDirectory(rootPath);
     connect(m_proc, &QProcess::readyReadStandardOutput, this, &LspClient::onStdout);
@@ -51,9 +52,9 @@ LspClient::LspClient(const QString &program, const QStringList &arguments, const
             m_log.removeFirst();
     });
     connect(m_proc, &QProcess::finished, this, &LspClient::onFinished);
-    connect(m_proc, &QProcess::errorOccurred, this, [this](QProcess::ProcessError e) {
+    connect(m_proc, &QProcess::errorOccurred, this, [this, program](QProcess::ProcessError e) {
         if (e == QProcess::FailedToStart)
-            fail(tr("Could not start %1").arg(m_proc->program()));
+            fail(tr("Could not start %1").arg(program));
     });
     connect(m_proc, &QProcess::started, this, [this] {
         QJsonObject textDocument{
@@ -155,15 +156,26 @@ LspClient::~LspClient()
 {
     if (m_proc->state() != QProcess::NotRunning) {
         m_proc->disconnect(this);
-        m_proc->kill();
+        Platform::killTree(m_proc); // Windows: also what a .cmd launcher started
         m_proc->waitForFinished(300);
     }
 }
 
 void LspClient::prependToPath(const QString &dir)
 {
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert(QStringLiteral("PATH"), dir + QLatin1Char(':') + env.value(QStringLiteral("PATH")));
+    QProcessEnvironment env = m_proc->processEnvironment();
+    if (env.isEmpty())
+        env = QProcessEnvironment::systemEnvironment();
+    env.insert(QStringLiteral("PATH"), QDir::toNativeSeparators(dir) + QDir::listSeparator() + env.value(QStringLiteral("PATH")));
+    m_proc->setProcessEnvironment(env);
+}
+
+void LspClient::setEnvironmentValue(const QString &name, const QString &value)
+{
+    QProcessEnvironment env = m_proc->processEnvironment();
+    if (env.isEmpty())
+        env = QProcessEnvironment::systemEnvironment();
+    env.insert(name, value);
     m_proc->setProcessEnvironment(env);
 }
 
@@ -186,7 +198,7 @@ void LspClient::shutdown(int waitMs)
     }
     m_proc->closeWriteChannel();
     if (!m_proc->waitForFinished(waitMs)) {
-        m_proc->kill();
+        Platform::killTree(m_proc); // Windows: also what a .cmd launcher started
         m_proc->waitForFinished(300);
     }
 }
@@ -437,9 +449,11 @@ void LspClient::onFinished(int, int exitStatus)
     m_interactiveIds.clear();
     m_interactive = 0;
     if (crashed && m_error.isEmpty()) {
-        // Kotlin's EAP builds print "This build of kotlin-server has expired." on stdout and quit.
-        const QString out = QString::fromUtf8(m_buffer + m_proc->readAllStandardOutput());
-        if (out.contains(QLatin1String("expired")))
+        // Kotlin's EAP builds print "This build of kotlin-server has expired." and quit: on stdout on Linux, on stderr on
+        // Windows.
+        const QString out = QString::fromUtf8(m_buffer + m_proc->readAllStandardOutput()) +
+                            QString::fromUtf8(m_proc->readAllStandardError()) + m_log.join(QLatin1Char('\n'));
+        if (out.contains(QLatin1String("has expired")))
             m_error = tr("This build of the server has expired — choose Update / Reinstall to get a newer one");
     }
     if (crashed && m_error.isEmpty())
@@ -459,6 +473,6 @@ void LspClient::fail(const QString &error)
     m_interactiveIds.clear();
     m_interactive = 0;
     if (m_proc->state() != QProcess::NotRunning)
-        m_proc->kill();
+        Platform::killTree(m_proc); // Windows: also what a .cmd launcher started
     emit stopped(true);
 }

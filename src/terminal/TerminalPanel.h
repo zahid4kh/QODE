@@ -10,6 +10,7 @@
 
 #include <functional>
 
+class QMenu;
 class QSplitter;
 class QStackedWidget;
 class QTabBar;
@@ -38,7 +39,12 @@ public:
     void runCommand(const QString &command);
     // Writes raw input to the current pane (a key for the program running there).
     void sendInput(const QByteArray &data);
+    // The shell file of the current pane ("bash", "pwsh.exe" …, Terminal::shellFile), else of the shell new tabs get.
+    QString currentShellFile() const;
     void newSession();
+    void newSessionWith(const QString &program); // a tab running `program` ("" = the default shell)
+    // The shell new tabs run ("" or a program that is gone = ShellProcess::defaultShell()).
+    void setDefaultShell(const QString &program);
     void splitCurrent(Qt::Orientation orientation);
     void restart();    // the current pane
     void restartAll(); // every running pane (the project changed)
@@ -64,6 +70,7 @@ signals:
     void problemsFound(QObject *source, const QList<BuildProblem> &problems);
     void problemsCleared(QObject *source);
     void fixRequested(const FailedCommand &failure); // a pane's "Fix with QODE"
+    void defaultShellChanged(const QString &program); // chosen in the + menu (Windows)
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -73,8 +80,9 @@ private:
     QSplitter *pageAt(int index) const;
     QSplitter *pageOf(QWidget *w) const;
     QList<Terminal *> panesOf(QSplitter *page) const;
-    Terminal *createPane();
-    int createSession(const QString &customName);
+    Terminal *createPane(const QString &program);
+    int createSession(const QString &customName, const QString &program = QString());
+    void fillShellMenu(QMenu *menu);
     void closeSession(int index);
     void closePane(Terminal *t);
     void renameTab(int index);
@@ -86,6 +94,7 @@ private:
     QStackedWidget *m_stack;
     QToolButton *m_maxBtn;
     QString m_cwd;
+    QString m_defaultShell;
     QStringList m_saved;
     std::function<QString(const QString &)> m_startupProvider;
     QHash<QSplitter *, QPointer<Terminal>> m_active; // last focused pane of each tab

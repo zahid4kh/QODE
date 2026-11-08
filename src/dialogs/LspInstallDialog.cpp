@@ -1,9 +1,11 @@
 #include "LspInstallDialog.h"
 
 #include "lsp/LspInstaller.h"
+#include "platform/AppPaths.h"
 
 #include <QCheckBox>
 #include <QCloseEvent>
+#include <QDir>
 #include <QLabel>
 #include <QLocale>
 #include <QProgressBar>
@@ -24,16 +26,20 @@ LspInstallDialog::LspInstallDialog(QWidget *parent) : QDialog(parent), m_install
            "<li>No Java needed: the server brings its own runtime</li>"
            "<li>Nothing outside your home folder is changed and no administrator rights are needed</li>"
            "</ul>")
-            .arg(LspInstaller::installRoot().toHtmlEscaped()),
+            .arg(QDir::toNativeSeparators(LspInstaller::installRoot()).toHtmlEscaped()),
         this);
     info->setWordWrap(true);
     info->setTextFormat(Qt::RichText);
     layout->addWidget(info);
 
-    m_link = new QCheckBox(tr("Also link it as %1").arg(LspInstaller::linkPath()), this);
+    m_link = new QCheckBox(tr("Also link it as %1").arg(QDir::toNativeSeparators(LspInstaller::linkPath())), this);
     m_link->setChecked(true);
     m_link->setToolTip(tr("Lets you run \"kotlin-lsp\" in a terminal. QODE finds the server without it."));
     layout->addWidget(m_link);
+    if (AppPaths::isPortable()) { // portable QODE writes nothing outside its own folder
+        m_link->setChecked(false);
+        m_link->hide();
+    }
     m_latest = new QCheckBox(tr("Use the latest release instead of the tested version (%1)").arg(LspInstaller::pinnedVersion()), this);
     layout->addWidget(m_latest);
 

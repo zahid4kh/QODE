@@ -1,4 +1,7 @@
 #include "AgentPanel.h"
+#include "filesystem/WatchGuard.h"
+#include "platform/Platform.h"
+#include "platform/AppPaths.h"
 #include "history/LocalHistory.h"
 
 #include "agent/AgentRun.h"
@@ -29,6 +32,8 @@
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
+#include "editor/TextEncoding.h"
+#include "filesystem/FileManager.h"
 
 #include <QActionGroup>
 #include <QDateTime>
@@ -386,7 +391,7 @@ AgentPanel::AgentPanel(QWidget *parent)
         if (m_editors)
             for (const QString &p : m_editors->openFilePaths()) {
                 Document *d = m_editors->documentForPath(p);
-                if (p.startsWith(m_root + QLatin1Char('/')))
+                if (Platform::isUnder(p, m_root))
                     out.append({p, d && d->isModified()});
             }
         return out;
@@ -445,7 +450,7 @@ AgentPanel::AgentPanel(QWidget *parent)
         if (m_editors)
             for (const QString &p : m_editors->openFilePaths()) {
                 Document *d = m_editors->documentForPath(p);
-                if (d && d->isModified() && p.startsWith(m_root + QLatin1Char('/')) && !AiEnv::isSensitive(p))
+                if (d && d->isModified() && Platform::isUnder(p, m_root) && !AiEnv::isSensitive(p))
                     unsaved.insert(relative(p), d->text());
             }
         return m_index->search(query, scope, max, unsaved, note);
@@ -460,11 +465,7 @@ AgentPanel::AgentPanel(QWidget *parent)
                 *text = d->text();
                 return true;
             }
-        QFile f(abs);
-        if (!QFileInfo(abs).isFile() || !f.open(QIODevice::ReadOnly))
-            return false;
-        *text = QString::fromUtf8(f.readAll());
-        return true;
+        return QFileInfo(abs).isFile() && FileManager::readText(abs, text);
     };
     io.write = [this](const QString &abs, const QString &text) { return writeText(abs, text); };
     io.remove = [this](const QString &abs) {
@@ -481,6 +482,7 @@ AgentPanel::AgentPanel(QWidget *parent)
     };
     io.rename = [this](const QString &from, const QString &to) {
         QDir().mkpath(QFileInfo(to).absolutePath());
+        const WatchGuard::Scope guard(from); // Windows: nothing below a folder may be watched while it moves
         if (!QDir().rename(from, to))
             return false;
         LocalHistory::pathMoved(from, to);
@@ -662,6 +664,25 @@ void AgentPanel::rebuildModelMenu()
         }
     }
 
+    // Windows: run_command's shell (PowerShell, or Git Bash when Git has one). Unix has only bash: no menu.
+    const QList<Platform::ChatShell> shells = Platform::chatShells();
+    if (shells.size() > 1) {
+        const Platform::ChatShell current = Platform::chatShell(SettingsManager::instance().aiShell());
+        m_modelMenu->addSeparator();
+        QMenu *shellMenu = m_modelMenu->addMenu(tr("Commands run in: %1").arg(current.name));
+        shellMenu->setToolTipsVisible(true);
+        auto *sg = new QActionGroup(shellMenu);
+        for (const Platform::ChatShell &s : shells) {
+            QAction *a = shellMenu->addAction(s.name);
+            a->setToolTip(QDir::toNativeSeparators(s.program));
+            a->setCheckable(true);
+            a->setActionGroup(sg);
+            a->setChecked(s.id == current.id);
+            const QString id = s.id;
+            connect(a, &QAction::triggered, this, [id] { SettingsManager::instance().setAiShell(id); });
+        }
+    }
+
     m_modelMenu->addSeparator();
     auto *wa = new QWidgetAction(m_modelMenu);
     auto *holder = new QWidget;
@@ -754,8 +775,7 @@ void AgentPanel::setProject(const QString &root)
     m_mcp->setProject(root, root.isEmpty() ? QString() : SettingsManager::instance().projectDataDir());
     const QString data = SettingsManager::instance().projectDataDir();
     m_index->setProject(root, root.isEmpty() || data.isEmpty() ? QString()
-                                                               : QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation)
-                                                                     + QStringLiteral("/QODE-AGENTIC/code-index/") + QFileInfo(data).fileName() + QStringLiteral(".vec"));
+                                                               : AppPaths::cache(QStringLiteral("code-index/")) + QFileInfo(data).fileName() + QStringLiteral(".vec"));
     const auto sessions = m_store.list();
     Session loaded;
     if (!sessions.isEmpty() && m_store.load(sessions.first().id, &loaded))
@@ -847,7 +867,7 @@ QString AgentPanel::focusedFile() const
     if (!d || d->isUntitled())
         return {};
     const QString p = d->filePath();
-    return p.startsWith(m_root + QLatin1Char('/')) && !AiEnv::isSensitive(p) ? p : QString();
+    return Platform::isUnder(p, m_root) && !AiEnv::isSensitive(p) ? p : QString();
 }
 
 // --- sessions -----------------------------------------------------------------------------------------------------
@@ -989,7 +1009,7 @@ QString AgentPanel::contextFor(const QStringList &mentioned) const
     QStringList tabs;
     if (m_editors)
         for (const QString &p : m_editors->openFilePaths())
-            if (p.startsWith(m_root + QLatin1Char('/')) && !AiEnv::isSensitive(p))
+            if (Platform::isUnder(p, m_root) && !AiEnv::isSensitive(p))
                 tabs << relative(p);
     if (!tabs.isEmpty())
         lines << QStringLiteral("Open tabs: %1").arg(tabs.mid(0, 20).join(QStringLiteral(", ")));
@@ -1106,7 +1126,8 @@ void AgentPanel::startRun(const QString &display, const QString &request, const 
     cfg.apiKey = AiEnv::apiKey(provider(), m_root);
     cfg.model = m_modelName;
     prepareToolGroups();
-    cfg.systemInstruction = AgentRun::systemPrompt(m_root) + m_tools.groupPrompt() + m_mcp->promptSection();
+    m_tools.setShell(SettingsManager::instance().aiShell());
+    cfg.systemInstruction = AgentRun::systemPrompt(m_root) + m_tools.environmentPrompt() + m_tools.groupPrompt() + m_mcp->promptSection();
     prepareMcpTools();
     cfg.contents = m_session.history();
     cfg.contents.append(QJsonObject{{"role", "user"}, {"parts", QJsonArray{QJsonObject{{"text", sent}}}}});
@@ -1497,12 +1518,9 @@ bool AgentPanel::writeText(const QString &abs, const QString &text)
         }
     }
     QDir().mkpath(QFileInfo(abs).absolutePath());
-    LocalHistory::recordWrite(abs, text.toUtf8());
-    QSaveFile f(abs);
-    if (!f.open(QIODevice::WriteOnly))
-        return false;
-    f.write(text.toUtf8());
-    return f.commit();
+    const QByteArray bytes = FileManager::textBytes(abs, text); // keeps a BOM or UTF-16
+    LocalHistory::recordWrite(abs, bytes);
+    return FileManager::writeFile(abs, bytes, nullptr);
 }
 
 void AgentPanel::scheduleProjectChanged()
@@ -1523,7 +1541,7 @@ QString AgentPanel::collectDiagnostics(const QString &abs, QVector<Diag> *rows, 
         paths << abs;
     } else {
         for (const QString &p : m_editors->openFilePaths())
-            if (p.startsWith(m_root + QLatin1Char('/')))
+            if (Platform::isUnder(p, m_root))
                 paths << p;
     }
     auto served = [&] {
@@ -1721,7 +1739,7 @@ void AgentPanel::updateMentions(const QString &query)
     if (query.isEmpty()) {
         if (m_editors)
             for (const QString &p : m_editors->openFilePaths())
-                if (p.startsWith(m_root + QLatin1Char('/')) && m_fileSet.contains(relative(p)))
+                if (Platform::isUnder(p, m_root) && m_fileSet.contains(relative(p)))
                     result << relative(p);
         for (const QString &f : m_files) {
             if (result.size() >= 8)

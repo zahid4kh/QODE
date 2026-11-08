@@ -1,23 +1,27 @@
 #include "app/Application.h"
-#include "app/ChildReaper.h"
+#include "app/QodeFiles.h"
 #include "app/StartupProfile.h"
+#include "platform/AppPaths.h"
+#include "platform/Platform.h"
+#include "platform/ProcessTree.h"
 #include "window/MainWindow.h"
 
 #include <QCommandLineParser>
 
-#include <csignal>
-
 int main(int argc, char *argv[])
 {
-    // The watchdog that stops QODE's servers when QODE itself ends abruptly is this same binary.
-    if (ChildReaper::runIfReaper(argc, argv))
+    // The watchdog that stops QODE's servers when QODE itself ends abruptly (Unix), the helper that sends a server
+    // Ctrl+C (Windows) and the uninstaller's helper that lists / removes QODE's data (QodeFiles) are this same binary.
+    if (ProcessTree::runIfWatchdog(argc, argv) || Platform::runIfHelper(argc, argv) || QodeFiles::runIfHelper(argc, argv))
         return 0;
     StartupProfile::begin();
     // Writing to a child process (git, the shell) that already exited must fail with an error, not kill the editor.
-    std::signal(SIGPIPE, SIG_IGN);
+    Platform::initProcess();
+    AppPaths::initQtSettings(); // Qt's file dialog state in QODE's config folder (Unix; Windows: FileDialogs)
     // Qt WebEngine (the web preview) shares OpenGL contexts with the widgets; this must be set before the application exists.
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
     Application app(argc, argv);
+    Platform::initGui();
     StartupProfile::mark(QStringLiteral("Qt application (display, fonts, style, theme)"));
 
     QCommandLineParser parser;

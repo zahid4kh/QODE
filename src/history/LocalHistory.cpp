@@ -1,4 +1,6 @@
 #include "LocalHistory.h"
+#include "platform/Platform.h"
+#include "platform/AppPaths.h"
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -44,7 +46,7 @@ Kind kindFromToken(const QString &t)
 
 QString folderFor(const QString &path)
 {
-    const QByteArray h = QCryptographicHash::hash(QDir::cleanPath(path).toUtf8(), QCryptographicHash::Sha1).toHex().left(20);
+    const QByteArray h = QCryptographicHash::hash(Platform::pathKey(QDir::cleanPath(path)).toUtf8(), QCryptographicHash::Sha1).toHex().left(20);
     return storageRoot() + QLatin1Char('/') + QString::fromLatin1(h);
 }
 
@@ -76,7 +78,7 @@ bool isSkippedFolder(const QString &name)
 
 QString storageRoot()
 {
-    return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QStringLiteral("/QODE-AGENTIC/history");
+    return AppPaths::data(QStringLiteral("history"));
 }
 
 QString label(Kind kind)
@@ -230,7 +232,7 @@ QVector<TrackedFile> filesUnder(const QString &folder)
         if (!p.open(QIODevice::ReadOnly))
             continue;
         const QString path = QString::fromUtf8(p.readAll());
-        if (!path.startsWith(prefix))
+        if (!Platform::isUnder(path, prefix.chopped(1)))
             continue;
         const QStringList files = versionFiles(root.filePath(entry));
         if (files.isEmpty())
@@ -258,23 +260,26 @@ void pathMoved(const QString &from, const QString &to)
         if (!p.open(QIODevice::ReadOnly))
             continue;
         const QString path = QString::fromUtf8(p.readAll());
-        if (path == src)
+        if (Platform::samePath(path, src))
             moves.append({path, dst});
-        else if (path.startsWith(src + QLatin1Char('/')))
+        else if (Platform::isUnder(path, src))
             moves.append({path, dst + path.mid(src.size())});
     }
     for (const auto &m : std::as_const(moves)) {
         const QString oldFolder = folderFor(m.first), newFolder = folderFor(m.second);
+        const bool sameFolder = oldFolder == newFolder; // Windows: a rename that only changes case keeps its folder
         QDir().mkpath(newFolder);
         // Versions already stored under the new path (a file that was there before) stay; the names never collide.
-        for (const QString &f : versionFiles(oldFolder))
-            QFile::rename(oldFolder + QLatin1Char('/') + f, newFolder + QLatin1Char('/') + f);
+        if (!sameFolder)
+            for (const QString &f : versionFiles(oldFolder))
+                QFile::rename(oldFolder + QLatin1Char('/') + f, newFolder + QLatin1Char('/') + f);
         QSaveFile p(newFolder + QStringLiteral("/path"));
         if (p.open(QIODevice::WriteOnly)) {
             p.write(m.second.toUtf8());
             p.commit();
         }
-        QDir(oldFolder).removeRecursively();
+        if (!sameFolder)
+            Platform::removeTree(oldFolder);
     }
 }
 
@@ -288,7 +293,7 @@ void prune()
         while (!files.isEmpty() && files.first().section(QLatin1Char('-'), 0, 0).toLongLong() < cutoff)
             QFile::remove(folder + QLatin1Char('/') + files.takeFirst());
         if (files.isEmpty())
-            QDir(folder).removeRecursively();
+            Platform::removeTree(folder);
     }
 }
 

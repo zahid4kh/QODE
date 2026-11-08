@@ -1,4 +1,5 @@
 #include "spring/SpringScaffold.h"
+#include "platform/Platform.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -57,7 +58,7 @@ QString packageOf(const QString &dir, const QStringList &sourceRoots, bool *kotl
     const QString d = QDir::cleanPath(dir);
     for (const QString &rootRaw : sourceRoots) {
         const QString root = QDir::cleanPath(rootRaw);
-        if (d == root || d.startsWith(root + QLatin1Char('/'))) {
+        if (Platform::samePath(d, root) || Platform::isUnder(d, root)) {
             if (kotlin)
                 *kotlin = root.endsWith(QLatin1String("/kotlin"));
             return d.mid(root.size()).split(QLatin1Char('/'), Qt::SkipEmptyParts).join(QLatin1Char('.'));

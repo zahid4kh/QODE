@@ -1,4 +1,7 @@
 #include "FileManager.h"
+#include "editor/TextEncoding.h"
+#include "filesystem/WatchGuard.h"
+#include "platform/Platform.h"
 
 #include "history/LocalHistory.h"
 
@@ -7,6 +10,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QSaveFile>
+#include <QThread>
 #include <QUrl>
 
 namespace FileManager {
@@ -30,15 +34,47 @@ ReadResult readFile(const QString &path)
 
 bool writeFile(const QString &path, const QByteArray &data, QString *error)
 {
-    // QSaveFile writes to a temp file and renames, so a failed save never truncates the original.
-    QSaveFile f(path);
-    f.setDirectWriteFallback(true);
-    if (!f.open(QIODevice::WriteOnly) || f.write(data) != data.size() || !f.commit()) {
-        if (error)
-            *error = f.errorString();
-        return false;
+    // QSaveFile writes to a temp file and renames, so a failed save never truncates the original. On Windows that rename
+    // can fail for a moment while a virus scanner or the indexer has the file open: try again a few times.
+    const int retries = Platform::busyFileRetries();
+    for (int attempt = 0;; ++attempt) {
+        QSaveFile f(path);
+        f.setDirectWriteFallback(true);
+        if (f.open(QIODevice::WriteOnly) && f.write(data) == data.size() && f.commit())
+            return true;
+        if (attempt >= retries) {
+            if (error)
+                *error = f.errorString();
+            return false;
+        }
+        QThread::msleep(50 * (attempt + 1));
     }
+}
+
+bool readText(const QString &path, QString *text, QString *encoding)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return false;
+    const TextEncoding::Decoded d = TextEncoding::decode(f.readAll());
+    *text = d.text;
+    if (encoding)
+        *encoding = d.encoding;
     return true;
+}
+
+QByteArray textBytes(const QString &path, const QString &text)
+{
+    QString encoding = QStringLiteral("UTF-8");
+    QFile f(path);
+    if (f.open(QIODevice::ReadOnly))
+        encoding = TextEncoding::decode(f.readAll()).encoding;
+    return TextEncoding::encode(text, &encoding);
+}
+
+bool writeText(const QString &path, const QString &text, QString *error)
+{
+    return writeFile(path, textBytes(path, text), error);
 }
 
 bool createFile(const QString &path, QString *error)
@@ -74,11 +110,13 @@ bool createFolder(const QString &path, QString *error)
 
 bool renamePath(const QString &from, const QString &to, QString *error)
 {
-    if (QFileInfo::exists(to)) {
+    // On Windows a rename that only changes case (Foo.kt -> foo.kt) finds the file itself at `to`: no clash.
+    if (QFileInfo::exists(to) && !(from != to && Platform::samePath(from, to))) {
         if (error)
             *error = QStringLiteral("\"%1\" already exists.").arg(QFileInfo(to).fileName());
         return false;
     }
+    const WatchGuard::Scope guard(from); // Windows: nothing below a folder may be watched while it is renamed
     if (!QFile::rename(from, to)) {
         if (error)
             *error = QStringLiteral("Could not rename \"%1\".").arg(QFileInfo(from).fileName());
@@ -110,8 +148,18 @@ QString uniquePath(const QString &dir, const QString &name)
 static bool copyTree(const QString &from, const QString &to, QString *error)
 {
     const QFileInfo fi(from);
+    // A link is copied as a link. Windows has no link QODE can make (QFile::link writes a .lnk shortcut there): a link
+    // to a file is copied as the file's content instead.
+    if (fi.isSymLink() && !Platform::canMakeSymlinks() && !fi.isDir()) {
+        if (!QFile::copy(fi.absoluteFilePath(), to)) {
+            if (error)
+                *error = QStringLiteral("Could not copy \"%1\".").arg(fi.fileName());
+            return false;
+        }
+        return true;
+    }
     if (fi.isSymLink()) {
-        if (!QFile::link(fi.symLinkTarget(), to)) {
+        if (!Platform::canMakeSymlinks() || !QFile::link(fi.symLinkTarget(), to)) {
             if (error)
                 *error = QStringLiteral("Could not copy \"%1\".").arg(fi.fileName());
             return false;
@@ -196,7 +244,7 @@ bool removePath(const QString &path, QString *error)
         LocalHistory::recordDisk(path, LocalHistory::Kind::BeforeDelete); // the text files stay restorable
     bool ok;
     if (fi.isDir() && !fi.isSymLink())
-        ok = QDir(path).removeRecursively();
+        ok = Platform::removeTree(path);
     else
         ok = QFile::remove(path);
     if (!ok && error)
@@ -213,24 +261,27 @@ QString validateName(const QString &name)
         return QStringLiteral("Invalid name.");
     if (n.contains(QLatin1Char('/')) || n.contains(QChar(0)))
         return QStringLiteral("Name cannot contain '/'.");
-    return {};
+    return Platform::invalidFileName(n); // Windows: CON, nul.txt, <>:"|?*\, a trailing dot or space
 }
 
 void revealInFileManager(const QString &path)
 {
     const QFileInfo fi(path);
+    if (fi.isFile() && Platform::selectInFileManager(fi.absoluteFilePath())) // Windows: the file selected in Explorer
+        return;
     const QString dir = fi.isDir() ? fi.absoluteFilePath() : fi.absolutePath();
     QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
 }
 
 QString displayPath(const QString &path)
 {
+    // Windows shows its own separators (C:\x, ~\x); on Unix toNativeSeparators changes nothing.
     const QString home = QDir::homePath();
-    if (path == home)
+    if (Platform::samePath(path, home))
         return QStringLiteral("~");
-    if (path.startsWith(home + QLatin1Char('/')))
-        return QStringLiteral("~") + path.mid(home.size());
-    return path;
+    if (Platform::isUnder(path, home))
+        return QDir::toNativeSeparators(QStringLiteral("~") + path.mid(home.size()));
+    return QDir::toNativeSeparators(path);
 }
 
 } // namespace FileManager

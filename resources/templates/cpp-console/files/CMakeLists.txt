@@ -30,7 +30,16 @@ list(REMOVE_ITEM SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
 
 add_library(core STATIC ${SOURCES})
 target_include_directories(core PUBLIC include)
+{{#if os=win}}
+if(MSVC)
+  target_compile_options(core PUBLIC /W4)
+else()
+  target_compile_options(core PUBLIC -Wall -Wextra -Wpedantic)
+endif()
+{{/if}}
+{{#if !os=win}}
 target_compile_options(core PUBLIC -Wall -Wextra -Wpedantic)
+{{/if}}
 
 add_executable({{nameId}} src/main.cpp)
 target_link_libraries({{nameId}} PRIVATE core)

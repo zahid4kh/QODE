@@ -19,6 +19,7 @@
 #include "spring/SpringBar.h"
 #include "spring/SpringLogView.h"
 #include "webdev/DevServerBar.h"
+#include "filesystem/FileManager.h"
 
 #include <QAbstractItemView>
 #include <QFile>
@@ -167,20 +168,14 @@ void MainWindow::addKtorPlugins()
             QMessageBox::information(this, tr("Add Ktor Plugins"), tr("%1 has unsaved changes. Save it first.").arg(QFileInfo(extra.first).fileName()));
             return;
         }
-    QFile f(change.file);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        QMessageBox::warning(this, tr("Add Ktor Plugins"), tr("Could not write %1: %2").arg(change.file, f.errorString()));
+    // In the file's own encoding (a BOM or UTF-16 stays), written atomically with Windows' busy-file retries.
+    QString error;
+    if (!FileManager::writeText(change.file, change.text, &error)) {
+        QMessageBox::warning(this, tr("Add Ktor Plugins"), tr("Could not write %1: %2").arg(change.file, error));
         return;
     }
-    f.write(change.text.toUtf8());
-    f.close();
-    for (const auto &extra : change.extra) {
-        QFile x(extra.first);
-        if (x.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-            x.write(extra.second.toUtf8());
-            x.close();
-        }
-    }
+    for (const auto &extra : change.extra)
+        FileManager::writeText(extra.first, extra.second);
     m_editorHiddenByUser = false;
     if (m_editors->openFile(change.file))
         setEditorColumnVisible(true);

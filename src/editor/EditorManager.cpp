@@ -1,4 +1,6 @@
 #include "app/InstanceRegistry.h"
+#include "dialogs/FileDialogs.h"
+#include "filesystem/WatchGuard.h"
 #include "EditorManager.h"
 
 #include "CodeEditor.h"
@@ -8,6 +10,7 @@
 #include "Document.h"
 #include "WelcomePage.h"
 #include "explorer/FileIcons.h"
+#include "platform/Platform.h"
 #include "FindBar.h"
 #include "dialogs/UnsavedChangesDialog.h"
 #include "filesystem/FileManager.h"
@@ -24,7 +27,6 @@
 #include <QMenu>
 #include <QMimeData>
 #include <QSplitter>
-#include <QFileDialog>
 #include <QFileInfo>
 #include <QFileSystemWatcher>
 #include <QLabel>
@@ -162,6 +164,20 @@ EditorManager::EditorManager(QWidget *parent)
     m_changeTimer->setInterval(200);
     connect(m_changeTimer, &QTimer::timeout, this, &EditorManager::processPendingChanges);
     connect(m_watcher, &QFileSystemWatcher::fileChanged, this, &EditorManager::onWatchedFileChanged);
+    // Windows: a watched file pins its folder's parents; let go of those below a folder that is renamed or moved.
+    WatchGuard::registerOwner(
+        this,
+        [this](const QString &folder) {
+            const QStringList files = m_watcher->files();
+            for (const QString &f : files)
+                if (Platform::isUnder(f, folder))
+                    m_watcher->removePath(f);
+        },
+        [this] {
+            for (Document *d : documents())
+                if (!d->isUntitled() && d->existsOnDisk())
+                    watch(d->filePath());
+        });
     // A saved .editorconfig applies to the open files at once.
     connect(this, &EditorManager::documentSaved, this, [this](Document *saved) {
         if (QFileInfo(saved->filePath()).fileName() != QLatin1String(".editorconfig"))
@@ -316,7 +332,7 @@ bool EditorManager::openFile(const QString &pathIn)
 
     // Already open? Activate the existing tab.
     for (Document *d : documents()) {
-        if (d->filePath() == path) {
+        if (Platform::samePath(d->filePath(), path)) { // Windows: c:/x and C:/X are one file
             activate(d);
             focusEditor();
             return true;
@@ -374,7 +390,7 @@ bool EditorManager::openFileAt(const QString &path, int line, int column, int le
 Document *EditorManager::documentForPath(const QString &path) const
 {
     for (Document *d : documents())
-        if (!d->isUntitled() && d->filePath() == path)
+        if (!d->isUntitled() && Platform::samePath(d->filePath(), path))
             return d;
     return nullptr;
 }
@@ -990,12 +1006,12 @@ bool EditorManager::saveDocumentAs(Document *doc)
                                                                            : SettingsManager::instance().lastDirectory())
                     .filePath(doc->fileName());
     while (true) {
-        QString path = QFileDialog::getSaveFileName(this, tr("Save As"), start);
+        QString path = FileDialogs::getSaveFileName(this, tr("Save As"), start);
         if (path.isEmpty())
             return false;
         // Another open tab already owns that path?
         for (Document *d : documents()) {
-            if (d != doc && d->filePath() == path) {
+            if (d != doc && Platform::samePath(d->filePath(), path)) {
                 QMessageBox::warning(this, tr("Save As"), tr("\"%1\" is already open in another tab. Close it first.").arg(QFileInfo(path).fileName()));
                 start = path;
                 path.clear();
@@ -1244,9 +1260,8 @@ bool EditorManager::closeAll()
 
 void EditorManager::closeDocumentsUnder(const QString &path)
 {
-    const QString prefix = path + QLatin1Char('/');
     for (Document *d : documents())
-        if (!d->isUntitled() && (d->filePath() == path || d->filePath().startsWith(prefix)))
+        if (!d->isUntitled() && (Platform::samePath(d->filePath(), path) || Platform::isUnder(d->filePath(), path)))
             removeDocument(d);
 }
 
@@ -1257,9 +1272,9 @@ void EditorManager::pathRenamed(const QString &oldPath, const QString &newPath)
         if (d->isUntitled())
             continue;
         QString target;
-        if (d->filePath() == oldPath)
+        if (Platform::samePath(d->filePath(), oldPath))
             target = newPath;
-        else if (d->filePath().startsWith(prefix))
+        else if (Platform::isUnder(d->filePath(), oldPath))
             target = newPath + QLatin1Char('/') + d->filePath().mid(prefix.size());
         if (target.isEmpty())
             continue;
@@ -1356,7 +1371,7 @@ void EditorManager::processPendingChanges()
     for (const QString &path : paths) {
         Document *doc = nullptr;
         for (Document *d : documents())
-            if (d->filePath() == path)
+            if (Platform::samePath(d->filePath(), path))
                 doc = d;
         if (!doc)
             continue;

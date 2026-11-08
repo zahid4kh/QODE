@@ -1,4 +1,5 @@
 #include "WebPreview.h"
+#include "platform/AppPaths.h"
 
 #include "DevServer.h"
 #include "settings/Icons.h"
@@ -145,7 +146,7 @@ QImage drawnDevice(const QSize &size, int bezel, qreal radius, const QColor &bod
 // React Navigation's bottom tabs give a label below the icon only 10px (49px bar, 28px icon, padding); React Native
 // Web clips its single-line text to that box, cutting off the bottom of the letters, where iOS draws the overflow.
 // The second rule lets the glyphs spill past the box like on a device; a long label still ends in an ellipsis.
-const char *kDeviceStyleJs = "(function(on){var id='__qode_device',s=document.getElementById(id);"
+[[maybe_unused]] const char *kDeviceStyleJs = "(function(on){var id='__qode_device',s=document.getElementById(id);"
                              "if(!on){if(s)s.remove();return;}"
                              "if(!s){s=document.createElement('style');s.id=id;"
                              "s.textContent='::-webkit-scrollbar{display:none!important}"
@@ -158,7 +159,7 @@ const char *kDeviceStyleJs = "(function(on){var id='__qode_device',s=document.ge
 // getComputedStyle answers for such inline styles as if env() held the mockup's insets; a later call (iOS <-> Android)
 // updates them and fires the transition event the provider listens to, so it measures again without a reload.
 // Runs in the page's own world, before the app's scripts.
-const char *kSafeAreaJs = R"((function(i){var w=window;if(w.__qodeSafeArea){w.__qodeSafeArea.set(i);return;}
+[[maybe_unused]] const char *kSafeAreaJs = R"((function(i){var w=window;if(w.__qodeSafeArea){w.__qodeSafeArea.set(i);return;}
 var cs=w.getComputedStyle,insets=i,seen=new Set(),re=/(?:env|constant)\(\s*safe-area-inset-(top|right|bottom|left)\s*(?:,[^)]*)?\)/g;
 w.getComputedStyle=function(el,pseudo){var real=cs.call(w,el,pseudo),st=el&&el.getAttribute&&el.getAttribute('style');
 if(!st||st.indexOf('safe-area-inset')<0)return real;seen.add(el);
@@ -197,7 +198,7 @@ public:
         p.setRenderHint(QPainter::Antialiasing);
         if (!hull.isEmpty()) {
             QColor c = shadow;
-            c.setAlphaF(0.05);
+            c.setAlphaF(0.05f);
             p.setPen(Qt::NoPen);
             p.setBrush(c);
             for (int i = 1; i <= 8; ++i)
@@ -1027,9 +1028,8 @@ void WebPreview::ensureView()
     // Own profile so the previewed app's cookies and localStorage (logins, settings) survive restarts, kept apart
     // from anything else; the HTTP cache stays in memory so a dev server's files are never served stale from disk.
     m_profile = new QWebEngineProfile(QStringLiteral("preview"));
-    m_profile->setPersistentStoragePath(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
-                                        + QStringLiteral("/QODE-AGENTIC/web-preview"));
-    m_profile->setCachePath(QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE-AGENTIC/web-preview"));
+    m_profile->setPersistentStoragePath(AppPaths::data(QStringLiteral("web-preview")));
+    m_profile->setCachePath(AppPaths::cache(QStringLiteral("web-preview")));
     m_profile->setHttpCacheType(QWebEngineProfile::MemoryHttpCache);
     m_page = new PreviewPage(m_profile);
     m_page->onConsole = [this](const ConsoleEntry &e) {

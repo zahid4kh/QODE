@@ -3,6 +3,7 @@
 // goes through the same QActions and functions as the menus, so the menus stay in sync. Paths arrive absolute and confined to
 // the project; an "error" key in the answer goes back to the model as a failure.
 #include "MainWindow.h"
+#include "platform/Platform.h"
 
 #include "SideSections.h"
 #include "ai/AiHub.h"
@@ -41,6 +42,7 @@
 #include <QPointer>
 #include <QSplitter>
 #include <QStackedWidget>
+#include <QSysInfo>
 #include <QTextBlock>
 #include <QTimer>
 
@@ -53,9 +55,12 @@ QJsonObject error(const QString &message)
 // The side sections, in the order MainWindow adds them.
 const QStringList kSections{"explorer", "version_control", "search", "tasks"};
 
-// "Ubuntu 24.04 LTS (ubuntu, like debian)" from /etc/os-release, so the model picks the right package manager.
+// "Ubuntu 24.04 LTS (ubuntu, like debian)" from /etc/os-release, so the model picks the right package manager; on
+// Windows the version ("Windows 11 Version 24H2"), where the install help names winget.
 QString distribution()
 {
+    if (Platform::osTag() == QLatin1String("win"))
+        return QSysInfo::prettyProductName();
     QFile f(QStringLiteral("/etc/os-release"));
     if (!f.open(QIODevice::ReadOnly))
         return QStringLiteral("unknown Linux");
@@ -186,7 +191,7 @@ QJsonObject MainWindow::ideTerminalOutput(int tab, int lines)
         return error(QStringLiteral("no terminal tab %1; tabs: %2").arg(tab).arg(tabs.join(QStringLiteral(", "))));
     const QString root = m_projects->hasProject() ? m_projects->root() : QString();
     QString cwd = pick->terminal->currentDirectory();
-    if (!root.isEmpty() && (cwd == root || cwd.startsWith(root + QLatin1Char('/'))))
+    if (!root.isEmpty() && (Platform::samePath(cwd, root) || Platform::isUnder(cwd, root)))
         cwd = cwd == root ? QStringLiteral(".") : cwd.mid(root.size() + 1);
     QJsonObject o{{"tab", pick->tab}, {"folder", cwd}, {"command_running", pick->terminal->commandRunning()},
                   {"output", pick->terminal->recentOutput(qBound(1, lines, 300))}};
@@ -255,7 +260,7 @@ QJsonObject MainWindow::ideState() const
     const QString root = m_projects->hasProject() ? m_projects->root() : QString();
     if (Document *doc = m_editors->currentDocument()) {
         const QString p = doc->filePath();
-        out.insert("current_file", !root.isEmpty() && p.startsWith(root + QLatin1Char('/')) ? p.mid(root.size() + 1) : p);
+        out.insert("current_file", !root.isEmpty() && Platform::isUnder(p, root) ? p.mid(root.size() + 1) : p);
     }
 
     const QString active = SettingsManager::instance().theme();
@@ -569,12 +574,13 @@ QJsonObject MainWindow::ideInstallServer(const QString &id)
     if (!spec)
         return error(QStringLiteral("no language server '%1'; take the id from check_language_servers").arg(id));
     if (!spec->installable)
-        return error(QStringLiteral("QODE cannot set up %1 itself; give the user the install command for their distribution "
+        return error(QStringLiteral("QODE cannot set up %1 itself; give the user the install command for their system "
                                     "(check_language_servers has it) to run in a terminal")
                          .arg(spec->displayName));
     const QString missing = missingPrerequisites(*spec);
     if (!missing.isEmpty())
-        return error(QStringLiteral("%1 must be installed first (it needs sudo): give the user the command for their distribution")
+        return error(QStringLiteral("%1 must be installed first (by the user: sudo apt … / winget …): give the user the command for "
+                                    "their system from check_language_servers")
                          .arg(missing));
     if (!installLspServer(spec->id))
         return error(QStringLiteral("the user closed the installer without setting the server up; do not retry"));

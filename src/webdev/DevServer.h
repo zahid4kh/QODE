@@ -52,7 +52,8 @@ protected:
 private:
     void onOutput();
     void onFinished(int code, QProcess::ExitStatus status);
-    void signalGroup(int sig);
+    void stopTree(); // ProcessTree::stop / kill on the running process
+    void killTree();
 
     QProcess *m_proc;
     QTimer *m_killTimer;

@@ -8,6 +8,7 @@
 #include "cpp/CppTools.h"
 #include "debug/DebugPanel.h"
 #include "debug/DebugSession.h"
+#include "dialogs/FileDialogs.h"
 #include "dialogs/NewProjectDialog.h"
 #include "dialogs/RunConfigDialog.h"
 #include "dialogs/ThemeEditorDialog.h"
@@ -31,6 +32,7 @@
 #include "media/MarkdownPreview.h"
 #include "media/MediaPanel.h"
 #include "palette/PalettePopup.h"
+#include "platform/Platform.h"
 #include "project/JvmProject.h"
 #include "project/ProjectFiles.h"
 #include "project/ProjectManager.h"
@@ -48,6 +50,7 @@
 #include "spring/SpringProperties.h"
 #include "spring/SpringScaffold.h"
 #include "tasks/TasksPanel.h"
+#include "terminal/ShellSyntax.h"
 #include "terminal/TerminalPanel.h"
 #include "webdev/DevServerBar.h"
 #include "webdev/WebPreview.h"
@@ -60,7 +63,6 @@
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QDragEnterEvent>
-#include <QFileDialog>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -194,10 +196,12 @@ MainWindow::MainWindow(QWidget *parent)
             commands << PythonEnv::activationCommand(m_projects->project().root, shell);
         commands << jdkStartupCommand(shell);
         commands.removeAll(QString());
-        return commands.join(QStringLiteral("; "));
+        return ShellSyntax::sequence(ShellSyntax::dialectOf(shell), commands);
     });
 
     connect(m_terminal, &TerminalPanel::tabsChanged, this, [](const QStringList &names) { SettingsManager::instance().setTerminalTabs(names); });
+    m_terminal->setDefaultShell(SettingsManager::instance().terminalShell());
+    connect(m_terminal, &TerminalPanel::defaultShellChanged, this, [](const QString &program) { SettingsManager::instance().setTerminalShell(program); });
     terminalIsland->setContent(m_terminal);
     connect(m_terminal, &TerminalPanel::maximizeToggled, this, [this](bool maximized) {
         const int total = m_vsplit->height();
@@ -316,7 +320,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_editors, &EditorManager::currentChanged, this, &MainWindow::followPreview);
     connect(m_explorer, &ProjectExplorer::pathDeleted, this, [this](const QString &path) {
         const QString cur = m_media ? m_media->currentPath() : QString();
-        if (!cur.isEmpty() && (cur == path || cur.startsWith(path + QLatin1Char('/'))))
+        if (!cur.isEmpty() && (Platform::samePath(cur, path) || Platform::isUnder(cur, path)))
             hideMedia();
     });
     connect(m_explorer, &ProjectExplorer::pathRenamed, this, [this](const QString &from, const QString &to) {
@@ -325,7 +329,7 @@ MainWindow::MainWindow(QWidget *parent)
             return;
         if (cur == from)
             m_media->openMedia(to);
-        else if (cur.startsWith(from + QLatin1Char('/')))
+        else if (Platform::isUnder(cur, from))
             m_media->openMedia(to + cur.mid(from.size()));
     });
     connect(m_editors, &EditorManager::newProjectRequested, m_newProjectAct, &QAction::trigger);
@@ -530,6 +534,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_lsp, &LspManager::buildSyncFinished, this, [this](const QString &server) {
         statusBar()->showMessage(tr("✓ Build files synced (%1)").arg(server), 6000);
     });
+    connect(m_lsp, &LspManager::gradleJdkMissing, this, &MainWindow::offerJdkFix, Qt::QueuedConnection);
     connect(m_editors, &EditorManager::documentPathChanged, m_lsp, &LspManager::documentPathChanged);
     connect(m_lsp, &LspManager::statusChanged, this, &MainWindow::updateLspStatus);
     connect(m_editors, &EditorManager::currentChanged, this, &MainWindow::updateLspStatus); // the button follows the file's server
@@ -720,8 +725,7 @@ void MainWindow::restartApplication()
 {
     if (!close())
         return;
-    QProcess::startDetached(QStringLiteral("/bin/sh"),
-                            {QStringLiteral("-c"), QStringLiteral("sleep 1; exec \"$0\""), QCoreApplication::applicationFilePath()});
+    Platform::restartSelf();
 }
 
 // Every window is its own process: no shared state, and one crashing or closing never affects another.
@@ -761,7 +765,7 @@ void MainWindow::newProject()
     if (dlg.initGit()) {
         QProcess git;
         git.setWorkingDirectory(dest);
-        git.start(QStringLiteral("git"), {QStringLiteral("init"), QStringLiteral("-q")});
+        git.start(Platform::gitExecutable(), {QStringLiteral("init"), QStringLiteral("-q")});
         if (!git.waitForFinished(5000) || git.exitCode() != 0)
             QMessageBox::warning(this, tr("Git"), tr("The project was created, but \"git init\" failed."));
     }
@@ -779,7 +783,7 @@ void MainWindow::openProject()
 {
     const QString start = m_projects->hasProject() ? QFileInfo(m_projects->root()).absolutePath()
                                                    : SettingsManager::instance().lastDirectory();
-    const QString dir = QFileDialog::getExistingDirectory(this, tr("Open Project"), start.isEmpty() ? QDir::homePath() : start);
+    const QString dir = FileDialogs::getExistingDirectory(this, tr("Open Project"), start.isEmpty() ? QDir::homePath() : start);
     if (!dir.isEmpty())
         openProjectPath(dir);
 }
@@ -931,7 +935,7 @@ void MainWindow::newFile()
 void MainWindow::openFile()
 {
     const QString start = m_projects->hasProject() ? m_projects->root() : SettingsManager::instance().lastDirectory();
-    const QStringList files = QFileDialog::getOpenFileNames(this, tr("Open File"), start.isEmpty() ? QDir::homePath() : start);
+    const QStringList files = FileDialogs::getOpenFileNames(this, tr("Open File"), start.isEmpty() ? QDir::homePath() : start);
     for (const QString &f : files)
         m_editors->openFile(f);
 }
@@ -1559,7 +1563,7 @@ void MainWindow::showQuickOpen(const QString &initialQuery)
             const QFileInfo fi(path);
             it.title = fi.fileName();
             const QString dir = fi.absolutePath();
-            if (!root.isEmpty() && (dir == root || dir.startsWith(root + QLatin1Char('/'))))
+            if (!root.isEmpty() && (Platform::samePath(dir, root) || Platform::isUnder(dir, root)))
                 it.detail = dir == root ? QString() : rootDir.relativeFilePath(dir);
             else
                 it.detail = FileManager::displayPath(dir);

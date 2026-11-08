@@ -1,4 +1,5 @@
 #include "ExplorerTree.h"
+#include "platform/Platform.h"
 
 #include "explorer/FileIcons.h"
 #include "project/ProjectModel.h"
@@ -81,7 +82,7 @@ QStringList ExplorerTree::topLevelSelection() const
     for (const QString &p : std::as_const(all)) {
         bool nested = false;
         for (const QString &q : std::as_const(all))
-            nested = nested || (q != p && p.startsWith(q + QLatin1Char('/')));
+            nested = nested || (q != p && Platform::isUnder(p, q));
         if (!nested)
             out << p;
     }
@@ -93,7 +94,7 @@ QString ExplorerTree::folderLabel(const QString &dir) const
 {
     if (dir == m_root)
         return QFileInfo(m_root).fileName();
-    if (dir.startsWith(m_root + QLatin1Char('/')))
+    if (Platform::isUnder(dir, m_root))
         return dir.mid(m_root.size() + 1);
     return dir;
 }
@@ -119,7 +120,7 @@ ExplorerTree::Verdict ExplorerTree::verdictAt(const QPoint &pos) const
     if (m_external) {
         v.copy = true;
         for (const QString &src : m_dragPaths) {
-            if (QFileInfo(src).isDir() && (v.targetDir == src || v.targetDir.startsWith(src + QLatin1Char('/')))) {
+            if (QFileInfo(src).isDir() && (Platform::samePath(v.targetDir, src) || Platform::isUnder(v.targetDir, src))) {
                 v.kind = Verdict::IntoItself;
                 v.text = tr("Can't copy “%1” into itself").arg(QFileInfo(src).fileName());
                 return v;
@@ -130,7 +131,7 @@ ExplorerTree::Verdict ExplorerTree::verdictAt(const QPoint &pos) const
         return v;
     }
     for (const QString &src : m_dragPaths) {
-        if (v.targetDir == src || v.targetDir.startsWith(src + QLatin1Char('/'))) {
+        if (Platform::samePath(v.targetDir, src) || Platform::isUnder(v.targetDir, src)) {
             v.kind = Verdict::IntoItself;
             v.text = tr("Can't move “%1” into itself").arg(QFileInfo(src).fileName());
             return v;

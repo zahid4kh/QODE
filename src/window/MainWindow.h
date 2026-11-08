@@ -34,6 +34,7 @@ class MarkdownPreview;
 class GradlePanel;
 class MavenCentral;
 class MavenPanel;
+class GamePanel;
 class SpringBar;
 class SpringPanel;
 class KtorBar;
@@ -88,6 +89,8 @@ private:
     void createMenus();
     void createToolBar();
     void createStatusBar();
+    void showEncodingMenu();   // the status bar's encoding: Reopen / Save with Encoding
+    void showLineEndingMenu(); // the status bar's LF / CRLF
     void restoreSettings();
     void saveSession();
     QJsonObject currentLayout() const;
@@ -253,6 +256,14 @@ private:
     void showJdkManager();
     QString jdkStartupCommand(const QString &shell) const;
     void updateJvmStatus();
+    // The Kotlin / Java server cannot import the Gradle build (no installed JDK runs its Gradle, or its toolchain is
+    // missing): explains it once per project and session and offers a JDK download or a Gradle upgrade.
+    void offerJdkFix(const QString &serverName);
+    // Downloads Eclipse Temurin `major` into ~/.jdks (JdkInstaller) with a progress dialog; with `useForProject` it
+    // becomes the project JDK and the Java / Kotlin servers restart with it.
+    void downloadJdk(int major, bool useForProject);
+    void projectJdkChanged(); // terminals offered a restart, Java / Kotlin servers restarted
+    void restartJvmServers(); // the running Kotlin / Java servers, so they import the build again with the current JDK
     void runInTerminal(const QString &command, const QString &workDir = QString()); // Gradle commands get the task-timing script
     void applyDiagnostics(const QString &path); // language server + kotlinc script check
     QAction *m_debugAct = nullptr, *m_resumeAct = nullptr, *m_pauseAct = nullptr, *m_stepOverAct = nullptr, *m_stepIntoAct = nullptr;
@@ -262,6 +273,7 @@ private:
     QWidget *m_jvmStatus = nullptr;
     QToolButton *m_kotlinBtn = nullptr, *m_javaBtn = nullptr, *m_buildToolBtn = nullptr;
     QSet<QString> m_chmodAsked; // scripts whose missing exec bit was already offered this session
+    QSet<QString> m_jdkFixOffered; // projects whose missing JDK was already explained this session
 
     // Java / Kotlin editing: Copy Reference, New Kotlin / Java class, Kotlin scratch files, completion of gradle.properties /
     // local.properties / gradle-wrapper.properties keys and of @file: annotations (MainWindowJvmEdit.cpp)
@@ -289,6 +301,12 @@ private:
     void toggleMavenPanel();
     MavenPanel *m_maven = nullptr;
     QAction *m_mavenAct = nullptr;
+
+    // Game panel (MainWindowGame.cpp)
+    GamePanel *gamePanel();
+    void toggleGamePanel();
+    GamePanel *m_gamePanel = nullptr;
+    QAction *m_gameAct = nullptr;
 
     // Debugger (MainWindowDebug.cpp)
     void setupDebugger();
@@ -461,7 +479,7 @@ private:
     int m_editorColWidth = 0;      // width of the editor column beside the agent; 0 = not chosen yet
     bool m_editorHiddenByUser = false; // the editor column was closed by hand: files the agent opens do not bring it back
     bool m_launching = false;          // opening the startup paths / last session: the chat stays closed whatever the layout says
-    QStackedWidget *m_rightStack; // media panel | markdown preview | Gradle tasks | Spring Boot | Ktor | web preview | HTTP client
+    QStackedWidget *m_rightStack; // media panel | markdown preview | Gradle tasks | Spring Boot | Ktor | web preview | HTTP client | game
     QPointer<Document> m_previewDoc; // the Markdown / SVG file the right panel is previewing live
     QMetaObject::Connection m_previewConn;
     QMetaObject::Connection m_previewScrollConn;

@@ -1,4 +1,5 @@
 #include "NpmInstaller.h"
+#include "platform/Platform.h"
 
 #include "LspServers.h"
 
@@ -44,7 +45,7 @@ NpmInstaller::~NpmInstaller()
 {
     if (m_proc) {
         m_proc->disconnect(this);
-        m_proc->kill();
+        Platform::killTree(m_proc); // Windows: npm.cmd runs node inside cmd
         m_proc->waitForFinished(500);
     }
 }
@@ -56,9 +57,12 @@ void NpmInstaller::start()
     const QString node = LspServers::nodeExecutable();
     const QString npm = LspServers::npmExecutable();
     if (node.isEmpty() || npm.isEmpty()) {
-        emit failed(tr("Node.js and npm were not found. These language servers are Node.js programs, so install Node.js "
-                       "first (Debian / Ubuntu: sudo apt install nodejs npm; Fedora: sudo dnf install nodejs; "
-                       "Arch: sudo pacman -S nodejs npm; or https://nodejs.org) and try again."));
+        emit failed(Platform::osTag() == QLatin1String("win")
+                        ? tr("Node.js and npm were not found. These language servers are Node.js programs, so install Node.js "
+                             "first (winget install OpenJS.NodeJS.LTS, or https://nodejs.org), then restart QODE and try again.")
+                        : tr("Node.js and npm were not found. These language servers are Node.js programs, so install Node.js "
+                             "first (Debian / Ubuntu: sudo apt install nodejs npm; Fedora: sudo dnf install nodejs; "
+                             "Arch: sudo pacman -S nodejs npm; or https://nodejs.org) and try again."));
         return;
     }
     if (!QDir().mkpath(installRoot(m_id))) {
@@ -69,15 +73,15 @@ void NpmInstaller::start()
     m_proc->setProcessChannelMode(QProcess::MergedChannels);
     // npm is a "#!/usr/bin/env node" script: make sure that finds the node it was found next to.
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert(QStringLiteral("PATH"), QFileInfo(node).absolutePath() + QLatin1Char(':') + env.value(QStringLiteral("PATH")));
+    env.insert(QStringLiteral("PATH"), QDir::toNativeSeparators(QFileInfo(node).absolutePath()) + QDir::listSeparator() + env.value(QStringLiteral("PATH")));
     m_proc->setProcessEnvironment(env);
-    connect(m_proc, &QProcess::readyRead, this, [this] { emit output(QString::fromLocal8Bit(m_proc->readAll())); });
+    connect(m_proc, &QProcess::readyRead, this, [this] { emit output(Platform::decodeOutput(m_proc->readAll())); });
     connect(m_proc, &QProcess::errorOccurred, this, [this](QProcess::ProcessError e) {
         if (e == QProcess::FailedToStart)
             abort(tr("Could not start npm"));
     });
     connect(m_proc, &QProcess::finished, this, [this](int code, QProcess::ExitStatus status) {
-        emit output(QString::fromLocal8Bit(m_proc->readAll()));
+        emit output(Platform::decodeOutput(m_proc->readAll()));
         m_proc->deleteLater();
         m_proc = nullptr;
         if (status != QProcess::NormalExit || code != 0) {
@@ -91,10 +95,11 @@ void NpmInstaller::start()
             }
         emit finished();
     });
-    QStringList args{QStringLiteral("install"), QStringLiteral("--prefix"), installRoot(m_id), QStringLiteral("--no-audit"),
+    QStringList args{QStringLiteral("install"), QStringLiteral("--prefix"), QDir::toNativeSeparators(installRoot(m_id)), QStringLiteral("--no-audit"),
                      QStringLiteral("--no-fund"), QStringLiteral("--no-progress")};
     args << packages(m_id);
-    m_proc->start(npm, args);
+    Platform::setCommand(m_proc, npm, args); // Windows: npm.cmd goes through cmd
+    m_proc->start();
 }
 
 void NpmInstaller::cancel()
@@ -102,7 +107,7 @@ void NpmInstaller::cancel()
     if (!m_proc)
         return;
     m_proc->disconnect(this);
-    m_proc->kill();
+    Platform::killTree(m_proc);
     m_proc->waitForFinished(500);
     m_proc->deleteLater();
     m_proc = nullptr;

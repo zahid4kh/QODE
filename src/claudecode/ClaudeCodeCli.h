@@ -16,6 +16,7 @@ namespace claudecode {
 QString executable();
 // The install command shown when it is missing.
 QString installCommand();
+QString installHint(); // rich text for the "not installed" page (Windows: also when Git for Windows is missing)
 
 // How Claude Code signs in: with the account it is logged in with (Claude subscription or Console), or with the Claude
 // API key QODE already has (`claude.key` / ANTHROPIC_API_KEY), handed over in the environment only.

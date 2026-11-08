@@ -12,6 +12,9 @@ const QString kService = QStringLiteral("org.freedesktop.Notifications");
 const QString kPath = QStringLiteral("/org/freedesktop/Notifications");
 const QString kInterface = QStringLiteral("org.freedesktop.Notifications");
 } // namespace
+#elif defined(Q_OS_WIN)
+#include <QApplication>
+#include <QSystemTrayIcon>
 #endif
 
 DesktopNotify &DesktopNotify::instance()
@@ -49,6 +52,28 @@ void DesktopNotify::notify(const QString &title, const QString &body, const QStr
         if (m_pendingClose.remove(key))
             close(key);
     });
+#elif defined(Q_OS_WIN)
+    if (!QSystemTrayIcon::isSystemTrayAvailable())
+        return;
+    if (!m_tray) {
+        m_tray = new QSystemTrayIcon(QApplication::windowIcon(), this);
+        m_tray->setToolTip(QStringLiteral("QODE"));
+        // A click on the toast, or on the icon while it is in the tray: the same as a click on a D-Bus notification.
+        auto clicked = [this] {
+            const QString shown = m_trayKey;
+            hideTray();
+            if (!shown.isEmpty())
+                emit activated(shown);
+        };
+        connect(m_tray, &QSystemTrayIcon::messageClicked, this, clicked);
+        connect(m_tray, &QSystemTrayIcon::activated, this, [clicked](QSystemTrayIcon::ActivationReason reason) {
+            if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick)
+                clicked();
+        });
+    }
+    m_trayKey = key;
+    m_tray->show();
+    m_tray->showMessage(title, body, QApplication::windowIcon(), 10000);
 #else
     Q_UNUSED(title)
     Q_UNUSED(body)
@@ -66,8 +91,21 @@ void DesktopNotify::close(const QString &key)
     QDBusMessage msg = QDBusMessage::createMethodCall(kService, kPath, kInterface, QStringLiteral("CloseNotification"));
     msg << m_ids.take(key);
     QDBusConnection::sessionBus().asyncCall(msg);
+#elif defined(Q_OS_WIN)
+    if (key == m_trayKey)
+        hideTray();
 #else
     Q_UNUSED(key)
+#endif
+}
+
+void DesktopNotify::hideTray()
+{
+    // Removing the icon also takes its toast off the screen and out of the notification centre.
+    m_trayKey.clear();
+#ifdef Q_OS_WIN
+    if (m_tray)
+        m_tray->hide();
 #endif
 }
 

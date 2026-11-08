@@ -1,4 +1,6 @@
 #include "AiEnv.h"
+#include "platform/AppPaths.h"
+#include "editor/TextEncoding.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -88,14 +90,14 @@ QString apiKey(Provider provider, const QString &projectRoot, QString *source)
         if (!exe.cdUp())
             break;
     }
-    dirs << QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + QStringLiteral("/QODE-AGENTIC");
+    dirs << AppPaths::config();
 
     for (const QString &dir : std::as_const(dirs)) {
         for (const QString &name : {QStringLiteral(".env.local"), QStringLiteral(".env")}) {
             QFile f(QDir(dir).filePath(name));
-            if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+            if (!f.open(QIODevice::ReadOnly)) // no Text mode: it would rewrite \r\n inside UTF-16 bytes on Windows
                 continue;
-            const QString v = parseValue(QString::fromUtf8(f.readAll()), key);
+            const QString v = parseValue(TextEncoding::decode(f.readAll()).text, key);
             if (!v.isEmpty()) {
                 if (source)
                     *source = QFileInfo(f).absoluteFilePath();
@@ -108,8 +110,7 @@ QString apiKey(Provider provider, const QString &projectRoot, QString *source)
 
 QString storedKeyPath(Provider provider)
 {
-    return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
-           + (provider == Provider::Claude ? QStringLiteral("/QODE-AGENTIC/claude.key") : QStringLiteral("/QODE-AGENTIC/gemini.key"));
+    return AppPaths::config(provider == Provider::Claude ? QStringLiteral("claude.key") : QStringLiteral("gemini.key"));
 }
 
 bool hasStoredKey(Provider provider)
@@ -154,11 +155,16 @@ bool isSensitive(const QString &path)
                                       QStringLiteral(".npmrc"), QStringLiteral(".pypirc"), QStringLiteral(".netrc"), QStringLiteral(".git-credentials"),
                                       QStringLiteral("credentials"), QStringLiteral("credentials.json"), QStringLiteral("secrets.json"),
                                       QStringLiteral("secrets.yml"), QStringLiteral("secrets.yaml"), QStringLiteral("service-account.json"),
-                                      QStringLiteral("gemini.key"), QStringLiteral("claude.key"), QStringLiteral("google-services.json"), QStringLiteral("keystore.properties")};
+                                      QStringLiteral("gemini.key"), QStringLiteral("claude.key"), QStringLiteral("google-services.json"), QStringLiteral("keystore.properties"),
+                                      QStringLiteral("_netrc")}; // _netrc: curl's and git's .netrc on Windows
     if (exact.contains(name))
         return true;
     static const QStringList suffixes = {QStringLiteral(".pem"), QStringLiteral(".key"), QStringLiteral(".p12"), QStringLiteral(".pfx"),
-                                         QStringLiteral(".jks"), QStringLiteral(".keystore"), QStringLiteral(".kdbx"), QStringLiteral(".ppk")};
+                                         QStringLiteral(".jks"), QStringLiteral(".keystore"), QStringLiteral(".kdbx"), QStringLiteral(".ppk"),
+                                         // Windows: private keys (.pvk), .NET strong-name keys (.snk), Azure / Visual Studio publish
+                                         // profiles with their passwords, Remote Desktop files (they can hold a saved password).
+                                         QStringLiteral(".pvk"), QStringLiteral(".snk"), QStringLiteral(".publishsettings"),
+                                         QStringLiteral(".pubxml.user"), QStringLiteral(".rdp")};
     for (const QString &s : suffixes)
         if (name.endsWith(s))
             return true;

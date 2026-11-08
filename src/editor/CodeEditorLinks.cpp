@@ -1,5 +1,6 @@
 // Ctrl+click links: the language server's document links, URLs and file paths in the text.
 #include "CodeEditor.h"
+#include "platform/Platform.h"
 
 #include <QDesktopServices>
 #include <QRegularExpression>
@@ -58,7 +59,7 @@ CodeEditor::LinkHit CodeEditor::linkAt(int position) const
             hit.end = m.to.position();
             const QUrl url(m.target);
             if (url.isLocalFile()) {
-                hit.path = url.toLocalFile();
+                hit.path = Platform::uriToPath(m.target); // the server's drive letter may be c: or c%3A
                 lineFromFragment(url.fragment(), &hit.line, &hit.column);
             } else {
                 hit.url = m.target;
@@ -98,7 +99,7 @@ CodeEditor::LinkHit CodeEditor::linkAt(int position) const
         const QString url = text.mid(m.capturedStart(), end - m.capturedStart());
         if (url.startsWith(QLatin1String("file://"))) {
             const QUrl u(url);
-            hit.path = u.toLocalFile();
+            hit.path = Platform::uriToPath(url);
             lineFromFragment(u.fragment(), &hit.line, &hit.column);
         } else {
             hit.url = url;

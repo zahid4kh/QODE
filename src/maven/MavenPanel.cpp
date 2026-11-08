@@ -1,9 +1,13 @@
 #include "MavenPanel.h"
+#include "platform/Platform.h"
+#include "platform/AppPaths.h"
 
 #include "jvm/JvmTools.h"
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
+#include "filesystem/FileManager.h"
+#include "window/ElidedLabel.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -87,9 +91,10 @@ MavenPanel::MavenPanel(QWidget *parent)
     header->setStyleSheet(QStringLiteral("QWidget#mediaHeader { background: palette(alternate-base); border-bottom: 1px solid palette(shadow); }"
                                          "QWidget#mediaHeader QLabel { background: transparent; border: none; }"));
 
-    m_folder = new QLabel(this);
+    m_folder = new ElidedLabel(this);
     m_folder->setObjectName(QStringLiteral("emptyText"));
-    m_folder->setContentsMargins(10, 6, 10, 0);
+    // Padding in a style sheet: the app's QLabel#emptyText rule resets plain contents margins to its own box (none).
+    m_folder->setStyleSheet(QStringLiteral("QLabel { padding: 6px 10px 0 10px; }"));
     m_folder->setTextInteractionFlags(Qt::NoTextInteraction);
 
     // Wrapper / Maven version, and the exec bit a zip download loses.
@@ -294,7 +299,7 @@ QTreeWidget *MavenPanel::makeTree()
 
 QString MavenPanel::cacheFile(const QString &name) const
 {
-    const QString dir = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE-AGENTIC/maven");
+    const QString dir = AppPaths::cache(QStringLiteral("maven"));
     QDir().mkpath(dir);
     const QString hash = QString::fromLatin1(QCryptographicHash::hash(m_dir.toUtf8(), QCryptographicHash::Sha1).toHex().left(10));
     return dir + QLatin1Char('/') + name + QLatin1Char('-') + hash + QStringLiteral(".xml");
@@ -305,7 +310,7 @@ void MavenPanel::killProcess(QProcess *&proc)
     if (!proc)
         return;
     proc->disconnect(this);
-    proc->kill();
+    Platform::killTree(proc); // Windows: mvnw.cmd runs in cmd
     proc->deleteLater();
     proc = nullptr;
 }
@@ -321,7 +326,7 @@ void MavenPanel::setBuildDir(const QString &dir)
     m_effective.clear();
     m_tree.clear();
     m_pomStamp = m_effectiveStamp = m_treeStamp = -1;
-    m_folder->setText(dir.isEmpty() ? QString() : QDir::toNativeSeparators(QDir::home().relativeFilePath(dir)).prepend(QStringLiteral("~/")));
+    m_folder->setFullText(dir.isEmpty() ? QString() : FileManager::displayPath(dir)); // ~/x, or D:\x outside the home folder
     const QJsonObject o = SettingsManager::instance().mavenOptions();
     m_offline = o.value(QStringLiteral("offline")).toBool();
     m_skipTests = o.value(QStringLiteral("skipTests")).toBool();
@@ -686,8 +691,8 @@ void MavenPanel::loadEffectivePom(bool open)
         args.prepend(QStringLiteral("-o"));
     if (!m_profiles.isEmpty())
         args << QStringLiteral("-P") + m_profiles.join(QLatin1Char(','));
-    const QString r = MavenProject::runner(m_dir);
-    proc->start(r == QLatin1String("./mvnw") ? m_dir + QStringLiteral("/mvnw") : r, args);
+    Platform::setCommand(proc, MavenProject::runnerFile(m_dir), args);
+    proc->start();
 }
 
 void MavenPanel::loadDependencyTree()
@@ -735,8 +740,8 @@ void MavenPanel::loadDependencyTree()
         args.prepend(QStringLiteral("-o"));
     if (!m_profiles.isEmpty())
         args << QStringLiteral("-P") + m_profiles.join(QLatin1Char(','));
-    const QString r = MavenProject::runner(m_dir);
-    proc->start(r == QLatin1String("./mvnw") ? m_dir + QStringLiteral("/mvnw") : r, args);
+    Platform::setCommand(proc, MavenProject::runnerFile(m_dir), args);
+    proc->start();
 }
 
 QTreeWidget *MavenPanel::currentTree() const
@@ -828,7 +833,7 @@ void MavenPanel::executeGoal()
     if (!ok || line.trimmed().isEmpty())
         return;
     QString goals = line.trimmed();
-    for (const QString &r : {QStringLiteral("./mvnw "), QStringLiteral("mvn ")})
+    for (const QString &r : {QStringLiteral("./mvnw "), QStringLiteral(".\\mvnw.cmd "), QStringLiteral(".\\mvnw "), QStringLiteral("mvn ")})
         if (goals.startsWith(r))
             goals = goals.mid(r.size());
     emit runRequested(commandFor({goals}), m_dir);

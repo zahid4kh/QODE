@@ -10,6 +10,7 @@
 #include <QRegularExpression>
 
 #include "lsp/LspServers.h"
+#include "platform/Platform.h"
 
 namespace PythonTools {
 
@@ -23,11 +24,12 @@ QString displayOf(const QString &program, const QStringList &arguments)
 {
     const QString home = QDir::homePath();
     auto shorten = [&home](QString s) {
-        if (s.startsWith(home + QLatin1Char('/')))
+        if (Platform::isUnder(s, home))
             s = QStringLiteral("~") + s.mid(home.size());
+        s = QDir::toNativeSeparators(s); // Windows shows its own separators
         return s.contains(QLatin1Char(' ')) ? QStringLiteral("\"%1\"").arg(s) : s;
     };
-    QStringList parts{QFileInfo(program).fileName() == QLatin1String("uv") ? QStringLiteral("uv") : shorten(program)};
+    QStringList parts{QFileInfo(program).completeBaseName() == QLatin1String("uv") ? QStringLiteral("uv") : shorten(program)};
     for (const QString &a : arguments)
         if (a != QLatin1String("--")) // the guard against option-like names is not worth showing
             parts << shorten(a);

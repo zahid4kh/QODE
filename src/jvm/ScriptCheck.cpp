@@ -1,4 +1,6 @@
 #include "jvm/ScriptCheck.h"
+#include "platform/AppPaths.h"
+#include "platform/Platform.h"
 
 #include "jvm/JvmTools.h"
 
@@ -19,7 +21,7 @@ ScriptCheck::~ScriptCheck()
 {
     for (QProcess *p : std::as_const(m_running)) {
         p->disconnect(this);
-        p->kill();
+        Platform::killTree(p); // Windows: kotlinc.bat runs in cmd
         p->waitForFinished(500);
         delete p;
     }
@@ -47,7 +49,7 @@ void ScriptCheck::forget(const QString &path)
     m_again.remove(path);
     if (QProcess *p = m_running.take(path)) {
         p->disconnect(this);
-        p->kill();
+        Platform::killTree(p); // Windows: kotlinc.bat runs in cmd
         p->deleteLater();
     }
 }
@@ -55,7 +57,7 @@ void ScriptCheck::forget(const QString &path)
 void ScriptCheck::run(const QString &path)
 {
     const QString hash = QString::fromLatin1(QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha1).toHex().left(12));
-    const QString out = QDir::homePath() + QStringLiteral("/.cache/QODE-AGENTIC/kts/check-") + hash;
+    const QString out = AppPaths::cache(QStringLiteral("kts/check-")) + hash;
     QDir().mkpath(out);
     QStringList args;
     if (JvmTools::isMainKts(path)) {
@@ -71,10 +73,10 @@ void ScriptCheck::run(const QString &path)
     emit started(path);
     auto *timeout = new QTimer(proc);
     timeout->setSingleShot(true);
-    connect(timeout, &QTimer::timeout, proc, [proc] { proc->kill(); });
+    connect(timeout, &QTimer::timeout, proc, [proc] { Platform::killTree(proc); });
     timeout->start(180000);
     connect(proc, &QProcess::finished, this, [this, proc, path] {
-        const QString output = QString::fromUtf8(proc->readAll());
+        const QString output = Platform::decodeOutput(proc->readAll());
         m_running.remove(path);
         proc->deleteLater();
         const QVector<LspDiagnostic> list = parse(output, path);
@@ -92,7 +94,8 @@ void ScriptCheck::run(const QString &path)
         m_running.remove(path);
         proc->deleteLater();
     });
-    proc->start(QStringLiteral("kotlinc"), args);
+    Platform::setCommand(proc, QStringLiteral("kotlinc"), args); // Windows: kotlinc.bat
+    proc->start();
 }
 
 QVector<LspDiagnostic> ScriptCheck::parse(const QString &output, const QString &path)

@@ -16,10 +16,11 @@ struct BuildProblem {
 };
 
 // Reads a shell's raw output line by line (escape sequences removed) and picks out compiler diagnostics:
-// gcc / clang / javac / mypy "path:line[:col]: error|warning: message", rustc's "error: ..." followed by "--> path:line:col",
-// ld's "file.cpp:(.text+0x1a): undefined reference to ...", "CMake Error at CMakeLists.txt:12 (...)", Kotlin's
-// "e: file:///abs/X.kt:12:5 message" (Gradle, Maven) and Maven's "[ERROR] /abs/X.java:[12,5] message". Relative paths are
-// looked up in make's "Entering directory" folder, then in the folders the terminal supplies.
+// gcc / clang / javac / mypy "path:line[:col]: error|warning: message", MSVC / tsc / C# "path(line[,col]): error C2065:
+// message", rustc's "error: ..." followed by "--> path:line:col", ld's "file.cpp:(.text+0x1a): undefined reference to ...",
+// "CMake Error at CMakeLists.txt:12 (...)", Kotlin's "e: file:///abs/X.kt:12:5 message" (Gradle, Maven) and Maven's
+// "[ERROR] /abs/X.java:[12,5] message". Paths may be Windows ones (C:\…, C:/…, /C:/…). Relative paths are looked up in
+// make's "Entering directory" folder, then in the folders the terminal supplies.
 class ProblemScanner
 {
 public:

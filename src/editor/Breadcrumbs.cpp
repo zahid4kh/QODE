@@ -1,4 +1,5 @@
 #include "Breadcrumbs.h"
+#include "platform/Platform.h"
 
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
@@ -327,11 +328,11 @@ QList<Breadcrumbs::Crumb> Breadcrumbs::pathCrumbs(const QString &filePath, const
     if (filePath.isEmpty())
         return out;
     QString rel = filePath;
-    if (!projectRoot.isEmpty() && filePath.startsWith(projectRoot + QLatin1Char('/'))) {
+    if (!projectRoot.isEmpty() && Platform::isUnder(filePath, projectRoot)) {
         rel = filePath.mid(projectRoot.size() + 1);
     } else {
         const QString home = QDir::homePath();
-        if (filePath.startsWith(home + QLatin1Char('/')))
+        if (Platform::isUnder(filePath, home))
             rel = QStringLiteral("~/") + filePath.mid(home.size() + 1);
         else
             rel = filePath.startsWith(QLatin1Char('/')) ? filePath.mid(1) : filePath;

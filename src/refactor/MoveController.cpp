@@ -1,4 +1,6 @@
 #include "MoveController.h"
+#include "filesystem/WatchGuard.h"
+#include "platform/Platform.h"
 #include "history/LocalHistory.h"
 
 #include "editor/CodeEditor.h"
@@ -14,6 +16,7 @@
 #include <QThread>
 #include <QTimer>
 #include <memory>
+#include <vector>
 
 using MoveRefactor::PathMove;
 
@@ -152,10 +155,14 @@ bool MoveController::applyEdits(const QString &path, const QVector<MoveRefactor:
 
 void MoveController::execute(const QVector<PathMove> &moves, const MoveRefactor::Plan &plan, const QString &targetDir)
 {
-    // 1. the files themselves
+    // 1. the files themselves (Windows: with nothing below a moved folder watched; released for the whole batch)
+    std::vector<std::unique_ptr<WatchGuard::Scope>> guards;
+    for (const PathMove &m : moves)
+        guards.push_back(std::make_unique<WatchGuard::Scope>(m.from));
     QVector<PathMove> done;
     for (const PathMove &m : moves) {
-        if (QFileInfo::exists(m.to) || !QFile::rename(m.from, m.to)) {
+        const bool caseOnly = m.from != m.to && Platform::samePath(m.from, m.to); // Windows: Foo.kt -> foo.kt
+        if ((QFileInfo::exists(m.to) && !caseOnly) || !QFile::rename(m.from, m.to)) {
             for (int i = done.size() - 1; i >= 0; --i) {
                 QFile::rename(done.at(i).to, done.at(i).from);
                 m_explorer->notifyMoved(done.at(i).to, done.at(i).from);
@@ -257,6 +264,9 @@ void MoveController::undo()
     }
     QStringList back;
     QList<QPair<QString, QString>> movedPairs;
+    std::vector<std::unique_ptr<WatchGuard::Scope>> guards;
+    for (const PathMove &m : b.moves)
+        guards.push_back(std::make_unique<WatchGuard::Scope>(m.to));
     for (int i = b.moves.size() - 1; i >= 0; --i) {
         const PathMove &m = b.moves.at(i);
         if (QFileInfo::exists(m.from) || !QFile::rename(m.to, m.from)) {

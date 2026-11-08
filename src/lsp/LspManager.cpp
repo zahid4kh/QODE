@@ -1,13 +1,18 @@
 #include "LspManager.h"
+#include "filesystem/WatchGuard.h"
+#include "platform/AppPaths.h"
+#include "platform/Platform.h"
 
 #include "JarSource.h"
 #include "LspClient.h"
 #include "LspServers.h"
 #include "LspSync.h"
 #include "editor/Document.h"
+#include "jvm/JdkScanner.h"
 #include "project/PythonEnv.h"
 #include "project/QmakeProject.h"
 #include "settings/SettingsManager.h"
+#include "editor/TextEncoding.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -40,7 +45,7 @@ QJsonValue configurationFor(const QString &serverId, const QJsonObject &item, co
     const QString section = item.value(QStringLiteral("section")).toString();
     if (serverId == QLatin1String("eslint")) {
         const QString scope = item.value(QStringLiteral("scopeUri")).toString();
-        const QString file = QUrl(scope).toLocalFile();
+        const QString file = Platform::uriToPath(scope);
         // Run ESLint from the project root (where its config and node_modules live).
         return QJsonObject{
             {QStringLiteral("validate"), QStringLiteral("on")},
@@ -117,11 +122,15 @@ QJsonValue configurationFor(const QString &serverId, const QJsonObject &item, co
 
 // jdtls settings: .project / .classpath / .settings stay out of the user's project (they go to the workspace folder in
 // the cache; the JVM property in LspServers::jdtlsCommand is the other half of that), and a changed pom.xml / build.gradle
-// is reloaded without a prompt.
-QJsonObject javaSettings()
+// is reloaded without a prompt. `gradleJdk`: the JDK its Gradle import runs on (one the project's Gradle supports; jdtls
+// would otherwise run Gradle on its own Java, which may be too new for an older Gradle).
+QJsonObject javaSettings(const QString &gradleJdk)
 {
+    QJsonObject import{{QStringLiteral("generatesMetadataFilesAtProjectRoot"), false}};
+    if (!gradleJdk.isEmpty())
+        import.insert(QStringLiteral("gradle"), QJsonObject{{QStringLiteral("java"), QJsonObject{{QStringLiteral("home"), gradleJdk}}}});
     return {{QStringLiteral("java"),
-             QJsonObject{{QStringLiteral("import"), QJsonObject{{QStringLiteral("generatesMetadataFilesAtProjectRoot"), false}}},
+             QJsonObject{{QStringLiteral("import"), import},
                          {QStringLiteral("configuration"), QJsonObject{{QStringLiteral("updateBuildConfiguration"), QStringLiteral("automatic")}}},
                          // "N references" / "N implementations" over types and methods (code lenses; off in jdtls by default).
                          // Older servers read implementationsCodeLens.enabled, newer ones implementationCodeLens.
@@ -179,7 +188,8 @@ LspManager::LspManager(QObject *parent) : QObject(parent), m_changeTimer(new QTi
 
 LspManager::~LspManager()
 {
-    // Stop the servers, but tell no one: the receivers (MainWindow and what it owns) may be half destroyed already.
+    // The window deletes this as a child from ~QWidget, after its own members are gone: a statusChanged() /
+    // diagnosticsChanged() from here would run MainWindow slots on freed widgets (a crash on every close on Windows).
     blockSignals(true);
     shutdown();
 }
@@ -309,7 +319,7 @@ void LspManager::startServer(Server &s, const QString &rootPath)
     QStringList args = s.spec->arguments;
     if (args.join(QLatin1Char(' ')).contains(QLatin1String("{cache}"))) {
         const QString key = QString::fromLatin1(QCryptographicHash::hash(rootPath.toUtf8(), QCryptographicHash::Md5).toHex().left(12));
-        const QString cache = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE-AGENTIC/lsp/") +
+        const QString cache = AppPaths::cache(QStringLiteral("lsp/")) +
                               s.spec->id + QLatin1Char('/') + key;
         QDir().mkpath(cache);
         args.replaceInStrings(QStringLiteral("{cache}"), cache);
@@ -320,11 +330,22 @@ void LspManager::startServer(Server &s, const QString &rootPath)
         if (!dir.isEmpty())
             args << QStringLiteral("--compile-commands-dir=") + dir;
     }
+    // Java / Kotlin in a Gradle project: the servers import the build by running Gradle, which only starts on a Java it
+    // supports (Gradle 8.7 not on 25). Give them a JDK the project's Gradle runs on: the project JDK, the system one or
+    // another installed one. When there is none, or the build's toolchain is missing, the import fails: say so.
+    bool jdkMissing = false;
+    s.gradleJdk.clear();
+    if (s.spec->id == QLatin1String("java") || s.spec->id == QLatin1String("kotlin")) {
+        const JdkScanner::Needs n = JdkScanner::needsOf(rootPath, JdkScanner::scan(), SettingsManager::instance().projectJdk());
+        if (n.isGradle && n.runner.isValid())
+            s.gradleJdk = QDir::toNativeSeparators(n.runner.home);
+        jdkMissing = !n.ok();
+    }
     QString program = exe;
     if (s.spec->id == QLatin1String("java")) {
         // jdtls: java -jar <launcher> ...; its configuration and workspace data live in the cache, one per project.
         const QString key = QString::fromLatin1(QCryptographicHash::hash(rootPath.toUtf8(), QCryptographicHash::Md5).toHex().left(12));
-        const QString workspace = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/QODE-AGENTIC/lsp/java/") + key;
+        const QString workspace = AppPaths::cache(QStringLiteral("lsp/java/")) + key;
         QDir().mkpath(workspace);
         QString error;
         if (!LspServers::jdtlsCommand(exe, workspace, &program, &args, &error)) {
@@ -333,7 +354,7 @@ void LspManager::startServer(Server &s, const QString &rootPath)
         }
         // Report progress and serve class files that have no source (java/classFileContents); the settings are also
         // sent as didChangeConfiguration once the server is ready (see onServerReady), which is when jdtls reads them.
-        options.insert(QStringLiteral("settings"), javaSettings());
+        options.insert(QStringLiteral("settings"), javaSettings(s.gradleJdk));
         options.insert(QStringLiteral("extendedClientCapabilities"),
                        QJsonObject{{QStringLiteral("progressReportProvider"), true}, {QStringLiteral("classFileContentsSupport"), true}});
     }
@@ -346,6 +367,16 @@ void LspManager::startServer(Server &s, const QString &rootPath)
     }
     if (!nodeDir.isEmpty())
         s.client->prependToPath(nodeDir);
+    // The Kotlin server reads the JDK for Gradle from a system property; JAVA_TOOL_OPTIONS reaches its JVM through the
+    // native launcher (the value is quoted: a path may hold spaces).
+    if (s.spec->id == QLatin1String("kotlin") && !s.gradleJdk.isEmpty()) {
+        const QString old = qEnvironmentVariable("JAVA_TOOL_OPTIONS").trimmed();
+        s.client->setEnvironmentValue(QStringLiteral("JAVA_TOOL_OPTIONS"),
+                                      (old.isEmpty() ? QString() : old + QLatin1Char(' ')) +
+                                          QStringLiteral("\"-Dcom.jetbrains.ls.imports.gradle.java.home=%1\"").arg(s.gradleJdk));
+    }
+    if (jdkMissing)
+        emit gradleJdkMissing(s.spec->displayName);
     s.client->setApplyEditHandler([this](const QJsonObject &edit) { return handleApplyEdit(edit); });
     const QString id = s.spec->id;
     connect(s.client, &LspClient::ready, this, [this, id] { onServerReady(id); });
@@ -364,7 +395,7 @@ void LspManager::onServerReady(const QString &id)
         detail += QLatin1Char(' ') + s.client->serverVersion();
     setStatus(s, Status::Running, detail);
     if (s.spec->id == QLatin1String("java"))
-        s.client->notify(QStringLiteral("workspace/didChangeConfiguration"), QJsonObject{{QStringLiteral("settings"), javaSettings()}});
+        s.client->notify(QStringLiteral("workspace/didChangeConfiguration"), QJsonObject{{QStringLiteral("settings"), javaSettings(s.gradleJdk)}});
     if (s.spec->id == QLatin1String("json") && !m_jsonSchemas.isEmpty())
         sendJsonSchemas(s);
     for (auto it = m_tracked.begin(); it != m_tracked.end(); ++it)
@@ -595,8 +626,7 @@ QString LspManager::preparePatchedDatabase(const QString &root)
     if (source.isEmpty() || includePaths().isEmpty())
         return {};
     const QString key = QString::fromLatin1(QCryptographicHash::hash(root.toUtf8(), QCryptographicHash::Md5).toHex().left(12));
-    const QString dir = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) +
-                        QStringLiteral("/QODE-AGENTIC/lsp/clangd-db/") + key;
+    const QString dir = AppPaths::cache(QStringLiteral("lsp/clangd-db/")) + key;
     QDir().mkpath(dir);
     m_patchSource = source;
     m_patchTarget = dir + QStringLiteral("/compile_commands.json");
@@ -607,6 +637,7 @@ QString LspManager::preparePatchedDatabase(const QString &root)
         m_dbTimer->setInterval(500);
         connect(m_dbTimer, &QTimer::timeout, this, &LspManager::rewritePatchedDatabase);
         connect(m_dbWatcher, &QFileSystemWatcher::fileChanged, this, [this] { m_dbTimer->start(); });
+        WatchGuard::registerWatcher(m_dbWatcher, [this] { m_dbTimer->start(); }); // re-adds the watch
     }
     rewritePatchedDatabase();
     if (!QFileInfo::exists(m_patchTarget))
@@ -1153,7 +1184,7 @@ void addLocation(QVector<LspLocation> &out, const QJsonObject &o)
     const QJsonObject range = o.value(link ? QStringLiteral("targetSelectionRange") : QStringLiteral("range")).toObject();
     const QJsonObject start = range.value(QStringLiteral("start")).toObject();
     LspLocation loc;
-    loc.path = JarSource::isJarUri(uri) ? JarSource::extract(uri) : QUrl(uri).toLocalFile();
+    loc.path = JarSource::isJarUri(uri) ? JarSource::extract(uri) : Platform::uriToPath(uri);
     loc.line = start.value(QStringLiteral("line")).toInt();
     loc.column = start.value(QStringLiteral("character")).toInt();
     loc.fromClass = JarSource::isJarUri(uri) && JarSource::lastWasClass();
@@ -1293,7 +1324,7 @@ QHash<QString, QVector<LspTextEdit>> LspManager::editsOf(const QJsonObject &edit
     QHash<QString, QVector<LspTextEdit>> out;
     *ok = true;
     auto add = [&out](const QString &uri, const QJsonArray &edits) {
-        const QString path = QUrl(uri).toLocalFile();
+        const QString path = Platform::uriToPath(uri);
         if (path.isEmpty())
             return false;
         for (const QJsonValue &e : edits)
@@ -1327,10 +1358,10 @@ QVector<LspManager::FileOp> LspManager::fileOpsOf(const QJsonObject &edit)
         const QJsonObject opts = o.value(QStringLiteral("options")).toObject();
         op.overwrite = opts.value(QStringLiteral("overwrite")).toBool();
         if (op.kind == QLatin1String("rename")) {
-            op.path = QUrl(o.value(QStringLiteral("oldUri")).toString()).toLocalFile();
-            op.target = QUrl(o.value(QStringLiteral("newUri")).toString()).toLocalFile();
+            op.path = Platform::uriToPath(o.value(QStringLiteral("oldUri")).toString());
+            op.target = Platform::uriToPath(o.value(QStringLiteral("newUri")).toString());
         } else {
-            op.path = QUrl(o.value(QStringLiteral("uri")).toString()).toLocalFile();
+            op.path = Platform::uriToPath(o.value(QStringLiteral("uri")).toString());
         }
         if (!op.path.isEmpty())
             out << op;
@@ -1966,7 +1997,7 @@ static QString sourceSummary(const QString &path, int line)
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly))
         return {};
-    const QStringList lines = QString::fromUtf8(f.readAll()).split(QLatin1Char('\n'));
+    const QStringList lines = TextEncoding::decode(f.readAll()).text.split(QLatin1Char('\n'));
     if (line < 0 || line >= lines.size())
         return {};
 
@@ -2127,7 +2158,7 @@ void LspManager::switchSourceHeader(Document *doc, std::function<void(const QStr
     }
     c->request(QStringLiteral("textDocument/switchSourceHeader"), QJsonObject{{QStringLiteral("uri"), uri}},
                [done](const QJsonValue &result, const QJsonObject &error) {
-                   done(error.isEmpty() && result.isString() ? QUrl(result.toString()).toLocalFile() : QString());
+                   done(error.isEmpty() && result.isString() ? Platform::uriToPath(result.toString()) : QString());
                });
 }
 
@@ -2284,14 +2315,14 @@ void LspManager::onNotification(const QString &id, const QString &method, const 
     if (method == QLatin1String("_typescript.rename")) {
         const QJsonObject o = params.toObject();
         const QJsonObject pos = o.value(QStringLiteral("position")).toObject();
-        emit renameRequested(QUrl(o.value(QStringLiteral("textDocument")).toObject().value(QStringLiteral("uri")).toString()).toLocalFile(),
+        emit renameRequested(Platform::uriToPath(o.value(QStringLiteral("textDocument")).toObject().value(QStringLiteral("uri")).toString()),
                              pos.value(QStringLiteral("line")).toInt(), pos.value(QStringLiteral("character")).toInt());
         return;
     }
     if (method != QLatin1String("textDocument/publishDiagnostics"))
         return;
     const QJsonObject o = params.toObject();
-    const QString path = QUrl(o.value(QStringLiteral("uri")).toString()).toLocalFile();
+    const QString path = Platform::uriToPath(o.value(QStringLiteral("uri")).toString());
     setDiagnosticsFor(path, o.value(QStringLiteral("diagnostics")).toArray(), id);
     noteReported(path, id, o.value(QStringLiteral("version")).toInt(-1));
 }
@@ -2683,7 +2714,7 @@ bool provides(const QJsonObject &caps, const char *capability)
 
 QString pathOfUri(const QString &uri)
 {
-    return JarSource::isJarUri(uri) ? JarSource::extract(uri) : QUrl(uri).toLocalFile();
+    return JarSource::isJarUri(uri) ? JarSource::extract(uri) : Platform::uriToPath(uri);
 }
 
 QPair<int, int> startOf(const QJsonObject &range)

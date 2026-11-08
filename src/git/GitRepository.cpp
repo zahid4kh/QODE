@@ -1,4 +1,6 @@
 #include "GitRepository.h"
+#include "filesystem/WatchGuard.h"
+#include "platform/Platform.h"
 
 #include <QDir>
 #include <QFile>
@@ -38,7 +40,7 @@ QString messageOf(const GitRepository::Result &r)
 GitRepository::GitRepository(QObject *parent)
     : QObject(parent)
 {
-    m_gitExe = QStandardPaths::findExecutable(QStringLiteral("git"));
+    m_gitExe = Platform::gitExecutable();
     m_timer = new QTimer(this);
     m_timer->setSingleShot(true);
     m_timer->setInterval(350);
@@ -46,6 +48,10 @@ GitRepository::GitRepository(QObject *parent)
     m_watcher = new QFileSystemWatcher(this);
     connect(m_watcher, &QFileSystemWatcher::fileChanged, this, &GitRepository::onGitPathChanged);
     connect(m_watcher, &QFileSystemWatcher::directoryChanged, this, &GitRepository::onGitPathChanged);
+    WatchGuard::registerWatcher(m_watcher, [this] {
+        if (!m_gitDir.isEmpty())
+            watchGitDir();
+    });
 }
 
 // --- Process plumbing ---------------------------------------------------------
@@ -367,9 +373,10 @@ void GitRepository::parseStatus(const QByteArray &out)
     m_folderKinds.clear();
     for (int i = 0; i < m_changes.size(); ++i) {
         const GitFileChange &c = m_changes.at(i);
-        m_changeIndex.insert(c.path, i);
+        // Keyed by Platform::pathKey: on Windows the explorer and git may spell a path in different case.
+        m_changeIndex.insert(Platform::pathKey(c.path), i);
         const GitKind k = c.kind();
-        QString d = c.path;
+        QString d = Platform::pathKey(c.path);
         while (true) {
             const int s = d.lastIndexOf(QLatin1Char('/'));
             if (s <= 0)
@@ -402,7 +409,7 @@ void GitRepository::loadIgnored()
                     QString rel = QString::fromUtf8(e);
                     while (rel.endsWith(QLatin1Char('/')))
                         rel.chop(1);
-                    m_ignored.insert(m_root + QLatin1Char('/') + rel);
+                    m_ignored.insert(Platform::pathKey(m_root + QLatin1Char('/') + rel));
                 }
             }
             loadBranches();
@@ -483,7 +490,7 @@ QList<GitFileChange> GitRepository::conflicts() const
 
 const GitFileChange *GitRepository::changeFor(const QString &absPath) const
 {
-    const int i = m_changeIndex.value(absPath, -1);
+    const int i = m_changeIndex.value(Platform::pathKey(absPath), -1);
     return i < 0 ? nullptr : &m_changes.at(i);
 }
 
@@ -491,7 +498,7 @@ bool GitRepository::isIgnored(const QString &absPath) const
 {
     if (m_ignored.isEmpty() || m_root.isEmpty())
         return false;
-    QString p = absPath;
+    QString p = Platform::pathKey(absPath);
     while (p.size() > m_root.size()) {
         if (m_ignored.contains(p))
             return true;
@@ -515,7 +522,7 @@ GitPathState GitRepository::stateOf(const QString &absPath) const
         s.untracked = c->untracked;
         return s;
     }
-    const auto it = m_folderKinds.constFind(absPath);
+    const auto it = m_folderKinds.constFind(Platform::pathKey(absPath));
     if (it != m_folderKinds.constEnd()) {
         s.kind = it.value();
         s.isFolder = true;
@@ -533,7 +540,7 @@ QString GitRepository::relativePath(const QString &absPath) const
     QString p = QFileInfo(absPath).canonicalFilePath();
     if (p.isEmpty()) // e.g. deleted file: canonicalise the directory instead
         p = QFileInfo(QFileInfo(absPath).absolutePath()).canonicalFilePath() + QLatin1Char('/') + QFileInfo(absPath).fileName();
-    if (!p.startsWith(m_root + QLatin1Char('/')))
+    if (!Platform::isUnder(p, m_root))
         return {};
     return p.mid(m_root.size() + 1);
 }

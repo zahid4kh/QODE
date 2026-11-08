@@ -1,4 +1,5 @@
 #include "ProjectTemplates.h"
+#include "platform/Platform.h"
 
 #include <QBuffer>
 #include <QByteArray>
@@ -105,7 +106,32 @@ ProjectTemplates::Values withBuiltins(const ProjectTemplates::Values &in)
     if (!v.contains(QStringLiteral("uuid")))
         v.insert(QStringLiteral("uuid"), QUuid::createUuid().toString(QUuid::WithoutBraces));
     v.insert(QStringLiteral("gitIdentity"), ProjectTemplates::gitIdentity());
+    // The OS ("linux", "win"), for {{#if os=win}} and the manifest's "when", plus what the Windows scripts use (the Qt
+    // kit, the default compiler; Unix: nothing).
+    v.insert(QStringLiteral("os"), Platform::osTag());
+    const QMap<QString, QString> platform = Platform::templateValues();
+    for (auto it = platform.begin(); it != platform.end(); ++it)
+        if (!v.contains(it.key()))
+            v.insert(it.key(), it.value());
     return v;
+}
+
+// A manifest entry's "os": "win" (only there) or "!win" (everywhere else); empty = every OS.
+bool forThisOs(const QString &os)
+{
+    if (os.isEmpty())
+        return true;
+    const bool negate = os.startsWith(QLatin1Char('!'));
+    return (os.mid(negate ? 1 : 0) == Platform::osTag()) != negate;
+}
+
+// `o` with the keys of its "win" object (on Windows) laid over it: an OS-specific runCommand, choices, hint …
+QJsonObject forThisOs(QJsonObject o)
+{
+    const QJsonObject over = o.value(Platform::osTag()).toObject();
+    for (auto it = over.begin(); it != over.end(); ++it)
+        o.insert(it.key(), it.value());
+    return o;
 }
 
 // Replaces {{key}}; keys without a value are collected in `missing` and become empty.
@@ -350,7 +376,7 @@ QString ProjectTemplates::gitIdentity()
     done = true;
     auto get = [](const QString &key) {
         QProcess p;
-        p.start(QStringLiteral("git"), {QStringLiteral("config"), key});
+        p.start(Platform::gitExecutable(), {QStringLiteral("config"), key});
         if (!p.waitForFinished(1500) || p.exitCode() != 0)
             return QString();
         return QString::fromUtf8(p.readAllStandardOutput()).trimmed();
@@ -370,9 +396,10 @@ const QList<ProjectTemplates::Template> &ProjectTemplates::all()
         for (const QString &d : dirs) {
             if (d.startsWith(QLatin1Char('_')))
                 continue;
-            const QJsonObject o = QJsonDocument::fromJson(readResource(kRoot + QLatin1Char('/') + d + QStringLiteral("/template.json")).toUtf8()).object();
-            if (o.isEmpty())
+            const QJsonObject raw = QJsonDocument::fromJson(readResource(kRoot + QLatin1Char('/') + d + QStringLiteral("/template.json")).toUtf8()).object();
+            if (raw.isEmpty())
                 continue;
+            const QJsonObject o = forThisOs(raw); // "win": {"runCommand": …} on Windows
             Template t;
             t.id = o.value(QStringLiteral("id")).toString(d);
             t.category = o.value(QStringLiteral("category")).toString();
@@ -396,7 +423,14 @@ const QList<ProjectTemplates::Template> &ProjectTemplates::all()
             for (auto w = when.begin(); w != when.end(); ++w)
                 t.when.insert(w.key(), w.value().toString());
             for (const QJsonValue &v : o.value(QStringLiteral("options")).toArray()) {
-                const QJsonObject oo = v.toObject();
+                const QJsonObject oo = forThisOs(v.toObject());
+                if (!forThisOs(oo.value(QStringLiteral("os")).toString())) { // mold: "os": "!win"
+                    t.hiddenValues.insert(oo.value(QStringLiteral("key")).toString(),
+                                          oo.value(QStringLiteral("type")).toString() == QLatin1String("bool")
+                                              ? QStringLiteral("false")
+                                              : oo.value(QStringLiteral("default")).toString());
+                    continue;
+                }
                 Option op;
                 op.key = oo.value(QStringLiteral("key")).toString();
                 op.label = oo.value(QStringLiteral("label")).toString(op.key);
@@ -522,11 +556,14 @@ ProjectTemplates::Result ProjectTemplates::instantiate(const Template &t, const 
     Values trimmed;
     for (auto it = values.begin(); it != values.end(); ++it)
         trimmed.insert(it.key(), it.value().trimmed());
+    for (auto it = t.hiddenValues.begin(); it != t.hiddenValues.end(); ++it) // another OS's options
+        if (!trimmed.contains(it.key()))
+            trimmed.insert(it.key(), it.value());
     const Values vars = withBuiltins(trimmed);
 
     const QString tmp = destDir + QStringLiteral(".qode-new-") + QUuid::createUuid().toString(QUuid::Id128).left(8);
     auto fail = [&](const QString &msg) {
-        QDir(tmp).removeRecursively();
+        Platform::removeTree(tmp);
         r.error = msg;
         return r;
     };
@@ -558,8 +595,10 @@ ProjectTemplates::Result ProjectTemplates::instantiate(const Template &t, const 
                 QString text, err;
                 if (!renderFile(QString::fromUtf8(data), vars, &text, &err, &missing))
                     return fail(QStringLiteral("Template file %1 has %2.").arg(src, err));
-                if (src.endsWith(QLatin1String(".bat")))
+                if (src.endsWith(QLatin1String(".bat"))) { // cmd needs CRLF (labels / goto misbehave with LF)
+                    text.replace(QStringLiteral("\r\n"), QStringLiteral("\n")); // a CRLF checkout of the template
                     text.replace(QLatin1Char('\n'), QStringLiteral("\r\n"));
+                }
                 data = text.toUtf8();
             }
             if (!writeFile(target, data))

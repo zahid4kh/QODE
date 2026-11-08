@@ -15,7 +15,29 @@
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
+#else
+#include "platform/ConPty.h"
+
+#include <QDir>
+#include <QStandardPaths>
 #endif
+
+namespace {
+
+// What the shell runs with: QODE's environment, a terminal that does colours, and the caller's extras.
+QProcessEnvironment shellEnvironment(const QProcessEnvironment &extra)
+{
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.insert(QStringLiteral("TERM"), QStringLiteral("xterm-256color"));
+    env.insert(QStringLiteral("COLORTERM"), QStringLiteral("truecolor"));
+    env.insert(QStringLiteral("TERM_PROGRAM"), QStringLiteral("QODE"));
+    env.remove(QStringLiteral("COLUMNS"));
+    env.remove(QStringLiteral("LINES"));
+    env.insert(extra);
+    return env;
+}
+
+} // namespace
 
 ShellProcess::ShellProcess(QObject *parent)
     : QObject(parent)
@@ -45,17 +67,6 @@ ShellProcess::~ShellProcess()
     }
 }
 
-QString ShellProcess::defaultShell()
-{
-    const QString env = qEnvironmentVariable("SHELL");
-    for (const QString &candidate : {env, QStringLiteral("/bin/bash"), QStringLiteral("/bin/sh")}) {
-        const QFileInfo fi(candidate);
-        if (!candidate.isEmpty() && fi.isExecutable() && fi.isFile())
-            return candidate;
-    }
-    return QStringLiteral("/bin/sh");
-}
-
 void ShellProcess::setLaunch(const QString &program, const QStringList &args, const QProcessEnvironment &extraEnv)
 {
     m_program = program;
@@ -74,6 +85,17 @@ qint64 ShellProcess::pid() const
 }
 
 #ifdef Q_OS_UNIX
+
+QString ShellProcess::defaultShell()
+{
+    const QString env = qEnvironmentVariable("SHELL");
+    for (const QString &candidate : {env, QStringLiteral("/bin/bash"), QStringLiteral("/bin/sh")}) {
+        const QFileInfo fi(candidate);
+        if (!candidate.isEmpty() && fi.isExecutable() && fi.isFile())
+            return candidate;
+    }
+    return QStringLiteral("/bin/sh");
+}
 
 bool ShellProcess::start(const QString &workingDirectory, int cols, int rows, QString *error)
 {
@@ -98,13 +120,7 @@ bool ShellProcess::start(const QString &workingDirectory, int cols, int rows, QS
     resize(cols, rows);
 
     m_shell = m_program.isEmpty() ? defaultShell() : m_program;
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert(QStringLiteral("TERM"), QStringLiteral("xterm-256color"));
-    env.insert(QStringLiteral("COLORTERM"), QStringLiteral("truecolor"));
-    env.insert(QStringLiteral("TERM_PROGRAM"), QStringLiteral("QODE"));
-    env.remove(QStringLiteral("COLUMNS"));
-    env.remove(QStringLiteral("LINES"));
-    env.insert(m_extraEnv);
+    QProcessEnvironment env = shellEnvironment(m_extraEnv);
     QStringList args = m_args;
     if (args.isEmpty() && !ShellIntegration::apply(m_shell, &args, &env))
         args = {QStringLiteral("-i")};
@@ -220,28 +236,124 @@ void ShellProcess::terminate()
     m_killTimer->start();
 }
 
-#else // !Q_OS_UNIX
-
-bool ShellProcess::start(const QString &, int, int, QString *error)
+void ShellProcess::drain()
 {
-    if (error)
-        *error = QStringLiteral("The integrated terminal is only supported on Unix-like systems.");
-    return false;
+    if (m_readNotifier)
+        onReadable();
 }
-void ShellProcess::resize(int, int) {}
-void ShellProcess::onReadable() {}
-void ShellProcess::write(const QByteArray &) {}
+
+#else // Windows: a ConPTY console
+
+// PowerShell 7 (pwsh) when installed, else Windows PowerShell, else cmd.
+QString ShellProcess::defaultShell()
+{
+    for (const QString &name : {QStringLiteral("pwsh"), QStringLiteral("powershell")})
+        if (const QString exe = QStandardPaths::findExecutable(name); !exe.isEmpty())
+            return QDir::toNativeSeparators(exe);
+    const QString comspec = qEnvironmentVariable("ComSpec");
+    return comspec.isEmpty() ? QStringLiteral("cmd.exe") : comspec;
+}
+
+namespace {
+
+// Arguments for an interactive session when there is no shell integration for it.
+QStringList interactiveArgs(const QString &shell)
+{
+    const QString name = QFileInfo(shell).completeBaseName().toLower();
+    if (name == QLatin1String("pwsh") || name == QLatin1String("powershell"))
+        return {QStringLiteral("-NoLogo")};
+    if (name == QLatin1String("bash"))
+        return {QStringLiteral("--login"), QStringLiteral("-i")};
+    return {};
+}
+
+} // namespace
+
+bool ShellProcess::start(const QString &workingDirectory, int cols, int rows, QString *error)
+{
+    if (isRunning())
+        return true;
+    closeMaster();
+    m_pty = new ConPty(this);
+    if (!m_pty->open(cols, rows, error)) {
+        closeMaster();
+        return false;
+    }
+    connect(m_pty, &ConPty::readyRead, this, &ShellProcess::onReadable);
+
+    m_shell = m_program.isEmpty() ? defaultShell() : m_program;
+    QProcessEnvironment env = shellEnvironment(m_extraEnv);
+    QStringList args = m_args;
+    if (args.isEmpty() && !ShellIntegration::apply(m_shell, &args, &env))
+        args = interactiveArgs(m_shell);
+    m_process->setProcessEnvironment(env);
+    m_process->setWorkingDirectory(workingDirectory);
+    m_process->setProgram(m_shell);
+    m_process->setArguments(args);
+    m_pty->attach(m_process);
+
+    m_process->start(QIODevice::ReadWrite);
+    if (!m_process->waitForStarted(3000)) {
+        if (error)
+            *error = QStringLiteral("Could not start %1: %2").arg(m_shell, m_process->errorString());
+        closeMaster();
+        return false;
+    }
+    return true;
+}
+
+void ShellProcess::resize(int cols, int rows)
+{
+    if (m_pty)
+        m_pty->resize(cols, rows);
+}
+
+void ShellProcess::onReadable()
+{
+    if (!m_pty)
+        return;
+    const QByteArray data = m_pty->takeOutput();
+    if (!data.isEmpty())
+        emit output(data);
+}
+
+void ShellProcess::write(const QByteArray &data)
+{
+    if (m_pty && !data.isEmpty())
+        m_pty->write(data);
+}
+
 void ShellProcess::onWritable() {}
-void ShellProcess::closeMaster() {}
-void ShellProcess::terminate() {}
+
+void ShellProcess::closeMaster()
+{
+    delete m_pty; // closes the console
+    m_pty = nullptr;
+}
+
+void ShellProcess::terminate()
+{
+    if (!isRunning())
+        return;
+    // Ending the console sends the shell and the programs on it CTRL_CLOSE_EVENT, as closing a console window does.
+    closeMaster();
+    m_killTimer->start();
+}
+
+void ShellProcess::drain()
+{
+    if (!m_pty)
+        return;
+    m_pty->close(); // waits for what the console still had to show
+    onReadable();
+}
 
 #endif
 
 void ShellProcess::onProcessFinished(int exitCode, QProcess::ExitStatus)
 {
     m_killTimer->stop();
-    if (m_readNotifier)
-        onReadable(); // drain whatever the shell printed last
+    drain(); // whatever the shell printed last
     closeMaster();
     emit finished(exitCode);
 }

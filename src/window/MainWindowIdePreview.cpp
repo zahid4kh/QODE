@@ -42,7 +42,7 @@ bool waitFor(const std::function<bool()> &done, int timeoutMs)
     return true;
 }
 
-QString stateName(DevServer *s)
+[[maybe_unused]] QString stateName(DevServer *s) // unused without Qt WebEngine (noweb)
 {
     if (!s)
         return QStringLiteral("stopped");

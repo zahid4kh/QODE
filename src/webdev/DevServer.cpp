@@ -1,16 +1,14 @@
 #include "DevServer.h"
 
-#include "app/ChildReaper.h"
 #include "lsp/LspServers.h"
+#include "platform/Platform.h"
+#include "platform/ProcessTree.h"
 
 #include <QDir>
 #include <QFileInfo>
 #include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QTimer>
-
-#include <csignal>
-#include <unistd.h>
 
 namespace {
 
@@ -26,7 +24,7 @@ DevServer::DevServer(QObject *parent) : QObject(parent), m_proc(new QProcess(thi
 {
     m_proc->setProcessChannelMode(QProcess::MergedChannels);
     // Own process group (and session): the whole tree can be signalled, and Ctrl+C in a terminal does not reach it.
-    ChildReaper::track(m_proc); // own process group, stopped by the watchdog if QODE ends abruptly
+    ProcessTree::track(m_proc); // own process group, stopped by the watchdog if QODE ends abruptly
     connect(m_proc, &QProcess::readyRead, this, &DevServer::onOutput);
     connect(m_proc, &QProcess::finished, this, &DevServer::onFinished);
     connect(m_proc, &QProcess::errorOccurred, this, [this](QProcess::ProcessError e) {
@@ -37,15 +35,15 @@ DevServer::DevServer(QObject *parent) : QObject(parent), m_proc(new QProcess(thi
     });
     m_killTimer->setSingleShot(true);
     m_killTimer->setInterval(4000);
-    connect(m_killTimer, &QTimer::timeout, this, [this] { signalGroup(SIGKILL); });
+    connect(m_killTimer, &QTimer::timeout, this, [this] { killTree(); });
 }
 
 DevServer::~DevServer()
 {
     if (m_proc->state() != QProcess::NotRunning) {
-        signalGroup(SIGTERM);
+        stopTree();
         if (!m_proc->waitForFinished(1500))
-            signalGroup(SIGKILL);
+            killTree();
         m_proc->waitForFinished(500);
     }
 }
@@ -84,8 +82,8 @@ void DevServer::start(const QString &command, const QString &workDir, int port)
         extra << QFileInfo(node).absolutePath();
     const QString home = QDir::homePath();
     extra << home + QStringLiteral("/.bun/bin") << home + QStringLiteral("/.local/share/pnpm") << home + QStringLiteral("/.yarn/bin")
-          << home + QStringLiteral("/.local/bin") << home + QStringLiteral("/.npm-global/bin");
-    env.insert(QStringLiteral("PATH"), extra.join(QLatin1Char(':')) + QLatin1Char(':') + env.value(QStringLiteral("PATH")));
+          << home + QStringLiteral("/.local/bin") << home + QStringLiteral("/.npm-global/bin") << Platform::extraBinDirs();
+    env.insert(QStringLiteral("PATH"), extra.join(QDir::listSeparator()) + QDir::listSeparator() + env.value(QStringLiteral("PATH")));
     env.insert(QStringLiteral("NO_COLOR"), QStringLiteral("1"));
     env.remove(QStringLiteral("FORCE_COLOR"));
     env.insert(QStringLiteral("BROWSER"), QStringLiteral("none")); // create-react-app would otherwise open a tab itself
@@ -98,7 +96,8 @@ void DevServer::start(const QString &command, const QString &workDir, int port)
     m_proc->setWorkingDirectory(workDir);
     ++m_starts;
     setState(State::Starting);
-    m_proc->start(QStringLiteral("/bin/sh"), {QStringLiteral("-c"), command});
+    Platform::setShellCommand(m_proc, command);
+    m_proc->start();
 }
 
 void DevServer::adjustEnvironment(QProcessEnvironment &)
@@ -113,7 +112,7 @@ void DevServer::stop()
         return;
     }
     m_stopping = true;
-    signalGroup(SIGTERM);
+    stopTree();
     m_killTimer->start();
 }
 
@@ -124,16 +123,19 @@ void DevServer::restart()
     start(m_command, m_workDir, m_wantedPort);
 }
 
-void DevServer::signalGroup(int sig)
+void DevServer::stopTree()
 {
-    const qint64 pid = m_proc->processId();
-    if (pid > 0)
-        ::kill(-static_cast<pid_t>(pid), sig);
+    ProcessTree::stop(m_proc);
+}
+
+void DevServer::killTree()
+{
+    ProcessTree::kill(m_proc->processId());
 }
 
 void DevServer::onOutput()
 {
-    const QString text = stripAnsi(QString::fromLocal8Bit(m_proc->readAll()));
+    const QString text = stripAnsi(Platform::decodeOutput(m_proc->readAll()));
     if (text.isEmpty())
         return;
     m_log += text;

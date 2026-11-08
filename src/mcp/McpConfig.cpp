@@ -1,4 +1,6 @@
 #include "McpConfig.h"
+#include "platform/AppPaths.h"
+#include "platform/Platform.h"
 
 #include <QDir>
 #include <QFile>
@@ -15,7 +17,7 @@ namespace mcp {
 namespace {
 QString globalFile()
 {
-    return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + QStringLiteral("/QODE-AGENTIC/mcp.json");
+    return AppPaths::config(QStringLiteral("mcp.json"));
 }
 
 QString projectFile(const QString &dataDir)
@@ -263,14 +265,17 @@ QString expand(const QString &text, const QProcessEnvironment &env)
 QProcessEnvironment environment(const ServerConfig &config)
 {
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    QStringList path = env.value(QStringLiteral("PATH")).split(QLatin1Char(':'), Qt::SkipEmptyParts);
+    QStringList path = env.value(QStringLiteral("PATH")).split(QDir::listSeparator(), Qt::SkipEmptyParts);
     const QString h = QDir::homePath();
-    const QStringList extra{h + QStringLiteral("/.local/bin"), h + QStringLiteral("/.cargo/bin"), h + QStringLiteral("/.bun/bin"),
-                            h + QStringLiteral("/.deno/bin"), h + QStringLiteral("/.npm-global/bin"), QStringLiteral("/usr/local/bin")};
-    for (const QString &dir : extra)
+    QStringList extra{h + QStringLiteral("/.local/bin"), h + QStringLiteral("/.cargo/bin"), h + QStringLiteral("/.bun/bin"),
+                      h + QStringLiteral("/.deno/bin"), h + QStringLiteral("/.npm-global/bin"), QStringLiteral("/usr/local/bin")};
+    extra << Platform::extraBinDirs();
+    for (const QString &d : std::as_const(extra)) {
+        const QString dir = QDir::toNativeSeparators(d); // as PATH spells it on Windows
         if (!path.contains(dir) && QFileInfo(dir).isDir())
             path << dir;
-    env.insert(QStringLiteral("PATH"), path.join(QLatin1Char(':')));
+    }
+    env.insert(QStringLiteral("PATH"), path.join(QDir::listSeparator()));
     const QProcessEnvironment base = env;
     for (auto it = config.env.cbegin(); it != config.env.cend(); ++it)
         env.insert(it.key(), expand(it.value(), base));

@@ -1,5 +1,6 @@
 #include "McpDialog.h"
 
+#include "dialogs/FileDialogs.h"
 #include "mcp/McpClient.h"
 #include "mcp/McpManager.h"
 #include "settings/Icons.h"
@@ -10,7 +11,6 @@
 #include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QDir>
-#include <QFileDialog>
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QFormLayout>
@@ -237,7 +237,7 @@ void McpDialog::buildUi()
     m_command->setPlaceholderText(tr("uvx, npx, python, or a full path"));
     auto *browse = new QPushButton(tr("Browse…"), m_formPage);
     connect(browse, &QPushButton::clicked, this, [this] {
-        const QString f = QFileDialog::getOpenFileName(this, tr("Server Program"), QDir::homePath());
+        const QString f = FileDialogs::getOpenFileName(this, tr("Server Program"), QDir::homePath());
         if (!f.isEmpty())
             m_command->setText(f);
     });
@@ -270,7 +270,7 @@ void McpDialog::buildUi()
     m_cwd->setPlaceholderText(tr("the project folder"));
     auto *cwdBrowse = new QPushButton(tr("Browse…"), m_formPage);
     connect(cwdBrowse, &QPushButton::clicked, this, [this] {
-        const QString d = QFileDialog::getExistingDirectory(this, tr("Working Folder"), m_cwd->text().isEmpty() ? QDir::homePath() : m_cwd->text());
+        const QString d = FileDialogs::getExistingDirectory(this, tr("Working Folder"), m_cwd->text().isEmpty() ? QDir::homePath() : m_cwd->text());
         if (!d.isEmpty())
             m_cwd->setText(d);
     });

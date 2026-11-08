@@ -1,6 +1,7 @@
 #include "ClaudeCodeSession.h"
 
 #include "claudecode/ClaudeCodeCli.h"
+#include "platform/Platform.h"
 
 #include <QJsonDocument>
 #include <QProcess>
@@ -52,8 +53,7 @@ void Session::start(const Options &o)
     auto *p = m_proc = new QProcess(this);
     p->setProcessEnvironment(environment(o.root));
     p->setWorkingDirectory(o.root);
-    p->setProgram(exe);
-    p->setArguments(args);
+    Platform::setCommand(p, exe, args); // Windows: npm's claude.cmd goes through cmd
     connect(p, &QProcess::readyReadStandardOutput, this, &Session::readOut);
     connect(p, &QProcess::readyReadStandardError, this, [this, p] {
         m_stderr += p->readAllStandardError();
@@ -103,7 +103,7 @@ void Session::stop()
     if (!p->waitForFinished(1500)) {
         p->terminate();
         if (!p->waitForFinished(1000))
-            p->kill();
+            Platform::killTree(p); // Windows: also the node behind claude.cmd
     }
     p->deleteLater();
 }

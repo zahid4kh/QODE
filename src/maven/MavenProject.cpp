@@ -1,6 +1,8 @@
 #include "maven/MavenProject.h"
+#include "platform/Platform.h"
 
 #include "lsp/JarSource.h"
+#include "editor/TextEncoding.h"
 
 #include <QDir>
 #include <QFile>
@@ -20,7 +22,7 @@ QString readText(const QString &path)
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly))
         return {};
-    return QString::fromUtf8(f.readAll());
+    return TextEncoding::decode(f.readAll()).text;
 }
 
 // Reads one <project> element (the reader stands on its start tag). Only the elements the panel needs; nested
@@ -149,13 +151,19 @@ QString buildDir(const QString &root)
 
 QString runner(const QString &dir)
 {
-    return QFileInfo(dir + QStringLiteral("/mvnw")).isExecutable() ? QStringLiteral("./mvnw") : QStringLiteral("mvn");
+    const QString mvnw = QStringLiteral("mvnw");
+    return Platform::wrapperFile(dir, mvnw).isEmpty() ? QStringLiteral("mvn") : Platform::wrapperCommand(dir, mvnw);
+}
+
+QString runnerFile(const QString &dir)
+{
+    const QString wrapper = Platform::wrapperFile(dir, QStringLiteral("mvnw"));
+    return wrapper.isEmpty() ? QStringLiteral("mvn") : wrapper;
 }
 
 bool wrapperNeedsExecBit(const QString &dir)
 {
-    const QFileInfo fi(dir + QStringLiteral("/mvnw"));
-    return fi.exists() && !fi.isExecutable();
+    return Platform::wrapperNeedsExecBit(dir, QStringLiteral("mvnw"));
 }
 
 QString wrapperVersion(const QString &dir)
@@ -166,7 +174,7 @@ QString wrapperVersion(const QString &dir)
 
 bool mavenAvailable(const QString &dir)
 {
-    return QFileInfo(dir + QStringLiteral("/mvnw")).isExecutable() || !QStandardPaths::findExecutable(QStringLiteral("mvn")).isEmpty();
+    return !Platform::wrapperFile(dir, QStringLiteral("mvnw")).isEmpty() || !QStandardPaths::findExecutable(QStringLiteral("mvn")).isEmpty();
 }
 
 Pom readPom(const QString &pomPath)

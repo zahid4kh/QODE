@@ -1,0 +1,3 @@
+# The same line endings on every OS, whatever core.autocrlf says: shell scripts need LF, cmd needs CRLF
+*.sh            text eol=lf
+*.bat           text eol=crlf

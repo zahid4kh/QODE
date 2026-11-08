@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 API keys live only in mode-0600 files or the environment and are never put into prompts. Secret files (`.env*`, keys, credentials, `claude.key`/`gemini.key`) are never sent to the model. There are no third-party dependencies and no test suite or linter configured.
 
-Git-ignored local material (may be absent): `dev-docs/` (the per-area notes linked below), `plans/`, `PRD.md`, `whats-new`, `run.sh`, `run.bat`, `bump-version.sh`, `publish-apt.sh`, `.env.local`, and API reference pages in `g-docs/` (Gemini) and `claude-api-docs/` (Anthropic Messages API). Check those pages before guessing request/response shapes in `AgentRunClaude.cpp` / `ClaudeClient` or the Gemini half. The build and packaging scripts in `scripts/` (Linux) and `scripts/win/` (Windows) are tracked; there is no CI: the user builds the packages locally (`scripts/build-all-debs.sh`, `scripts\win\build-all.ps1`). `.gitattributes` keeps `scripts/win/*.bat` CRLF in every checkout.
+Git-ignored local material (may be absent): `plans/`, `PRD.md`, `whats-new`, `run.sh`, `run.bat`, `bump-version.sh`, `publish-apt.sh`, `.env.local`, and API reference pages in `g-docs/` (Gemini) and `claude-api-docs/` (Anthropic Messages API). Check those pages before guessing request/response shapes in `AgentRunClaude.cpp` / `ClaudeClient` or the Gemini half. The per-area notes in `dev-docs/` (linked below) and the build and packaging scripts in `scripts/` (Linux) and `scripts/win/` (Windows) are tracked; there is no CI: the user builds the packages locally (`scripts/build-all-debs.sh`, `scripts\win\build-all.ps1`). `.gitattributes` keeps `scripts/win/*.bat` CRLF in every checkout.
 
 ## Build & run
 
@@ -87,7 +87,7 @@ The plan is [plans/windows-port.md](plans/windows-port.md). Linux / Unix code is
     - `realPath` (follows junctions), `setCurrentVersion` / `currentVersion` (managed installs' `current`: symlink / junction), `commandLinkFile` / `writeCommandLink` / `commandLinkTarget`, `setUnpackCommand` (System32 tar.exe), `setRemoveCommand` / `removeCommandText`, `osTag()` ("linux" / "win");
     - tools: `jdkFolders` / `jdkHomes`, `pythonInterpreter` (py, never the Store stub), `gitBashExecutable`, `languageServerDirs` (LLVM, MSYS2), `systemIncludeDirs`, `hasMsvc`, `templateValues` (project templates' Windows values).
   - Project templates: `{{os}}`, a "win" object in template.json overrides keys there, options with `"os": "!win"` are hidden (fixed value); Windows files are `compile.bat` / `run.bat` (written CRLF).
-  - Text files are decoded and encoded with `editor/TextEncoding` (UTF-8, UTF-8 BOM, UTF-16 LE / BE, Latin-1, Windows-1252), never `fromUtf8` on a user's file.
+  - Text files are decoded and encoded with `editor/TextEncoding` (UTF-8, UTF-8 BOM, UTF-16 LE / BE, Latin-1, Windows-1252), never `fromUtf8` on a user's file. Outside the editor, read a user's file with `FileManager::readText` and write an edit back with `FileManager::writeText` (keeps its encoding; atomic, with Windows' busy-file retries).
   - A rename or move of a folder holds a `WatchGuard::Scope` (Windows cannot rename a folder with anything watched below it); a new long-lived watcher registers with `WatchGuard::registerWatcher` (a plain `QFileSystemWatcher` plus its re-arm function) or `registerOwner`.
   - Terminal: the pty is `ShellProcess` (Unix) / `platform/ConPty` (Windows). Command lines typed into the terminal are written for sh and go through `Terminal::runCommand`, which rewrites them for PowerShell / cmd / Git Bash (`terminal/ShellSyntax`); a line typed into a fresh shell by the startup provider is written per shell (`ShellSyntax::dialectOf` / `quote` / `sequence`).
   - Helpers run by `main` (`--qode-ctrl-c`, `--qode-restart-after`) go in `runIfWatchdog` / `runIfHelper`.
@@ -99,6 +99,7 @@ The plan is [plans/windows-port.md](plans/windows-port.md). Linux / Unix code is
 - Headers are included relative to `src/` (e.g. `#include "editor/Document.h"`).
 - Qt Multimedia (`QODE_HAS_MULTIMEDIA`, video in the media panel), Qt WebEngine (`QODE_HAS_WEBENGINE`, the embedded live web preview; `CONFIG+=no_webengine` leaves it out, and then there is no web / Expo preview at all) and Qt DBus (`QODE_HAS_DBUS`, desktop notifications in `app/DesktopNotify`) are optional: guard code that uses them with those defines so the build still works without the module. zlib (`-lz`) is required by `lsp/JarSource`. `QODE_VERSION` comes from `VERSION` in QODE.pro.
 - Never hard-code a colour in a widget: add a field to `Theme` (see [dev-docs/app.md](dev-docs/app.md)).
+- A panel in the right-hand island must not ask for width: show paths / URLs with `window/ElidedLabel`, not a plain `QLabel` without word wrap (the island's stack takes the widest page's minimum and the main window grows to fit it).
 - Nothing is ever written inside the user's project folder; per-project data lives in `~/.config/QODE-AGENTIC/projects/<name>-<hash>.json` through `SettingsManager`.
 - Attach documents to a `CodeEditor` with `attachDocument()`, never plain `setDocument()` (it renders in the UI font).
 - File / folder pickers: `FileDialogs::getOpenFileName` etc. (`dialogs/FileDialogs.h`), never the `QFileDialog` statics: on Windows Qt writes `HKCU\Software\QtProject` whenever a dialog closes, and the wrapper puts it back.
@@ -129,4 +130,4 @@ The plan is [plans/windows-port.md](plans/windows-port.md). Linux / Unix code is
 
 `project` (`ProjectManager`, `ProjectModel`, `ProjectFiles` index), `explorer` (`ProjectExplorer`) and `filesystem` (`FileManager` create/rename/delete helpers) are small enough to read directly.
 
-Read the matching `dev-docs/` file before changing a module; it records non-obvious decisions (why things are pinned, past bugs, server quirks). Update it whenever behaviour changes (it is git-ignored here, so it is not part of the commit).
+Read the matching `dev-docs/` file before changing a module; it records non-obvious decisions (why things are pinned, past bugs, server quirks). Update it whenever behaviour changes, in the same commit. Each file ends with a "Linux and Windows" section (or covers both OSes inline, as app.md, editor.md, agent.md and terminal-git.md do): note there what differs per OS and what was not tried on one of them.

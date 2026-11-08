@@ -29,4 +29,3 @@ staging-win/
 dist-win/
 whats-new
 /publish-apt.sh
-dev-docs

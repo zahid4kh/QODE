@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 API keys live only in mode-0600 files or the environment and are never put into prompts. Secret files (`.env*`, keys, credentials, `claude.key`/`gemini.key`) are never sent to the model. There are no third-party dependencies and no test suite or linter configured.
 
-Git-ignored local material (may be absent): `dev-docs/` (the per-area notes linked below), `plans/`, `PRD.md`, `whats-new`, `run.sh`, `run.bat`, `scripts/` (Linux build / packaging scripts and `scripts/win/`), `bump-version.sh`, `publish-apt.sh`, `.env.local`, and API reference pages in `g-docs/` (Gemini) and `claude-api-docs/` (Anthropic Messages API). Check those pages before guessing request/response shapes in `AgentRunClaude.cpp` / `ClaudeClient` or the Gemini half. `scripts/` is git-ignored too (kept local, not public); there is no CI: the user builds the Debian packages locally with `scripts/build-all-debs.sh`.
+Git-ignored local material (may be absent): `dev-docs/` (the per-area notes linked below), `plans/`, `PRD.md`, `whats-new`, `run.sh`, `run.bat`, `bump-version.sh`, `publish-apt.sh`, `.env.local`, and API reference pages in `g-docs/` (Gemini) and `claude-api-docs/` (Anthropic Messages API). Check those pages before guessing request/response shapes in `AgentRunClaude.cpp` / `ClaudeClient` or the Gemini half. The build and packaging scripts in `scripts/` (Linux) and `scripts/win/` (Windows) are tracked; there is no CI: the user builds the packages locally (`scripts/build-all-debs.sh`, `scripts\win\build-all.ps1`). `.gitattributes` keeps `scripts/win/*.bat` CRLF in every checkout.
 
 ## Build & run
 

@@ -1,0 +1,2 @@
+# Windows build scripts run by cmd.exe: CRLF in every checkout (project-template .bat files stay LF; QODE writes them CRLF)
+scripts/win/*.bat text eol=crlf

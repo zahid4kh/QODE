@@ -25,6 +25,9 @@ debs
 # Self-contained (bundled Qt) package builds, with and without Qt WebEngine
 staging_qode*/
 build-*/
+# Windows packages (scripts/win/build-installer.ps1)
+staging-win/
+dist-win/
 whats-new
 /publish-apt.sh
 dev-docs

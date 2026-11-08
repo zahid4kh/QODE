@@ -211,9 +211,9 @@ QString bashProgram();
 QString gitBashExecutable();
 
 // qmake projects (QmakeProject):
-// - qmakeCandidates: qmake programs that are not on PATH, the best first. Unix: none. Windows: <drive>:\Qt\<version>\
-//   <kit>\bin\qmake.exe (the Qt installer's layout), newest version first; MSVC kits first when Visual Studio's C++
-//   tools are installed, MinGW kits first otherwise.
+// - qmakeCandidates: qmake programs that are not on PATH, the best first. Unix: none. Windows:
+//   <drive>:\Qt\<version>\<kit>\bin\qmake.exe (the Qt installer's layout), newest version first; MSVC kits first
+//   when Visual Studio's C++ tools are installed, MinGW kits first otherwise.
 // - qmakeScopes: the scopes a .pro file's conditions see as true for this OS and that qmake. Unix: unix, linux,
 //   linux-g++, linux-g++-64, gcc, posix. Windows: win32, windows, plus msvc / win32-msvc or mingw / win32-g++ / gcc.
 // - qmakeRunCommand: an sh line that configures `proRel` (relative to the project) into <project>/build, builds it and

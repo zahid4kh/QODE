@@ -1,12 +1,13 @@
 #include "jvm/JvmTools.h"
 #include "platform/Platform.h"
+#include "filesystem/FileManager.h"
+#include "editor/TextEncoding.h"
 
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QObject>
 #include <QRegularExpression>
-#include <QSaveFile>
 #include <QStandardPaths>
 
 #include <algorithm>
@@ -20,7 +21,7 @@ QString readText(const QString &path, qint64 max = 512 * 1024)
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly))
         return {};
-    return QString::fromUtf8(f.read(max));
+    return TextEncoding::decode(f.read(max)).text;
 }
 
 int lineAt(const QString &text, int offset)
@@ -590,14 +591,12 @@ bool wrapperNeedsExecBit(const QString &dir)
 bool setWrapperVersion(const QString &dir, const QString &version, QString *error)
 {
     const QString p = wrapperProperties(dir);
-    QFile in(p);
-    if (p.isEmpty() || !in.open(QIODevice::ReadOnly)) {
+    QString text;
+    if (p.isEmpty() || !FileManager::readText(p, &text)) {
         if (error)
             *error = QObject::tr("%1 was not found.").arg(QStringLiteral("gradle/wrapper/gradle-wrapper.properties"));
         return false;
     }
-    const QString text = QString::fromUtf8(in.readAll());
-    in.close();
     static const QRegularExpression url(QStringLiteral(R"re(gradle-[\d][\w.-]*?-(bin|all)\.zip)re"));
     const QRegularExpressionMatch m = url.match(text);
     if (!m.hasMatch()) {
@@ -610,10 +609,10 @@ bool setWrapperVersion(const QString &dir, const QString &version, QString *erro
     // The checksum belongs to the old release; `gradlew wrapper` writes no new one unless asked.
     static const QRegularExpression sha(QStringLiteral(R"re(^distributionSha256Sum=.*(\r?\n)?)re"), QRegularExpression::MultilineOption);
     out.remove(sha);
-    QSaveFile f(p);
-    if (!f.open(QIODevice::WriteOnly) || f.write(out.toUtf8()) < 0 || !f.commit()) {
+    QString why;
+    if (!FileManager::writeText(p, out, &why)) {
         if (error)
-            *error = QObject::tr("Could not write %1: %2").arg(QDir::toNativeSeparators(p), f.errorString());
+            *error = QObject::tr("Could not write %1: %2").arg(QDir::toNativeSeparators(p), why);
         return false;
     }
     return true;

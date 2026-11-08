@@ -14,6 +14,14 @@ struct ReadResult {
 ReadResult readFile(const QString &path);
 bool writeFile(const QString &path, const QByteArray &data, QString *error);
 
+// A text file of the user's, decoded like the editor does (TextEncoding: a BOM decides, UTF-16 from Windows tools,
+// else UTF-8, else the legacy encoding). Never QString::fromUtf8 on a user's file. False when it cannot be read.
+bool readText(const QString &path, QString *text, QString *encoding = nullptr);
+// `text` as bytes in the encoding `path` has on disk now (UTF-8 for a new file), so an edit keeps a BOM or UTF-16.
+QByteArray textBytes(const QString &path, const QString &text);
+// writeFile(path, textBytes(path, text)): an edit QODE makes to a file the user owns.
+bool writeText(const QString &path, const QString &text, QString *error = nullptr);
+
 bool createFile(const QString &path, QString *error);
 bool createFolder(const QString &path, QString *error);
 bool renamePath(const QString &from, const QString &to, QString *error);

@@ -1,6 +1,7 @@
 #include "ktor/KtorPlugins.h"
 
 #include "project/BuildFileEdit.h"
+#include "editor/TextEncoding.h"
 
 #include <QDir>
 #include <QFile>
@@ -37,7 +38,7 @@ QStringList k(std::initializer_list<const char *> keys)
 QString readText(const QString &path)
 {
     QFile f(path);
-    return f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll()) : QString();
+    return f.open(QIODevice::ReadOnly) ? TextEncoding::decode(f.readAll()).text : QString();
 }
 
 QString catalogPath(const KtorProject &project)

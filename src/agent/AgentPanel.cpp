@@ -32,6 +32,8 @@
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
+#include "editor/TextEncoding.h"
+#include "filesystem/FileManager.h"
 
 #include <QActionGroup>
 #include <QDateTime>
@@ -463,11 +465,7 @@ AgentPanel::AgentPanel(QWidget *parent)
                 *text = d->text();
                 return true;
             }
-        QFile f(abs);
-        if (!QFileInfo(abs).isFile() || !f.open(QIODevice::ReadOnly))
-            return false;
-        *text = QString::fromUtf8(f.readAll());
-        return true;
+        return QFileInfo(abs).isFile() && FileManager::readText(abs, text);
     };
     io.write = [this](const QString &abs, const QString &text) { return writeText(abs, text); };
     io.remove = [this](const QString &abs) {
@@ -1520,12 +1518,9 @@ bool AgentPanel::writeText(const QString &abs, const QString &text)
         }
     }
     QDir().mkpath(QFileInfo(abs).absolutePath());
-    LocalHistory::recordWrite(abs, text.toUtf8());
-    QSaveFile f(abs);
-    if (!f.open(QIODevice::WriteOnly))
-        return false;
-    f.write(text.toUtf8());
-    return f.commit();
+    const QByteArray bytes = FileManager::textBytes(abs, text); // keeps a BOM or UTF-16
+    LocalHistory::recordWrite(abs, bytes);
+    return FileManager::writeFile(abs, bytes, nullptr);
 }
 
 void AgentPanel::scheduleProjectChanged()

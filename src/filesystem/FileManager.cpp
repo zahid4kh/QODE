@@ -1,4 +1,5 @@
 #include "FileManager.h"
+#include "editor/TextEncoding.h"
 #include "filesystem/WatchGuard.h"
 #include "platform/Platform.h"
 
@@ -48,6 +49,32 @@ bool writeFile(const QString &path, const QByteArray &data, QString *error)
         }
         QThread::msleep(50 * (attempt + 1));
     }
+}
+
+bool readText(const QString &path, QString *text, QString *encoding)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return false;
+    const TextEncoding::Decoded d = TextEncoding::decode(f.readAll());
+    *text = d.text;
+    if (encoding)
+        *encoding = d.encoding;
+    return true;
+}
+
+QByteArray textBytes(const QString &path, const QString &text)
+{
+    QString encoding = QStringLiteral("UTF-8");
+    QFile f(path);
+    if (f.open(QIODevice::ReadOnly))
+        encoding = TextEncoding::decode(f.readAll()).encoding;
+    return TextEncoding::encode(text, &encoding);
+}
+
+bool writeText(const QString &path, const QString &text, QString *error)
+{
+    return writeFile(path, textBytes(path, text), error);
 }
 
 bool createFile(const QString &path, QString *error)

@@ -25,6 +25,7 @@
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
+#include "editor/TextEncoding.h"
 
 #include <QApplication>
 #include <QButtonGroup>
@@ -1878,7 +1879,7 @@ void ClaudeCodePanel::noteChange(const QString &name, const QJsonObject &in, con
         // No hunks (an older CLI): find the new text in the file.
         QFile f(c.path);
         if (!neu.isEmpty() && f.open(QIODevice::ReadOnly)) {
-            const QString text = QString::fromUtf8(f.readAll());
+            const QString text = TextEncoding::decode(f.readAll()).text;
             const qsizetype at = text.indexOf(neu);
             c.lines << (at < 0 ? 0 : int(text.left(at).count(QLatin1Char('\n'))) + 1);
         }

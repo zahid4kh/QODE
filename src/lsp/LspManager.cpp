@@ -12,6 +12,7 @@
 #include "project/PythonEnv.h"
 #include "project/QmakeProject.h"
 #include "settings/SettingsManager.h"
+#include "editor/TextEncoding.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -1996,7 +1997,7 @@ static QString sourceSummary(const QString &path, int line)
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly))
         return {};
-    const QStringList lines = QString::fromUtf8(f.readAll()).split(QLatin1Char('\n'));
+    const QStringList lines = TextEncoding::decode(f.readAll()).text.split(QLatin1Char('\n'));
     if (line < 0 || line >= lines.size())
         return {};
 

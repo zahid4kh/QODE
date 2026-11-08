@@ -1,4 +1,5 @@
 #include "spring/SpringEndpoints.h"
+#include "editor/TextEncoding.h"
 
 #include <QDirIterator>
 #include <QFile>
@@ -564,7 +565,7 @@ SpringScan SpringEndpoints::scan(const QStringList &sourceRoots)
             QFile f(path);
             if (f.size() > 1024 * 1024 || !f.open(QIODevice::ReadOnly))
                 continue;
-            parseFile(path, QString::fromUtf8(f.readAll()), result);
+            parseFile(path, TextEncoding::decode(f.readAll()).text, result);
         }
     }
     std::stable_sort(result.endpoints.begin(), result.endpoints.end(), [](const SpringEndpoint &a, const SpringEndpoint &b) {

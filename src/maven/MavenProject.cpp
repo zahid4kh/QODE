@@ -2,6 +2,7 @@
 #include "platform/Platform.h"
 
 #include "lsp/JarSource.h"
+#include "editor/TextEncoding.h"
 
 #include <QDir>
 #include <QFile>
@@ -21,7 +22,7 @@ QString readText(const QString &path)
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly))
         return {};
-    return QString::fromUtf8(f.readAll());
+    return TextEncoding::decode(f.readAll()).text;
 }
 
 // Reads one <project> element (the reader stands on its start tag). Only the elements the panel needs; nested

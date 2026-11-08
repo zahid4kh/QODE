@@ -3,6 +3,7 @@
 #include "platform/Platform.h"
 #include "settings/SettingsManager.h"
 #include "terminal/ShellSyntax.h"
+#include "editor/TextEncoding.h"
 
 #include <QDir>
 #include <QFile>
@@ -80,7 +81,7 @@ QString venvVersion(const QString &projectRoot, const QString &venv)
     // venv writes "version = 3.12.3", uv writes "version_info = 3.12.3" (virtualenv: "version_info" too).
     static const QRegularExpression re(QStringLiteral("^version(?:_info)?\\s*=\\s*(\\d+\\.\\d+(?:\\.\\d+)?)"),
                                        QRegularExpression::MultilineOption);
-    return re.match(QString::fromUtf8(f.readAll())).captured(1);
+    return re.match(TextEncoding::decode(f.readAll()).text).captured(1);
 }
 
 QString activationCommand(const QString &projectRoot, const QString &shellName)

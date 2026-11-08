@@ -3,6 +3,7 @@
 #include "ai/AiEnv.h"
 #include "ai/GeminiClient.h"
 #include "settings/SettingsManager.h"
+#include "editor/TextEncoding.h"
 
 #include <QDataStream>
 #include <QDir>
@@ -635,7 +636,7 @@ void CodeIndex::pump()
                 m_skip.insert(e.key);
             continue;
         }
-        QString text = QString::fromUtf8(f.readAll());
+        QString text = TextEncoding::decode(f.readAll()).text;
         text.remove(QLatin1Char('\r'));
         const QStringList lines = linesOf(text);
         for (const Entry &e : it->sections) {

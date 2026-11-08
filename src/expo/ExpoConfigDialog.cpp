@@ -4,6 +4,8 @@
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
+#include "editor/TextEncoding.h"
+#include "filesystem/FileManager.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -21,7 +23,6 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QRegularExpressionValidator>
-#include <QSaveFile>
 #include <QStyle>
 #include <QScrollArea>
 #include <QStackedWidget>
@@ -754,7 +755,7 @@ bool ExpoConfigDialog::load()
         showError(tr("Could not read %1: %2").arg(m_app.appJson, f.errorString()));
         return false;
     }
-    m_originalText = QString::fromUtf8(f.readAll());
+    m_originalText = TextEncoding::decode(f.readAll()).text; // a BOM or UTF-16 is kept on save (FileManager::writeText)
     QString error;
     if (!JsonValue::parse(m_originalText, &m_root, &error) || m_root.type != JsonValue::Object) {
         showError(tr("%1 is not plain JSON that this form can edit (%2).\n\nUse “Open in Editor” to fix it first. Comments and trailing "
@@ -1014,9 +1015,9 @@ void ExpoConfigDialog::save()
     }
     QString text = collect().toJson(indentUnit());
     text += QLatin1Char('\n');
-    QSaveFile out(m_app.appJson);
-    if (!out.open(QIODevice::WriteOnly) || out.write(text.toUtf8()) < 0 || !out.commit()) {
-        QMessageBox::critical(this, tr("Save Failed"), tr("Could not write %1: %2").arg(m_app.appJson, out.errorString()));
+    QString error;
+    if (!FileManager::writeText(m_app.appJson, text, &error)) {
+        QMessageBox::critical(this, tr("Save Failed"), tr("Could not write %1: %2").arg(m_app.appJson, error));
         return;
     }
     m_original = collect().toJson();

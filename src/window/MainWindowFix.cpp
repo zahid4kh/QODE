@@ -13,6 +13,7 @@
 #include "tasks/TasksPanel.h"
 #include "terminal/Terminal.h"
 #include "terminal/TerminalPanel.h"
+#include "editor/TextEncoding.h"
 
 #include <QDir>
 #include <QFile>
@@ -118,7 +119,7 @@ QString MainWindow::fixExcerpt(const QString &path, const QList<int> &lines) con
         QFile f(path);
         if (!f.open(QIODevice::ReadOnly) || f.size() > 2 * 1024 * 1024)
             return {};
-        text = QString::fromUtf8(f.readAll());
+        text = TextEncoding::decode(f.readAll()).text;
     }
     const QStringList all = text.split(QLatin1Char('\n'));
     QList<QPair<int, int>> ranges; // 0-based, inclusive, merged

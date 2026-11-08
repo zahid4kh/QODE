@@ -1,4 +1,5 @@
 #include "EnvDialog.h"
+#include "filesystem/FileManager.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -10,7 +11,6 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QRegularExpression>
-#include <QSaveFile>
 #include <QTableWidget>
 #include <QVBoxLayout>
 
@@ -143,10 +143,8 @@ EnvDialog::EnvDialog(const QString &dir, bool serverActive, QWidget *parent) : Q
     });
     connect(open, &QPushButton::clicked, this, [this] {
         const QString path = pathOf(currentName());
-        if (!QFile::exists(path)) {
-            QFile f(path); // an empty file so the editor has something to open
-            f.open(QIODevice::WriteOnly);
-        }
+        if (!QFile::exists(path))
+            FileManager::createFile(path, nullptr); // an empty file so the editor has something to open
         emit openFileRequested(path);
         accept();
     });
@@ -194,14 +192,15 @@ void EnvDialog::loadFile(const QString &name)
     m_rawLines.clear();
     m_original.clear();
     m_loaded = name;
-    QFile f(pathOf(name));
-    if (f.open(QIODevice::ReadOnly)) {
-        m_rawLines = QString::fromUtf8(f.readAll()).split(QLatin1Char('\n'));
+    m_crlf = false;
+    QString text;
+    if (FileManager::readText(pathOf(name), &text)) { // a BOM or UTF-16 (Windows PowerShell 5's >) is kept on save
+        m_crlf = text.contains(QLatin1String("\r\n"));
+        text.remove(QLatin1Char('\r'));
+        m_rawLines = text.split(QLatin1Char('\n'));
         if (m_rawLines.size() > 1 && m_rawLines.last().isEmpty())
             m_rawLines.removeLast();
-        for (QString line : std::as_const(m_rawLines)) {
-            if (line.endsWith(QLatin1Char('\r')))
-                line.chop(1);
+        for (const QString &line : std::as_const(m_rawLines)) {
             const auto m = entryPattern().match(line);
             if (line.trimmed().startsWith(QLatin1Char('#')) || !m.hasMatch())
                 continue;
@@ -244,7 +243,7 @@ bool EnvDialog::save()
     QStringList out;
     QSet<QString> written;
     for (const QString &raw : std::as_const(m_rawLines)) {
-        const auto m = entryPattern().match(raw.endsWith(QLatin1Char('\r')) ? raw.chopped(1) : raw);
+        const auto m = entryPattern().match(raw);
         if (raw.trimmed().startsWith(QLatin1Char('#')) || !m.hasMatch()) {
             out << raw; // comments, blank lines, anything we do not understand
             continue;
@@ -264,10 +263,10 @@ bool EnvDialog::save()
             out << e.key + QLatin1Char('=') + formatValue(e.value);
         }
 
-    QSaveFile f(pathOf(m_loaded));
-    if (!f.open(QIODevice::WriteOnly) || f.write((out.join(QLatin1Char('\n')) + (out.isEmpty() ? QString() : QStringLiteral("\n"))).toUtf8()) < 0 ||
-        !f.commit()) {
-        QMessageBox::warning(this, tr("Environment Variables"), tr("Could not write %1: %2").arg(m_loaded, f.errorString()));
+    const QString eol = m_crlf ? QStringLiteral("\r\n") : QStringLiteral("\n");
+    QString error;
+    if (!FileManager::writeText(pathOf(m_loaded), out.join(eol) + (out.isEmpty() ? QString() : eol), &error)) {
+        QMessageBox::warning(this, tr("Environment Variables"), tr("Could not write %1: %2").arg(m_loaded, error));
         return false;
     }
     m_dirty = false;

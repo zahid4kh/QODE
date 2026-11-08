@@ -1,4 +1,5 @@
 #include "ktor/KtorSource.h"
+#include "editor/TextEncoding.h"
 
 #include <QDirIterator>
 #include <QFile>
@@ -881,7 +882,7 @@ KtorScan scan(const QStringList &sourceRoots)
             QFile f(path);
             if (f.size() > 1024 * 1024 || !f.open(QIODevice::ReadOnly))
                 continue;
-            input.append({path, QString::fromUtf8(f.readAll())});
+            input.append({path, TextEncoding::decode(f.readAll()).text});
         }
     }
     return scanTexts(input);

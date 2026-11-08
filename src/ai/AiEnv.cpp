@@ -1,5 +1,6 @@
 #include "AiEnv.h"
 #include "platform/AppPaths.h"
+#include "editor/TextEncoding.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -94,9 +95,9 @@ QString apiKey(Provider provider, const QString &projectRoot, QString *source)
     for (const QString &dir : std::as_const(dirs)) {
         for (const QString &name : {QStringLiteral(".env.local"), QStringLiteral(".env")}) {
             QFile f(QDir(dir).filePath(name));
-            if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+            if (!f.open(QIODevice::ReadOnly)) // no Text mode: it would rewrite \r\n inside UTF-16 bytes on Windows
                 continue;
-            const QString v = parseValue(QString::fromUtf8(f.readAll()), key);
+            const QString v = parseValue(TextEncoding::decode(f.readAll()).text, key);
             if (!v.isEmpty()) {
                 if (source)
                     *source = QFileInfo(f).absoluteFilePath();

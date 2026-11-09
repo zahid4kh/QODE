@@ -1,1 +1,0 @@
-Copyright © 2026 JetBrains s.r.o. [JETBRAINS PRODUCT NAME - e.g PyCharm] and the [PyCharm] logo are trademarks of JetBrains s.r.o.

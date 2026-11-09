@@ -1,63 +1,62 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository. Human contributors: [CONTRIBUTING.md](CONTRIBUTING.md) is the short version of the same rules.
 
 ## Project
 
-**QODE** (binary and package `qode`) is a native C++17 / Qt 6 (Core, Gui, Widgets, Network; WebEngine / Multimedia / DBus optional) code editor for Linux with a coding chat built in: project explorer, tabbed syntax-highlighted editor with split groups, LSP, git, debugger and an integrated pty-backed terminal (toggle with `Ctrl+J`). Commit 149c472 brought in the app code (`src/`, `resources/`, `QODE.pro`) from the older QODE-AGENTIC repo (`../QODE-AGENTIC-IDE`), after the old AI chat / agent was removed (ec0b420). This repo is now where all development happens; the other one is no longer used. Key points:
+**QODE** (binary and package `qode`) is a native C++17 / Qt 6 (Core, Gui, Widgets, Network; WebEngine / Multimedia / DBus optional) code editor for Linux and Windows with a coding chat built in: project explorer, tabbed syntax-highlighted editor with split groups, LSP, git, debugger and an integrated pty-backed terminal (toggle with `Ctrl+J`). Key points:
 
 - **Chat-first layout.** The QODE chat (`Ctrl+Alt+G`) is the main view. The editor column opens beside it when files are opened. QODE starts on the welcome page (recent projects) with the chat closed.
 - **Two providers.** The chat runs on **Gemini or Claude**, with Claude models called through the Anthropic Messages API. Inline edit (`Ctrl+K`) uses the same providers.
 - **Claude Code view.** A second page of the chat area (top bar button, Ctrl+Alt+C) is a graphical front end for the `claude` CLI: install check, sign-in, permission prompts as cards, conversation history, `/usage` and `/mcp`.
 - **Called QODE in the UI.** User-visible text never says "agent" or "AI": the top-bar title, reply labels, placeholders, dialogs and the View action "QODE Chat" all use the app name (the Claude Code view is the exception: it is named after the CLI it runs). Internally the code still says agent / ai (`src/agent`, `src/ai`).
-- **Data folders.** Package, binary, desktop entry and icons are `qode`, but settings, data and caches live under `QODE-AGENTIC` (`~/.config/QODE-AGENTIC`, `~/.local/share/QODE-AGENTIC`, `~/.cache/QODE-AGENTIC`), not the older `QODE` folders.
+- **Data folders.** Package, binary, desktop entry and icons are `qode`, but settings, data and caches live under `QODE-AGENTIC` (`~/.config/QODE-AGENTIC`, `~/.local/share/QODE-AGENTIC`, `~/.cache/QODE-AGENTIC`; `%APPDATA%` / `%LOCALAPPDATA%` on Windows), a name kept from an earlier version of the project.
 
 API keys live only in mode-0600 files or the environment and are never put into prompts. Secret files (`.env*`, keys, credentials, `claude.key`/`gemini.key`) are never sent to the model. There are no third-party dependencies and no test suite or linter configured.
 
-Git-ignored local material (may be absent): `plans/`, `PRD.md`, `whats-new`, `run.sh`, `run.bat`, `bump-version.sh`, `publish-apt.sh`, `.env.local`, and API reference pages in `g-docs/` (Gemini) and `claude-api-docs/` (Anthropic Messages API). Check those pages before guessing request/response shapes in `AgentRunClaude.cpp` / `ClaudeClient` or the Gemini half. The per-area notes in `dev-docs/` (linked below) and the build and packaging scripts in `scripts/` (Linux) and `scripts/win/` (Windows) are tracked; there is no CI: the user builds the packages locally (`scripts/build-all-debs.sh`, `scripts\win\build-all.ps1`). `.gitattributes` keeps `scripts/win/*.bat` CRLF in every checkout.
+Request / response shapes for `AgentRunClaude.cpp` / `ClaudeClient` follow the Anthropic Messages API docs, and the Gemini half the Gemini API docs: check them before guessing. The per-area notes in `dev-docs/` (linked below) and the build and packaging scripts in `scripts/` (Linux) and `scripts/win/` (Windows) are part of the repo. There is no CI: packages are built locally (`scripts/build-all-debs.sh`, `scripts\win\build-all.ps1`). `.gitattributes` keeps `scripts/win/*.bat` CRLF in every checkout.
+
+A `CLAUDE.local.md` next to this file (git-ignored) holds a contributor's own machine paths and workflow preferences.
 
 ## Build & run
 
-- `scripts/compile.sh` — release build into `build/` (produces `build/qode`) with the Qt chosen by `scripts/qt.sh` (see below)
-- `./run.sh [project-dir | file ...]` — runs `build/qode`, building only if it is missing (it does not rebuild after source changes — rerun `scripts/compile.sh` first)
-- Manual: `mkdir build && cd build && ~/Qt/6.11.3/gcc_64/bin/qmake6 ../QODE.pro && make -j$(nproc)`; `sudo make install` (PREFIX defaults to `/usr/local`) installs binary, desktop entry and icon.
+- `scripts/compile.sh` — release build into `build/` (produces `build/qode`) with the Qt chosen by `scripts/qt.sh` (see below). Extra arguments go to qmake, e.g. `CONFIG+=no_webengine`.
+- Run `build/qode [project-dir | file ...]`.
+- Manual: `mkdir build && cd build && qmake6 ../QODE.pro && make -j$(nproc)`; `sudo make install` (PREFIX defaults to `/usr/local`) installs binary, desktop entry and icon.
 - Three Debian packages (DEBIAN scripts, man pages, changelog and `qode-remove-lsp` live in `packaging/`; what they share is in `scripts/deb-common.sh`, the coloured output in `scripts/ui.sh`). Each conflicts with and replaces the other two, and switching between them keeps the user data:
-  - `scripts/build-deb.sh [--no-build]` — `qode_<version>_<arch>.deb`, dynamically linked against the system Qt 6.4 (Depends on the distro's qt6 packages), built in `build-deb/` with `PREFIX=/usr`, staged in `staging_qode/`.
-  - `scripts/build-deb-qt.sh [--no-build]` — `qode-bundled_<version>_<arch>.deb`: Qt 6.11 with Qt WebEngine bundled under `/opt/qode` (needs `patchelf`; only runs on the same or newer glibc).
+  - `scripts/build-deb.sh [--no-build]` — `qode_<version>_<arch>.deb`, dynamically linked against the system Qt (Depends on the distro's qt6 packages), built in `build-deb/` with `PREFIX=/usr`, staged in `staging_qode/`.
+  - `scripts/build-deb-qt.sh [--no-build]` — `qode-bundled_<version>_<arch>.deb`: a newer Qt with Qt WebEngine bundled under `/opt/qode` (needs `patchelf`; only runs on the same or newer glibc).
   - `scripts/build-deb-qt-noweb.sh [--no-build]` (= `build-deb-qt.sh --no-webengine`) — `qode-bundled-noweb_<version>_<arch>.deb`: the same without Qt WebEngine (`CONFIG+=no_webengine`): no web / Expo preview, no Chromium, a much smaller package.
   - `scripts/build-all-debs.sh [--no-build]` builds all three into `debs/`.
   - `packaging/debian/*` hold `@PACKAGE@` / `@VERSION@` / `@FLAVOR@` / `@WEB@` placeholders that `deb_install_scripts` fills in: postinst prints the version, install / upgrade / switch, the Qt flavour, whether the preview is in it and the changelog notes of this version.
-- `./bump-version.sh <x.y.z|patch|minor|major> [-m "note" ...] [-n]` bumps `VERSION` everywhere (QODE.pro, `docs/` package.json and download links, new top entry in `packaging/changelog`); `-n` is a dry run.
+- The version is `VERSION` in QODE.pro; a release also updates `docs/` (package.json, download links) and adds a top entry to `packaging/changelog`.
 - `docs/` is the unrelated marketing landing page (Next.js 16 / React 19 / Tailwind 4, pnpm): `cd docs && pnpm dev` / `pnpm build`.
 
 Build artifacts (`build*/`, `staging_qode*/`, `debs/`, `.deb` files) are git-ignored.
 
-With no tests, the way to check a change is `scripts/compile.sh` (a clean build with no new warnings), then `./run.sh <project>` to try the feature. When testing the Claude Code view against the real `claude` CLI, use tiny prompts and as few runs as possible.
+With no tests, the way to check a change is `scripts/compile.sh` (a clean build with no new warnings), then run `build/qode <project>` to try the feature. When testing the Claude Code view against the real `claude` CLI, use tiny prompts and as few runs as possible.
 
 ### Which Qt is used
 
-The scripts build against Qt 6.11.3 from `~/Qt/6.11.3/gcc_64` (installed with `aqtinstall`, WebEngine 6.11 = a recent Chromium). The system Qt is Ubuntu's 6.4.2 (`qt6-*` apt packages; WebEngine = Chromium 102); it stays installed and is only used by `build-deb.sh`.
+Release builds use a recent Qt 6 (6.11 at the time of writing) installed under `~/Qt/<version>/gcc_64` (e.g. with `aqtinstall`; WebEngine 6.11 = a recent Chromium). The distro's Qt (Ubuntu 24.04: 6.4.2, WebEngine = Chromium 102) is only used by `build-deb.sh`.
 
 - `QODE.pro` does not choose Qt: the qmake that configures the build does, and the binary finds that Qt's libraries through the RUNPATH qmake adds (`ldd build/qode | grep Qt6` shows which Qt is loaded).
 - [scripts/qt.sh](scripts/qt.sh) (sourced by the build scripts) sets `QMAKE`: `$QODE_QMAKE` if set, else the newest `~/Qt/<version>/gcc_64/bin/qmake6`, else `qmake6` from `PATH`. A build folder configured by a different qmake is wiped and configured again, so switching Qt never mixes objects. `QODE_QMAKE=/usr/bin/qmake6 scripts/compile.sh` builds against the system Qt.
-- `compile.sh` (and so `run.sh`; extra arguments go to qmake, e.g. `CONFIG+=no_webengine`) and `build-deb-qt.sh` use that Qt. `build-deb-qt.sh` bundles it under `/opt/qode`: the Qt libraries plus everything else in Qt's own `lib/` (ICU, FFmpeg), the plugins, and (not with `--no-webengine`) WebEngine's `QtWebEngineProcess` (`libexec/`), `resources/` and `translations/qtwebengine_locales`, with `qt.conf` pointing at them. The package needs the same or a newer glibc than the build machine.
+- `compile.sh` and `build-deb-qt.sh` use that Qt. `build-deb-qt.sh` bundles it under `/opt/qode`: the Qt libraries plus everything else in Qt's own `lib/` (ICU, FFmpeg), the plugins, and (not with `--no-webengine`) WebEngine's `QtWebEngineProcess` (`libexec/`), `resources/` and `translations/qtwebengine_locales`, with `qt.conf` pointing at them. The package needs the same or a newer glibc than the build machine.
 - `build-deb.sh` always uses `/usr/bin/qmake6`: its package depends on the distro's `qt6` packages, which a Qt from `~/Qt` would not match.
 - So the code must also build with Qt 6.4: no API newer than 6.4 (e.g. `QRegularExpression::matchView` is 6.5), and include headers that 6.11 pulls in indirectly but 6.4 does not (`QWindow` for `focusWindowChanged`, `QGuiApplication`, the full type behind a `QPointer<T>` member in a QObject header). `QODE_QMAKE=/usr/bin/qmake6 scripts/compile.sh` or `scripts/build-deb.sh` checks it.
 - Qt 6.11 deprecation warnings (`invalidateFilter`, `globalMatch`, unchecked `QFile::open`) are known and harmless. Version-sensitive code worth re-checking after a Qt upgrade: the SVG `<mask>` workaround in `webdev/WebPreview.cpp` and anything documented as a Qt 6.4 / Chromium 102 quirk in `dev-docs/`.
 
-### Windows (branch `windows-port`)
+### Windows
 
-The plan is [plans/windows-port.md](plans/windows-port.md). Linux / Unix code is never deleted: Windows gets a second implementation (the `src/platform/` layer, see the plan), and Linux must still build with Qt 6.11 and the system Qt 6.4.
+Linux / Unix code is never deleted: Windows gets a second implementation (the `src/platform/` layer), and Linux must still build with a recent Qt and the system Qt 6.4.
 
-- **Machine:** Qt 6.11.3 at `D:\qt\6.11.3\msvc2022_64` (WebEngine, Multimedia, bundled zlib via `QT += zlib-private`). Visual Studio Community 2026 at `D:\vs-studio-18` (MSVC 14.51, Windows SDK 10.0.26100), which builds fine against the `msvc2022_64` kit (same ABI). jom if installed, else nmake with `/MP`.
-- **Build:** `scripts\win\compile.bat [noweb]` builds a release into `build-win\` (`build-win-noweb\` with `CONFIG+=no_webengine`): it finds qmake (`%QODE_QMAKE%`, else the newest `D:\qt\6.*\msvc2022_64`, root overridable with `%QODE_QT_ROOT%`) and MSVC (vswhere → `vcvars64.bat`) by itself. Extra qmake args must be quoted (`"DEFINES+=X"`): cmd splits arguments at `=`.
+- **Toolchain:** Qt 6.11 for MSVC (`msvc2022_64` kit, with WebEngine and Multimedia; zlib comes from Qt through `QT += zlib-private`) and Visual Studio 2022 or newer with the Windows SDK. jom if installed, else nmake with `/MP`.
+- **Build:** `scripts\win\compile.bat [noweb]` builds a release into `build-win\` (`build-win-noweb\` with `CONFIG+=no_webengine`): it finds qmake (`%QODE_QMAKE%`, else the newest `6.*\msvc2022_64` under `%QODE_QT_ROOT%`, which defaults to `D:\qt`; set it to `C:\Qt` for a default Qt installer setup) and MSVC (vswhere → `vcvars64.bat`) by itself. Extra qmake args must be quoted (`"DEFINES+=X"`): cmd splits arguments at `=`.
 - **Deploy:** `compile.bat` ends with `windeployqt` (Qt DLLs and plugins copied next to `qode.exe`, incremental), so the exe also starts with a double-click; `set QODE_NODEPLOY=1` skips it.
-- **Test project:** try features in `D:\deskit` (Kotlin / Gradle), not in this repo. All Windows phases are done (only Phase 8h, signing / release links / winget, is left); the branch is now being checked on Linux (Qt 6.11 and the system Qt 6.4) before the user merges it.
-- **Run:** `run.bat [noweb] [nobuild] [paths] [-n]` in the repo root: incremental build, then starts `qode.exe` with Qt's `bin\` on PATH for that process. Relative paths are made absolute.
-- **Two Windows builds only**, both with Qt bundled (windeployqt + installer, Phase 8): with WebEngine and `noweb`. No dynamically linked / system-Qt flavour on Windows.
+- **Two Windows builds only**, both with Qt bundled (windeployqt + installer): with WebEngine and `noweb`. No dynamically linked / system-Qt flavour on Windows.
 - **Packages:** `scripts\win\build-installer.ps1 [-NoWeb] [-NoBuild] [-NoPortable]` stages `qode.exe`, Qt and the MSVC runtime DLLs in `staging-win\`, then builds `dist-win\QODE-<version>[-noweb]-setup.exe` with Inno Setup 6 ([packaging/windows/qode.iss](packaging/windows/qode.iss)) and a portable zip; `scripts\win\build-all.ps1` builds both flavours. The installer is per user (`%LOCALAPPDATA%\Programs\QODE`, no admin), both flavours share one AppId, and the uninstaller lists QODE's data through `qode.exe --qode-files list|remove` (`app/QodeFiles`). QODE holds the mutex `QODE-AGENTIC-running` so setup can ask to close it.
-- **Shell:** this is Windows. Use PowerShell or cmd; Git Bash (the Bash tool) only for POSIX scripts. `bash.exe` on PATH is the WSL stub with no distro, so Linux builds cannot be checked here: the user checks them on Ubuntu. Never run destructive removals (build folders, files, git resets): say what and why, and wait for a yes.
-- **Git:** one commit per feature or fix, on `windows-port` only. Never merge into `main`; the user merges after testing everything. The repo sets `core.autocrlf=input`, so sources stay LF. `.bat` files must be CRLF.
+- **Line endings:** the repo sets `core.autocrlf=input`, so sources stay LF. `.bat` files must be CRLF.
 - **Windows code rules:** OS-specific code lives in `src/platform/` behind `Q_OS_WIN` / `Q_OS_UNIX`, not scattered `#ifdef`s. Outside it, never use `/bin/sh`, `split(':')` on PATH (use `QDir::listSeparator()`), `QDir::homePath() + "/.cache/…"`, `::kill`, `/proc`, or `startsWith('/')` as an absolute-path test. Do not `#include <windows.h>` outside `src/platform/` (and define `NOMINMAX` / `WIN32_LEAN_AND_MEAN` there).
 - **Platform APIs to use instead** (all in `src/platform/`, Unix halves return exactly the old values):
   - `AppPaths::config/data/cache(sub)`: QODE-AGENTIC folders.
@@ -81,7 +80,7 @@ The plan is [plans/windows-port.md](plans/windows-port.md). Linux / Unix code is
     - `invalidFileName` for names users type;
     - `decodeOutput` for child-process output (not `fromLocal8Bit`);
     - `hiddenByOs`, `legacyEncoding`, `busyFileRetries`, `canMakeSymlinks`.
-  - Processes and files (Phase 5):
+  - Processes and files:
     - `killTree(proc)` to stop a short-lived tool started with `setCommand` (a `.bat` / `.cmd` leaves java / node running otherwise);
     - `removeTree(path)` for every recursive delete (Qt's `removeRecursively` follows junctions on Windows);
     - `realPath` (follows junctions), `setCurrentVersion` / `currentVersion` (managed installs' `current`: symlink / junction), `commandLinkFile` / `writeCommandLink` / `commandLinkTarget`, `setUnpackCommand` (System32 tar.exe), `setRemoveCommand` / `removeCommandText`, `osTag()` ("linux" / "win");
@@ -94,7 +93,7 @@ The plan is [plans/windows-port.md](plans/windows-port.md). Linux / Unix code is
 
 ## Code rules
 
-- Build is qmake-only ([QODE.pro](QODE.pro)); it errors out on Qt < 6. **Every new .cpp/.h must be added to `SOURCES`/`HEADERS` in QODE.pro by hand** (no globbing), and new resources (fonts, icons, template files) to [resources/qode.qrc](resources/qode.qrc).
+- Build is qmake-only ([QODE.pro](QODE.pro)); it errors out on Qt < 6. **Every new .cpp/.h must be added to `SOURCES`/`HEADERS` in QODE.pro by hand** (no globbing), and new resources (fonts, icons, template files) to [resources/qode.qrc](resources/qode.qrc). Third-party assets (icons, fonts, images) also get an entry in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 - `QT_NO_CAST_TO_ASCII` / `QT_NO_CAST_FROM_BYTEARRAY` are on: use `QStringLiteral`/`QLatin1String` for string literals passed as QString.
 - Headers are included relative to `src/` (e.g. `#include "editor/Document.h"`).
 - Qt Multimedia (`QODE_HAS_MULTIMEDIA`, video in the media panel), Qt WebEngine (`QODE_HAS_WEBENGINE`, the embedded live web preview; `CONFIG+=no_webengine` leaves it out, and then there is no web / Expo preview at all) and Qt DBus (`QODE_HAS_DBUS`, desktop notifications in `app/DesktopNotify`) are optional: guard code that uses them with those defines so the build still works without the module. zlib (`-lz`) is required by `lsp/JarSource`. `QODE_VERSION` comes from `VERSION` in QODE.pro.
@@ -105,6 +104,7 @@ The plan is [plans/windows-port.md](plans/windows-port.md). Linux / Unix code is
 - File / folder pickers: `FileDialogs::getOpenFileName` etc. (`dialogs/FileDialogs.h`), never the `QFileDialog` statics: on Windows Qt writes `HKCU\Software\QtProject` whenever a dialog closes, and the wrapper puts it back.
 - Nothing QODE writes may land outside its own folders (`AppPaths`) unless it is listed in `app/QodeFiles` (Help > QODE's Files and the Windows uninstaller show that list): transparency about what QODE creates is a product goal.
 - The Claude agent history must stay append-only within a run (thinking blocks are bound to the exact prefix) — see [dev-docs/agent.md](dev-docs/agent.md).
+- One commit per feature or fix. A change to a module updates its `dev-docs/` file in the same commit.
 
 ## Architecture
 

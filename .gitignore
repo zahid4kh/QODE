@@ -29,3 +29,6 @@ staging-win/
 dist-win/
 whats-new
 /publish-apt.sh
+
+# Personal Claude Code notes (machine paths, workflow); CLAUDE.md is the shared one
+CLAUDE.local.md

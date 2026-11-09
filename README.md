@@ -1,6 +1,6 @@
 # QODE
 
-A native C++/Qt 6 code editor for Linux with a coding chat built in. QODE opens on the welcome page; the **QODE chat** (Gemini or Claude) is the main view and the editor opens beside it when you open files. Around it: project explorer, tabbed syntax-highlighted editor with split groups, language servers, git, an integrated terminal (`Ctrl+J`), a debugger for Java / Kotlin and run tooling for JVM, web, Expo and Python projects.
+A native C++/Qt 6 code editor for Linux and Windows with a coding chat built in. QODE opens on the welcome page; the **QODE chat** (Gemini or Claude) is the main view and the editor opens beside it when you open files. Around it: project explorer, tabbed syntax-highlighted editor with split groups, language servers, git, an integrated terminal (`Ctrl+J`), a debugger for Java / Kotlin and run tooling for JVM, web, Expo and Python projects.
 
 ## Features
 
@@ -15,13 +15,21 @@ A native C++/Qt 6 code editor for Linux with a coding chat built in. QODE opens 
 - **Git**: Version Control panel with a diff pane and inline blame.
 - **Game panel** (`Ctrl+Alt+P`): a neon block-stacking game beside the chat, for while QODE or Claude Code works. It pauses when you click away, and keeps your high score, top 10 and play time.
 
-QODE never writes into your project folder. Settings and per-project data live in `~/.config/QODE-AGENTIC`, downloads (language servers, local history) in `~/.local/share/QODE-AGENTIC` and caches in `~/.cache/QODE-AGENTIC`.
+QODE never writes into your project folder. **Help > QODE's Files** lists everything it has created on your computer, with sizes.
+
+| | Linux | Windows |
+| --- | --- | --- |
+| Settings, keys, per-project data | `~/.config/QODE-AGENTIC` | `%APPDATA%\QODE-AGENTIC` |
+| Downloads (language servers, local history) | `~/.local/share/QODE-AGENTIC` | `%LOCALAPPDATA%\QODE-AGENTIC` |
+| Caches | `~/.cache/QODE-AGENTIC` | `%LOCALAPPDATA%\QODE-AGENTIC\cache` |
+
+The Windows portable zip keeps all of it in a `data` folder next to `qode.exe` instead.
 
 ## QODE chat: API keys
 
-The chat runs on **Gemini** or **Claude** with your own API key. Click the key button in the chat header (**Set API key…**) to save one. QODE stores it in a file only you can read (mode 0600). It also picks up `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` from the environment or from a `.env.local` / `.env` file. Keys are never put into prompts, and secret files (`.env*`, keys, credentials) are never sent to the model.
+The chat runs on **Gemini** or **Claude** with your own API key. Click the key button in the chat header (**Set API key…**) to save one. QODE stores it in a file only you can read (mode 0600 on Linux; on Windows it sits in your own profile under `%APPDATA%`, protected by the profile's permissions). It also picks up `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` from the environment or from a `.env.local` / `.env` file. Keys are never put into prompts, and secret files (`.env*`, keys, credentials) are never sent to the model.
 
-The Claude Code view needs the [`claude` CLI](https://docs.anthropic.com/en/docs/claude-code); the view checks for it and helps you install it and sign in.
+The Claude Code view needs the [`claude` CLI](https://docs.anthropic.com/en/docs/claude-code); the view checks for it and helps you install it and sign in. On Windows, Claude Code also needs [Git for Windows](https://git-scm.com/download/win) (it runs its commands in Git Bash).
 
 ## Screenshots
 
@@ -39,7 +47,7 @@ The Claude Code view needs the [`claude` CLI](https://docs.anthropic.com/en/docs
 
 ## Install
 
-### Debian / Ubuntu (APT)
+### Linux: Debian / Ubuntu (APT)
 
 QODE is published in a personal APT repository (amd64), so it installs and updates like any other package:
 
@@ -71,9 +79,25 @@ The bundled packages need the same or a newer glibc than the machine they were b
 
 The `.deb` files are also attached to each [GitHub release](https://github.com/zahid4kh/QODE/releases), e.g. `sudo apt install ./qode_<version>_amd64.deb`. To build from source instead, see below.
 
+### Windows
+
+Windows 10 (1809) or newer, x64. Each [GitHub release](https://github.com/zahid4kh/QODE/releases) has two flavours, each as an installer and a portable zip:
+
+- **`QODE-<version>-setup.exe`**, with Qt WebEngine for the web / Expo preview.
+- **`QODE-<version>-noweb-setup.exe`**, the same without Qt WebEngine: smaller, pages open in your browser.
+- **`QODE-<version>[-noweb]-portable.zip`**: unzip anywhere and run `QODE\qode.exe`. Settings and data stay in the unzipped folder.
+
+The installer needs no administrator rights: it installs for your user only, into `%LOCALAPPDATA%\Programs\QODE`, and QODE writes nothing to the registry. Installing one flavour replaces the other and keeps your settings. The uninstaller lists QODE's data with sizes and lets you choose what to delete.
+
+The installer is not code-signed yet, so Windows SmartScreen may warn about an unknown publisher. Choose **More info > Run anyway**, or check the file against the SHA-256 listed in the release first.
+
+In QODE's terminal you can pick PowerShell 7, Windows PowerShell, Command Prompt, Git Bash or WSL (when a distribution is installed). Commands QODE types for you (run configurations, Gradle, npm) are rewritten for the shell you use.
+
 ## Build
 
-Requires Qt 6.4 or newer (Core, Gui, Widgets, Network), qmake6, zlib and a C++17 compiler. Optional modules are used when present: Qt WebEngine (web / Expo preview), Qt Multimedia (video in the media panel) and Qt DBus (desktop notifications).
+Requires Qt 6.4 or newer (Core, Gui, Widgets, Network), qmake6, zlib and a C++17 compiler. Optional modules are used when present: Qt WebEngine (web / Expo preview), Qt Multimedia (video in the media panel) and Qt DBus (desktop notifications, Linux). [CONTRIBUTING.md](CONTRIBUTING.md) has more detail.
+
+### Linux
 
 ```sh
 mkdir build && cd build
@@ -83,13 +107,26 @@ make -j$(nproc)
 sudo make install        # optional, PREFIX defaults to /usr/local
 ```
 
+`scripts/compile.sh` does the same and picks the newest Qt under `~/Qt` when there is one.
+
+### Windows
+
+Install Qt 6 for MSVC (the `msvc2022_64` kit; add Qt WebEngine and Qt Multimedia for the preview and video) and Visual Studio 2022 or newer with the C++ workload. Then, in a Command Prompt:
+
+```bat
+set QODE_QT_ROOT=C:\Qt
+scripts\win\compile.bat
+```
+
+`QODE_QT_ROOT` is the folder that holds `6.x\msvc2022_64`. The script finds Visual Studio by itself, builds into `build-win\` and copies the Qt DLLs next to `qode.exe` (`build-win\qode.exe` or `build-win\release\qode.exe`), so it starts with a double-click. Use `compile.bat noweb` to build without Qt WebEngine, and `scripts\win\build-installer.ps1` to make the installer and the portable zip (needs Inno Setup 6).
+
 ## Language servers (LSP)
 
 QODE is an LSP client; it does not ship any language server (for Kotlin and the web languages it can download one for you on request). Install the server for your language and QODE finds it on `PATH` (or use **LSP > Set Server Path…**). With no server installed everything else works as before, and the status bar shows a hint when you open a file that has one available.
 
 | Language | Server | Install |
 |---|---|---|
-| C / C++ | [clangd](https://clangd.llvm.org) | `sudo apt install clangd` · `sudo dnf install clang-tools-extra` · `sudo pacman -S clang` |
+| C / C++ | [clangd](https://clangd.llvm.org) | Linux: `sudo apt install clangd` · `sudo dnf install clang-tools-extra` · `sudo pacman -S clang`. Windows: `winget install LLVM.LLVM`, or MSYS2's `clang-tools-extra` (both folders are found without changing PATH) |
 | Kotlin | [kotlin-lsp](https://github.com/Kotlin/kotlin-lsp) (JetBrains, Alpha) | **LSP > Download and Set Up…** (see below) |
 | JavaScript / TypeScript (`.js .jsx .mjs .cjs .ts .tsx .mts .cts`) | [typescript-language-server](https://github.com/typescript-language-server/typescript-language-server) | **LSP > Download and Set Up…** (see Web development) |
 | HTML | vscode-html-language-server | same install |
@@ -102,13 +139,13 @@ clangd needs to know your compiler flags: put a `compile_commands.json` (CMake: 
 
 Currently supported: diagnostics (squiggles, tinted line numbers, error/warning counts in the status bar), hover (rest the mouse on a symbol for its type and documentation) and **Go to Definition** (F12 or Ctrl+click; holding Ctrl underlines the symbol under the mouse like a link; several candidates are offered in a menu) and **code completion** (a popup appears as you type or after `.`, `->`, `::`; Up/Down to choose, Tab or Enter to accept, Esc to dismiss, Ctrl+Space to open it manually; accepting a symbol from a header you have not included adds the `#include`). Without a server, Ctrl+Space completes from words in the current file.
 
-**Kotlin**: choose **LSP > Download and Set Up…** (also shown when you open a `.kt` file without a server). QODE downloads JetBrains' standalone Linux archive (about 370 MB, SHA-256 verified) from download.jetbrains.com, unpacks it into `~/.local/share/QODE-AGENTIC/lsp/kotlin`, links it as `~/.local/bin/kotlin-lsp` and test-runs it. No Java install is needed (the server brings its own runtime) and no administrator rights are used. The dialog installs the tested version; tick the box there for the latest release. The **LSP** menu has one submenu per server (status, set up, restart, log, remove): **Update / Reinstall…** manages the download later, and **Remove Language Server…** shows and runs the removal (for Kotlin it deletes the download, link and caches with a visible log; for clangd it gives the `apt`/`dnf`/`pacman` command to run in QODE's terminal) and then offers to restart QODE. To do it by hand, take the *standalone* `kotlin-server-<version>.tar.gz` from the [releases page](https://github.com/Kotlin/kotlin-lsp/releases) (not the `.vsix`, that is the VS Code extension), unpack it and put `bin/intellij-server` on your `PATH` as `kotlin-lsp`, or use **LSP > Set Server Path…**. Go to Definition on a library symbol opens its source (unpacked read-only from the dependency's `-sources.jar` or the JDK's `src.zip`), unused imports turn gray (hover one to remove them, choosing which in a dialog), import lists fold with a chevron on the first import, **Alt+Enter** offers quick fixes such as *Import → java.io.File*, and accepting a completion for a class you have not imported adds the `import` line for you. The server analyses Gradle and Maven projects (a `build.gradle(.kts)` / `pom.xml` in the project folder); the first import can take a while and its progress shows in the status bar.
+**Kotlin**: choose **LSP > Download and Set Up…** (also shown when you open a `.kt` file without a server). QODE downloads JetBrains' standalone archive for your OS (about 370 MB, SHA-256 verified) from download.jetbrains.com, unpacks it into QODE's data folder (`lsp/kotlin`), links it as `~/.local/bin/kotlin-lsp` (on Windows `%USERPROFILE%\.local\bin\kotlin-lsp.cmd`) and test-runs it. No Java install is needed (the server brings its own runtime) and no administrator rights are used. The dialog installs the tested version; tick the box there for the latest release. The **LSP** menu has one submenu per server (status, set up, restart, log, remove): **Update / Reinstall…** manages the download later, and **Remove Language Server…** shows and runs the removal (for Kotlin it deletes the download, link and caches with a visible log; for clangd it gives the `apt` / `dnf` / `pacman` command, or `winget` / MSYS2 on Windows, to run in QODE's terminal) and then offers to restart QODE. To do it by hand, take the *standalone* `kotlin-server-<version>.tar.gz` (Windows: `kotlin-server-<version>.win.zip`) from the [releases page](https://github.com/Kotlin/kotlin-lsp/releases) (not the `.vsix`, that is the VS Code extension), unpack it and put `bin/intellij-server` on your `PATH` as `kotlin-lsp`, or use **LSP > Set Server Path…**. Go to Definition on a library symbol opens its source (unpacked read-only from the dependency's `-sources.jar` or the JDK's `src.zip`), unused imports turn gray (hover one to remove them, choosing which in a dialog), import lists fold with a chevron on the first import, **Alt+Enter** offers quick fixes such as *Import → java.io.File*, and accepting a completion for a class you have not imported adds the `import` line for you. The server analyses Gradle and Maven projects (a `build.gradle(.kts)` / `pom.xml` in the project folder); the first import can take a while and its progress shows in the status bar.
 
-**Run** in a qmake application project: the first time you press Run on a C++ source, QODE suggests a command that configures, builds in `build/` and starts the program (`cd {project} && mkdir -p build && cd build && qmake6 ../app.pro && make -j$(nproc) && ./app`); edit it in the Run Configuration dialog if you build differently.
+**Run** in a qmake application project: the first time you press Run on a C++ source, QODE suggests a command that configures, builds in `build/` and starts the program (`cd {project} && mkdir -p build && cd build && qmake6 ../app.pro && make -j$(nproc) && ./app`); edit it in the Run Configuration dialog if you build differently. On Windows the suggested command is a small `.bat` that sets up MSVC (or MinGW) for the Qt kit QODE found, then runs qmake and the build.
 
 ## Web development
 
-**Language servers.** Open any HTML, CSS, JavaScript, TypeScript or JSON file and choose **LSP > Download and Set Up…** (or the hint in the status bar). QODE runs `npm install` into `~/.local/share/QODE-AGENTIC/lsp/web` (TypeScript 6, typescript-language-server, vscode-langservers-extracted), so nothing is installed globally and nothing is written into your project; the four servers are installed, updated and removed together. It needs a system **Node.js** (22 or newer; nvm, fnm, volta and asdf installs are found even when QODE is started from a desktop launcher). You get diagnostics, hover, Go to Definition and completion; a TypeScript copy in the project's `node_modules` is preferred over the managed one. Emmet, Tailwind and similar extras are not included.
+**Language servers.** Open any HTML, CSS, JavaScript, TypeScript or JSON file and choose **LSP > Download and Set Up…** (or the hint in the status bar). QODE runs `npm install` into QODE's data folder (`lsp/web`; TypeScript 6, typescript-language-server, vscode-langservers-extracted), so nothing is installed globally and nothing is written into your project; the four servers are installed, updated and removed together. It needs a system **Node.js** (22 or newer; nvm, fnm, volta and asdf installs are found even when QODE is started from a desktop launcher, and on Windows the Node.js installer, winget, Volta and Scoop folders too). You get diagnostics, hover, Go to Definition and completion; a TypeScript copy in the project's `node_modules` is preferred over the managed one. Emmet, Tailwind and similar extras are not included.
 
 **Dev server.** When the project folder (or a subfolder, see below) has a `package.json` with a `dev`, `develop`, `start`, `serve` or `preview` script, the toolbar's Run buttons are replaced by a server strip: a status dot (amber starting, green running, red failed), the address (click to open in the browser), Start/Stop, Restart, Log, `.env` and Settings buttons. **F5** starts or restarts the server instead of running a file.
 
@@ -118,7 +155,14 @@ Currently supported: diagnostics (squiggles, tinted line numbers, error/warning 
 - **Nested projects:** if the root has no web project but a subfolder does (for example `docs/`; two levels are scanned), QODE asks "Detected a web project at …, run the server?" with *Run Server*, *Not Now* and *Don't Ask Again*. The choice is stored per project.
 - **`.env` editor:** the key button edits `.env`, `.env.local` and any other `.env*` file next to the project's `package.json` as a name/value table, or opens the file in the editor. Saving rewrites only the entries you changed, added or removed, so comments, blank lines, `export` prefixes and untouched lines stay byte-identical, and values are quoted only when needed. It can restart the running server afterwards.
 
-The server runs in its own process group and is stopped when you switch or close the project and when QODE exits. Per-project choices are kept in QODE's settings, not in your project.
+The server runs in its own process group (a Job Object on Windows) and is stopped when you switch or close the project and when QODE exits. Per-project choices are kept in QODE's settings, not in your project.
 
 **Explorer.** Entries are ordered folders, dot folders, dot files, then files (each alphabetical). **View > Show Hidden Files in Explorer** hides dot files and folders; `.env*` files always stay visible.
 
+## Contributing
+
+Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to build, test and submit a change, and [dev-docs/](dev-docs/) for notes on each part of the code.
+
+## License
+
+QODE is released under the [MIT License](LICENSE). Fonts, icons, logos and the bundled Qt libraries come under their own licenses: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

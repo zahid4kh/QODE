@@ -17,7 +17,7 @@ QODE itself is released under the [MIT License](LICENSE), copyright © 2026 Zahi
   >
   > THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-- **Brand logos** in `resources/new-icons/`, as single-colour SVG paths in the format of **Simple Icons** (<https://simpleicons.org>, CC0 1.0). The logos are trademarks of their owners. QODE uses them only to mark the matching files, projects and providers, and is not endorsed by these companies.
+- **Brand logos** in `resources/new-icons/`, taken from **Simple Icons** (<https://simpleicons.org>; the SVG files are released under CC0 1.0). The logos are trademarks of their owners. QODE uses them only to mark the matching files, projects and providers, and is not endorsed by these companies.
 
   | File | Logo | Trademark of |
   | --- | --- | --- |
@@ -34,12 +34,6 @@ QODE itself is released under the [MIT License](LICENSE), copyright © 2026 Zahi
   > Copyright © 2026 JetBrains s.r.o. Kotlin and the Kotlin logo are trademarks of JetBrains s.r.o.
   >
   > Copyright © 2026 JetBrains s.r.o. Ktor and the Ktor logo are trademarks of JetBrains s.r.o.
-
-## Device mockups (embedded in the binary)
-
-`resources/phone-mockup/iphone-mockup.png` and `resources/phone-mockup/pixel-9-pro-mockup.svg` frame the web / Expo preview. iPhone and Pixel are trademarks of Apple Inc. and Google LLC.
-
-<!-- TODO before publishing: record where these two mockups come from and their license, or replace them with self-made frames. -->
 
 ## Qt
 

@@ -159,6 +159,25 @@ The server runs in its own process group (a Job Object on Windows) and is stoppe
 
 **Explorer.** Entries are ordered folders, dot folders, dot files, then files (each alphabetical). **View > Appearance > Show Hidden Files in Explorer** hides dot files and folders; `.env*` files always stay visible.
 
+## Code signing policy
+
+Free code signing for the Windows releases is provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org) (being set up: until then the Windows files are unsigned).
+
+- Signed files are built by GitHub Actions ([.github/workflows/windows.yml](.github/workflows/windows.yml)) from a tagged commit of this repository: `qode.exe`, the installers, the uninstaller and the portable zips. Files built anywhere else are never signed.
+- Committers and reviewers: [Zahid Khalilov](https://github.com/zahid4kh)
+- Approvers (each signing request is approved by hand): [Zahid Khalilov](https://github.com/zahid4kh)
+
+### Privacy
+
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. In detail:
+
+- **QODE chat and inline edit** send your messages and the code they need to the provider you choose (Google Gemini or Anthropic Claude), with your own API key. Nothing is sent until you use them, and nothing at all without a key.
+- **Codebase search by meaning:** once you have saved a Gemini key, the chat's codebase index sends the open project's code sections (never secret files) to Google's embedding API, then only new or changed sections. Turn it off in the chat header's index menu (**Search by meaning with Gemini embeddings**); search then ranks by keywords and nothing leaves your computer.
+- **Downloads you start:** language servers, JDKs, Gradle and Maven wrappers, npm and Python packages, and searches of Maven Central and PyPI go to those projects' own servers.
+- **Claude Code view:** runs the `claude` CLI you installed; it talks to Anthropic under Anthropic's terms.
+
+QODE has no telemetry, no analytics and no update check.
+
 ## Contributing
 
 Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to build, test and submit a change, and [dev-docs/](dev-docs/) for notes on each part of the code.

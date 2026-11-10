@@ -28,7 +28,7 @@ CONFIG -= app_bundle
 
 TEMPLATE = app
 TARGET = qode
-VERSION = 2.0.0
+VERSION = 2.1.0
 # JarSource reads library source jars with zlib: the system's on Unix, the copy inside Qt Core on Windows.
 unix: LIBS += -lz
 win32: QT += zlib-private

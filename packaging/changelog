@@ -1,3 +1,14 @@
+qode (2.1.0) unstable; urgency=low
+
+  * Windows: native build with ConPTY terminal (PowerShell, cmd, Git Bash, WSL), per-user installer and portable zip, both with or without Qt WebEngine
+  * Help > QODE's Files: everything QODE created on this computer, with sizes; the Windows uninstaller lists and removes QODE's data
+  * Text files keep their encoding (UTF-8, UTF-16, Windows-1252) and line endings; Reopen / Save with Encoding
+  * Game panel (Ctrl+Alt+P): Teqris and Snake
+  * Terminal asks before closing a tab with a running command; View menu grouped into submenus
+  * Kotlin LSP pinned to 263.7084.0; Gradle 9.9.0 and Kotlin 2.4.21 in the templates; crash fixes on quit
+
+ -- zahid4kh <halilzahid@gmail.com>  Tue, 10 Nov 2026 22:07:11 +0100
+
 qode (2.0.0) unstable; urgency=low
 
   * QODE chat on Gemini or Claude: file, terminal, LSP, git and debugger tools, usage meter, codebase search, undo / redo, slash commands, MCP servers, Fix with QODE

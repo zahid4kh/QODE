@@ -25,8 +25,8 @@ import {
 import { FilesMock } from "@/components/files-mock";
 import { LinuxIcon, WindowsIcon } from "@/components/os-icons";
 
-// bump-version.sh rewrites every "2.0.0" in this file.
-const VERSION = "2.0.0";
+// bump-version.sh rewrites every "2.1.0" in this file.
+const VERSION = "2.1.0";
 const RELEASE = `https://github.com/zahid4kh/QODE/releases/download/${VERSION}`;
 const RELEASES_PAGE = "https://github.com/zahid4kh/QODE/releases";
 const REPO = "https://github.com/zahid4kh/QODE";

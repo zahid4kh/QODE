@@ -30,7 +30,7 @@ const mono = JetBrains_Mono({
 const siteUrl = "https://qodeditor.vercel.app";
 const title = "QODE — Code without the baggage";
 const description =
-  "A lightweight, native C++/Qt code editor for Linux. Fast startup, real files, an integrated terminal, Git and LSP support, and no Electron bloat.";
+  "A lightweight, native C++/Qt code editor for Windows and Linux, with a coding chat built in. Fast startup, real files, an integrated terminal, Git, LSP and a debugger, and no Electron bloat.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -41,6 +41,7 @@ export const metadata: Metadata = {
     "QODE",
     "code editor",
     "Linux code editor",
+    "Windows code editor",
     "C++ editor",
     "Qt 6",
     "native editor",
@@ -73,7 +74,7 @@ export const metadata: Metadata = {
         url: "/og-image.png",
         width: 1200,
         height: 630,
-        alt: "QODE — a native C++/Qt code editor for Linux",
+        alt: "QODE — a native C++/Qt code editor for Windows and Linux",
       },
     ],
   },
@@ -104,7 +105,7 @@ const jsonLd = {
   url: siteUrl,
   description,
   applicationCategory: "DeveloperApplication",
-  operatingSystem: "Linux",
+  operatingSystem: "Windows, Linux",
   image: `${siteUrl}/og-image.png`,
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
   license: "https://opensource.org/licenses/MIT",

@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "QODE",
     short_name: "QODE",
-    description: "A lightweight, native C++/Qt code editor for Linux.",
+    description: "A lightweight, native C++/Qt code editor for Windows and Linux.",
     start_url: "/",
     display: "standalone",
     background_color: "#000000",

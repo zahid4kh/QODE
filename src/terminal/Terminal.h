@@ -59,6 +59,9 @@ public:
     // whether a command runs in the foreground, and the shell's current folder.
     QString recentOutput(int lines) const;
     bool commandRunning() const { return isRunning() && !shellInForeground(); }
+    // The command line of the program running in the foreground ("" when unknown: no shell integration, or typed
+    // before it loaded). Only meaningful while commandRunning().
+    QString runningCommand() const { return m_inCommand ? (m_commandText.isEmpty() ? m_commandFallback : m_commandText) : QString(); }
     QString currentDirectory() const;
 
 signals:

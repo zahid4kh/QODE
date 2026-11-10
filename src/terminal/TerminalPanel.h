@@ -83,6 +83,8 @@ private:
     Terminal *createPane(const QString &program);
     int createSession(const QString &customName, const QString &program = QString());
     void fillShellMenu(QMenu *menu);
+    void requestCloseSession(int index); // asks first when a command still runs in one of the tab's panes
+    bool confirmClose(const QList<Terminal *> &panes);
     void closeSession(int index);
     void closePane(Terminal *t);
     void renameTab(int index);

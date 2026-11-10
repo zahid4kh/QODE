@@ -12,6 +12,8 @@
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QMenu>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QMouseEvent>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -115,7 +117,7 @@ TerminalPanel::TerminalPanel(QWidget *parent)
         }
         refreshTabs();
     });
-    connect(m_tabs, &QTabBar::tabCloseRequested, this, &TerminalPanel::closeSession);
+    connect(m_tabs, &QTabBar::tabCloseRequested, this, &TerminalPanel::requestCloseSession);
     connect(m_tabs, &QTabBar::tabMoved, this, [this](int from, int to) {
         QWidget *w = m_stack->widget(from);
         m_stack->removeWidget(w);
@@ -336,6 +338,49 @@ void TerminalPanel::closePane(Terminal *t)
         cur->focusTerminal();
 }
 
+void TerminalPanel::requestCloseSession(int index)
+{
+    if (QSplitter *page = pageAt(index); page && confirmClose(panesOf(page)))
+        closeSession(index);
+}
+
+// Closing a pane ends its shell and whatever it runs (a dev server, a build): ask first when that is more than a
+// prompt. True = go ahead.
+bool TerminalPanel::confirmClose(const QList<Terminal *> &panes)
+{
+    QStringList running;
+    int unnamed = 0;
+    for (Terminal *t : panes) {
+        if (!t->commandRunning())
+            continue;
+        QString cmd = t->runningCommand();
+        if (cmd.size() > 80)
+            cmd = cmd.left(79) + QStringLiteral("…");
+        if (cmd.isEmpty())
+            ++unnamed;
+        else
+            running << cmd;
+    }
+    const int count = int(running.size()) + unnamed;
+    if (count == 0)
+        return true;
+    QString text;
+    if (count == 1)
+        text = running.isEmpty() ? tr("A program is still running in this terminal.")
+                                 : tr("“%1” is still running in this terminal.").arg(running.first());
+    else
+        text = tr("%1 programs are still running in this terminal.").arg(count);
+    QMessageBox box(QMessageBox::Warning, tr("Close Terminal"), text, QMessageBox::NoButton, this);
+    box.setInformativeText(count == 1 ? tr("Closing the terminal stops it.") : tr("Closing the terminal stops them."));
+    if (count > 1 && !running.isEmpty())
+        box.setDetailedText(running.join(QLatin1Char('\n')));
+    QPushButton *close = box.addButton(tr("Close Terminal"), QMessageBox::DestructiveRole);
+    QPushButton *cancel = box.addButton(QMessageBox::Cancel);
+    box.setDefaultButton(cancel);
+    box.exec();
+    return box.clickedButton() == close;
+}
+
 void TerminalPanel::closeSession(int index)
 {
     QSplitter *page = pageAt(index);
@@ -396,7 +441,7 @@ void TerminalPanel::tabMenu(const QPoint &pos)
         splitCurrent(Qt::Vertical);
     });
     menu.addSeparator();
-    connect(menu.addAction(tr("Close")), &QAction::triggered, this, [this, i] { closeSession(i); });
+    connect(menu.addAction(tr("Close")), &QAction::triggered, this, [this, i] { requestCloseSession(i); });
     menu.exec(m_tabs->mapToGlobal(pos));
 }
 

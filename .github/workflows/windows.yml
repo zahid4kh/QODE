@@ -62,9 +62,17 @@ jobs:
           if ($version -ne $tag) { Write-Error "Tag $tag but QODE.pro says VERSION = $version"; exit 1 }
           Write-Host "QODE $version"
 
+      # install-qt-action runs aqtinstall with the Python on PATH. The runner's newest Python can be ahead of the
+      # wheels of aqtinstall's 7z libraries (py7zr, pyzstd...), and pip then fails building them from source.
+      - name: Python for aqtinstall
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
       - name: Install Qt ${{ env.QT_VERSION }} (msvc2022_64)
         uses: jurplel/install-qt-action@v4
         with:
+          aqtversion: '==3.3.*'
           version: ${{ env.QT_VERSION }}
           host: windows
           target: desktop

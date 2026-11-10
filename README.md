@@ -157,7 +157,7 @@ Currently supported: diagnostics (squiggles, tinted line numbers, error/warning 
 
 The server runs in its own process group (a Job Object on Windows) and is stopped when you switch or close the project and when QODE exits. Per-project choices are kept in QODE's settings, not in your project.
 
-**Explorer.** Entries are ordered folders, dot folders, dot files, then files (each alphabetical). **View > Show Hidden Files in Explorer** hides dot files and folders; `.env*` files always stay visible.
+**Explorer.** Entries are ordered folders, dot folders, dot files, then files (each alphabetical). **View > Appearance > Show Hidden Files in Explorer** hides dot files and folders; `.env*` files always stay visible.
 
 ## Contributing
 

@@ -502,6 +502,8 @@ void MainWindow::createMenus()
     folding->addAction(m_foldAllAct);
     folding->addAction(m_unfoldAllAct);
 
+    // Grouped so the menu fits on a laptop screen: panels at the top level, the many on/off options in submenus.
+    // Run File / Run Configuration live in the Run menu only.
     QMenu *view = menuBar()->addMenu(tr("&View"));
     view->addAction(m_paletteAct);
     view->addSeparator();
@@ -510,38 +512,35 @@ void MainWindow::createMenus()
     view->addAction(m_newTerminalAct);
     view->addAction(m_venvAct);
     view->addSeparator();
-    view->addAction(m_runAct);
-    view->addAction(m_runConfigAct);
-    view->addAction(m_pythonPkgAct);
-    view->addAction(m_gradleAct);
-    view->addAction(m_mavenAct);
-    view->addAction(m_springAct);
-    view->addAction(m_springStarterAct);
-    view->addAction(m_ktorAct);
-    view->addAction(m_ktorPluginAct);
-    view->addAction(m_httpAct);
     view->addAction(m_aiAct);
     view->addAction(m_claudeCodeAct);
-    view->addAction(m_mcpAct);
     view->addAction(m_editorPaneAct);
     view->addAction(m_gameAct);
+    QMenu *tools = view->addMenu(tr("Tool Panels"));
+    tools->addAction(m_httpAct);
+    tools->addAction(m_mcpAct);
+    tools->addAction(m_pythonPkgAct);
+    tools->addAction(m_gradleAct);
+    tools->addAction(m_mavenAct);
+    tools->addAction(m_springAct);
+    tools->addAction(m_springStarterAct);
+    tools->addAction(m_ktorAct);
+    tools->addAction(m_ktorPluginAct);
     view->addSeparator();
-    view->addAction(m_splitRightAct);
-    view->addAction(m_splitDownAct);
-    view->addSeparator();
-    view->addAction(m_wordWrapAct);
-    view->addAction(m_zoomInAct);
-    view->addAction(m_zoomOutAct);
-    view->addAction(m_zoomResetAct);
     view->addAction(m_previewAct);
     view->addAction(m_showBookmarksAct);
     view->addAction(m_showTodosAct);
     view->addSeparator();
-    view->addAction(m_indentGuidesAct);
-    view->addAction(m_stickyAct);
-    view->addAction(m_predictAct);
-    view->addAction(m_minimapAct);
-    QMenu *foldMenu = view->addMenu(tr("Folding"));
+    QMenu *editorMenu = view->addMenu(tr("Editor"));
+    editorMenu->addAction(m_splitRightAct);
+    editorMenu->addAction(m_splitDownAct);
+    editorMenu->addSeparator();
+    editorMenu->addAction(m_wordWrapAct);
+    editorMenu->addAction(m_indentGuidesAct);
+    editorMenu->addAction(m_stickyAct);
+    editorMenu->addAction(m_minimapAct);
+    editorMenu->addAction(m_breadcrumbsAct);
+    QMenu *foldMenu = editorMenu->addMenu(tr("Folding"));
     QAction *foldHeaderAct = foldMenu->addAction(tr("Fold License Headers When Opening Files"));
     foldHeaderAct->setCheckable(true);
     foldHeaderAct->setChecked(SettingsManager::instance().foldLicenseHeaders());
@@ -553,16 +552,17 @@ void MainWindow::createMenus()
     foldDocsAct->setToolTip(tr("KDoc / Javadoc / JSDoc comments (/** … */) of three lines or more start folded"));
     connect(foldDocsAct, &QAction::toggled, this, [](bool on) { SettingsManager::instance().setFoldDocComments(on); });
     foldMenu->setToolTipsVisible(true);
-    QMenu *hintsMenu = view->addMenu(tr("Inlay Hints"));
+    QMenu *code = view->addMenu(tr("Code Insight"));
+    code->addAction(m_predictAct);
+    code->addAction(m_semanticAct);
+    code->addAction(m_symbolHighlightAct);
+    code->addAction(m_lightBulbAct);
+    code->addAction(m_codeLensAct);
+    QMenu *hintsMenu = code->addMenu(tr("Inlay Hints"));
     hintsMenu->addAction(m_hintParamsAct);
     hintsMenu->addAction(m_hintTypesAct);
-    view->addAction(m_semanticAct);
-    view->addAction(m_symbolHighlightAct);
-    view->addAction(m_lightBulbAct);
-    view->addAction(m_codeLensAct);
-    view->addAction(m_hiddenFilesAct);
-    view->addAction(m_breadcrumbsAct);
-    QMenu *theme = view->addMenu(tr("Theme"));
+    QMenu *appearance = view->addMenu(tr("Appearance"));
+    QMenu *theme = appearance->addMenu(tr("Theme"));
     // Rebuilt on open: user themes come and go with the files in the themes folder.
     connect(theme, &QMenu::aboutToShow, this, [this, theme] {
         theme->clear();
@@ -583,6 +583,12 @@ void MainWindow::createMenus()
             QDesktopServices::openUrl(QUrl::fromLocalFile(ThemeManager::instance().themesDir()));
         });
     });
+    appearance->addSeparator();
+    appearance->addAction(m_zoomInAct);
+    appearance->addAction(m_zoomOutAct);
+    appearance->addAction(m_zoomResetAct);
+    appearance->addSeparator();
+    appearance->addAction(m_hiddenFilesAct);
     view->addSeparator();
     view->addAction(m_fullscreenAct);
 

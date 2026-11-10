@@ -1,6 +1,6 @@
 # HTTP client (.http / .rest files)
 
-Works in any project (or a lone file): `.http` / `.rest` files in the format of VS Code's REST Client and IntelliJ's HTTP client. Requests are sent from the editor (the gutter's ▶ run marker or Ctrl+Enter; Ctrl+Alt+R, VS Code's key, is QODE's workspace symbols) and answered in the **HTTP Client** panel of the right-hand island (View > HTTP Client, File > New HTTP Request File…). The Spring Boot Requests tab shares the network and response code but keeps its own form-based client.
+Works in any project (or a lone file): `.http` / `.rest` files in the format of VS Code's REST Client and IntelliJ's HTTP client. Requests are sent from the editor (the gutter's ▶ run marker or Ctrl+Enter; Ctrl+Alt+R, VS Code's key, is QODE's workspace symbols) and answered in the **HTTP Client** panel of the right-hand island (View > Tool Panels > HTTP Client, File > New HTTP Request File…). The Spring Boot Requests tab shares the network and response code but keeps its own form-based client.
 
 ## module (`src/http`)
 

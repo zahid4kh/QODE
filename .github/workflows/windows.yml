@@ -72,6 +72,7 @@ jobs:
       - name: Install Qt ${{ env.QT_VERSION }} (msvc2022_64)
         uses: jurplel/install-qt-action@v4
         with:
+          setup-python: false   # its own setup-python would pick the newest Python again
           aqtversion: '==3.3.*'
           version: ${{ env.QT_VERSION }}
           host: windows

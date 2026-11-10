@@ -1,0 +1,124 @@
+# Windows packages: installer + portable zip, with and without Qt WebEngine.
+#
+# Runs the same scripts as a local build (scripts\win\build-installer.ps1 -> compile.bat -> Inno Setup), only with
+# Qt from install-qt-action instead of D:\qt.
+#
+#   push of a version tag (2.1.0) -> builds that tag and attaches the four files to its GitHub release
+#                                    (a draft release is created when there is none yet)
+#   Actions > Windows packages > Run workflow -> builds the tag you type; attaches only when "attach" is ticked
+#   push that changes the Windows packaging -> builds as a check; files only as workflow artifacts
+name: Windows packages
+
+on:
+  push:
+    # Tag pushes ignore the paths below; branch pushes need one of them to change.
+    tags: ['[0-9]+.[0-9]+.[0-9]+']
+    branches: ['**']
+    paths:
+      - '.github/workflows/windows.yml'
+      - 'scripts/win/**'
+      - 'packaging/windows/**'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (e.g. 2.1.0)'
+        required: true
+      attach:
+        description: 'Attach the files to that tag''s GitHub release'
+        type: boolean
+        default: false
+
+env:
+  QT_VERSION: '6.11.3'
+
+jobs:
+  build:
+    name: Build (${{ matrix.flavor }})
+    runs-on: windows-2022
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - flavor: web
+            modules: qtwebengine qtwebchannel qtpositioning qtmultimedia
+            args: ''
+          - flavor: noweb
+            modules: qtmultimedia
+            args: '-NoWeb'
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Tag matches VERSION in QODE.pro
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag
+        shell: pwsh
+        run: |
+          $tag = '${{ inputs.tag }}'
+          if (-not $tag) { $tag = '${{ github.ref_name }}' }
+          $version = (Select-String -Path QODE.pro -Pattern '^VERSION\s*=\s*(\S+)').Matches[0].Groups[1].Value
+          if ($version -ne $tag) { Write-Error "Tag $tag but QODE.pro says VERSION = $version"; exit 1 }
+          Write-Host "QODE $version"
+
+      - name: Install Qt ${{ env.QT_VERSION }} (msvc2022_64)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: ${{ matrix.modules }}
+          dir: ${{ runner.temp }}
+          cache: true
+
+      - name: Inno Setup 6
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          if (-not (Test-Path $iscc)) { Write-Error 'Inno Setup was not installed'; exit 1 }
+          "QODE_ISCC=$iscc" >> $env:GITHUB_ENV
+
+      - name: Build the installer and the portable zip
+        shell: pwsh
+        run: |
+          $env:QODE_QMAKE = Join-Path $env:QT_ROOT_DIR 'bin\qmake6.exe'
+          powershell -ExecutionPolicy Bypass -File scripts\win\build-installer.ps1 ${{ matrix.args }}
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: qode-windows-${{ matrix.flavor }}
+          path: |
+            dist-win/*-setup.exe
+            dist-win/*-portable.zip
+          if-no-files-found: error
+
+  release:
+    name: Attach to the release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/') || inputs.attach
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: files
+          merge-multiple: true
+
+      - name: Upload to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          ls -l files
+          (cd files && sha256sum *) | tee SHA256SUMS-windows.txt
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --verify-tag --title "QODE $TAG" --notes "QODE $TAG"
+          fi
+          gh release upload "$TAG" files/* SHA256SUMS-windows.txt --clobber

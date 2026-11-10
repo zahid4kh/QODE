@@ -73,7 +73,10 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           setup-python: false   # its own setup-python would pick the newest Python again
-          aqtversion: '==3.3.*'
+          # aqtinstall 3.3.0 (the latest release) looks for Qt 6.11's Windows packages in the old qt6_6113/qt6_6113/
+          # folder; Qt now has one folder per compiler (qt6_6113_msvc2022_64). Its master knows the new layout, so
+          # use that, pinned to one commit. Go back to aqtversion: '==3.4.*' once 3.4 is released.
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@5a49f2b391ae8ee1d3c0dd87f8b33c1d49a4deb7'
           version: ${{ env.QT_VERSION }}
           host: windows
           target: desktop

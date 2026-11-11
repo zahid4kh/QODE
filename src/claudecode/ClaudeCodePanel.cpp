@@ -200,6 +200,8 @@ QString when(const QDateTime &t)
     return QLocale().toString(t.date(), QLocale::ShortFormat);
 }
 
+constexpr int kColumn = 920; // the transcript's and input's width on a wide window
+
 QLabel *wrapLabel(const QString &text, QWidget *parent, const char *name = nullptr)
 {
     auto *l = new QLabel(text, parent);
@@ -666,6 +668,12 @@ void ClaudeCodePanel::buildChatPage()
     m_listLayout->setSpacing(10);
     m_listLayout->addStretch(1);
     m_scroll->setWidget(m_list);
+    // On a wide window the transcript is one readable column in the middle, of a fixed width: it is not reflowed while
+    // a splitter is dragged (see fitColumn).
+    m_list->setMaximumWidth(kColumn + 20);
+    m_scroll->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
+    m_scroll->setObjectName(QStringLiteral("ccScroll")); // its background fills the sides of the column
+    m_scroll->viewport()->installEventFilter(this);
     QScrollBar *bar = m_scroll->verticalScrollBar();
     connect(bar, &QScrollBar::valueChanged, this, [this, bar](int v) { m_stick = v >= bar->maximum() - 24; });
     connect(bar, &QScrollBar::rangeChanged, this, [this, bar] {
@@ -2620,17 +2628,21 @@ QString ClaudeCodePanel::relative(const QString &path) const
     return path;
 }
 
-void ClaudeCodePanel::resizeEvent(QResizeEvent *event)
+// The input lines up with the transcript's column (centred in the scroll area's viewport, so the scroll bar is left
+// out). The transcript itself is not given margins here: a layout sees a Resize before any event filter or resizeEvent,
+// so margins set from either came one layout late, and every step of a splitter drag reflowed each reply and tool row
+// twice (to the new width and back to the column) where the column did not change at all. Its maximum width keeps it
+// at the column instead.
+void ClaudeCodePanel::fitColumn()
 {
-    QWidget::resizeEvent(event);
-    constexpr int kColumn = 920;
-    const int side = qMax(10, (width() - kColumn) / 2);
-    m_listLayout->setContentsMargins(side, 8, side, 8);
-    m_bottom->setContentsMargins(side, 4, side, 10);
+    const int side = qMax(10, (m_scroll->viewport()->width() - kColumn) / 2);
+    m_bottom->setContentsMargins(side, 4, qMax(10, width() - side - kColumn), 10);
 }
 
 bool ClaudeCodePanel::eventFilter(QObject *watched, QEvent *event)
 {
+    if (event->type() == QEvent::Resize && watched == m_scroll->viewport())
+        fitColumn();
     if (watched == m_input && (event->type() == QEvent::FocusIn || event->type() == QEvent::FocusOut)) {
         m_inputBox->setProperty("focused", event->type() == QEvent::FocusIn);
         m_inputBox->style()->unpolish(m_inputBox);
@@ -2643,7 +2655,7 @@ void ClaudeCodePanel::applyTheme()
 {
     const Theme t = Theme::byName(SettingsManager::instance().theme()).agentView();
     setStyleSheet(QStringLiteral(
-                      "QWidget#agentRoot, QWidget#aiList { background: %1; }"
+                      "QWidget#agentRoot, QWidget#aiList, QScrollArea#ccScroll { background: %1; }"
                       "QWidget#agentHeader { background: %4; border-bottom: 1px solid %5; }"
                       "QWidget#agentHeader QLabel { background: transparent; border: none; }"
                       "QLabel#aiWho { color: %2; font-size: 8pt; letter-spacing: 1px; background: transparent; }"

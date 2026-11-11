@@ -101,7 +101,10 @@ void MarkdownView::updateHeight()
 {
     if (!m_autoHeight)
         return;
-    document()->setTextWidth(viewport()->width());
+    // QTextEdit's own resize has usually laid the document out at this width already; setting it again would lay
+    // the whole document out a second time (a chat transcript has dozens of these views).
+    if (!qFuzzyCompare(document()->textWidth(), qreal(viewport()->width())))
+        document()->setTextWidth(viewport()->width());
     setFixedHeight(int(document()->size().height()) + 2 * frameWidth() + 2);
 }
 

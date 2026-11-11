@@ -64,7 +64,6 @@ signals:
 
 protected:
     void showEvent(QShowEvent *event) override;
-    void resizeEvent(QResizeEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
@@ -81,6 +80,7 @@ private:
     // conversation
     void newConversation();
     void rebuildHistoryMenu();
+    void fitColumn(); // the centred column on a wide window
     void openConversation(const QString &id);
     void send();                       // the input as it is: sent now, or queued while a turn runs
     void dispatch(const Prompt &prompt);

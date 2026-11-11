@@ -6,6 +6,7 @@
 #include "settings/Icons.h"
 #include "settings/SettingsManager.h"
 #include "settings/Theme.h"
+#include "window/WrapLabel.h"
 
 #include <QAbstractTextDocumentLayout>
 #include <QEvent>
@@ -325,10 +326,9 @@ AgentTurnView::Item &AgentTurnView::startItem(Block::Kind kind)
         it.chevron->setVisible(false);
         it.icon = new QLabel(row);
         it.icon->setFixedSize(14, 14);
-        it.label = new QLabel(row);
+        it.label = new WrapLabel(row); // hundreds of rows in a long conversation: a plain wrapped QLabel made resizing crawl
         it.label->setObjectName(QStringLiteral("agentToolText"));
         it.label->setTextFormat(Qt::RichText);
-        it.label->setWordWrap(true);
         it.label->setTextInteractionFlags(Qt::TextSelectableByMouse);
         l->addWidget(it.chevron, 0, Qt::AlignTop);
         l->addWidget(it.icon, 0, Qt::AlignTop);

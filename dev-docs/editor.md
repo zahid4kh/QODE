@@ -116,6 +116,7 @@ Shell scripts need no LSP for colouring: `shell()` in `Language.cpp` covers comm
 Where it is triggered:
 - **Editor.** Edit › Copy as Image… and the editor's context menu (`MainWindow::m_copyImageAct`) use the selection, or the whole file when nothing is selected. A selection over several lines takes whole lines; one inside a single line takes just the selected text.
 - **Code boxes.** In the QODE chat, Claude Code and the Markdown preview, the context menu of a code box (`MarkdownView::codeBoxAt`) offers Copy Code as Image…. The language comes from the box's header cell.
+- **Auto height** (`MarkdownView::setAutoHeight`, every chat reply): `updateHeight` sets the document's text width only when it differs from the viewport's. `QTextEdit`'s own resize has already laid the document out at the new width, and setting it again laid every reply out a second time per resize step.
 
 `CodeImageDialog` is a non-modal window:
 - A live preview, drawn at the screen's resolution and redrawn 40 ms after the last option change. The size label comes from `CodeImage::measure`, which lays the picture out without drawing it.

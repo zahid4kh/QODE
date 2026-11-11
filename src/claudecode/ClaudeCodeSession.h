@@ -28,8 +28,12 @@ public:
     ~Session() override;
 
     bool isRunning() const;
+    // A process that was stopped and is still saving holds the next start back until it has exited, so `--resume`
+    // never reads a conversation another process is still writing. What is sent meanwhile waits.
     void start(const Options &options);
-    void stop();                              // ends the process (the conversation stays on disk and can be resumed)
+    // Ends the process without waiting for it (the conversation stays on disk and can be resumed): input is closed,
+    // so the CLI saves and exits; it is terminated after 1.5 s and killed 1 s later if it is still running.
+    void stop();
     QString sessionId() const { return m_sessionId; }
 
     void sendUser(const QJsonValue &content); // a string, or content blocks (text, images)
@@ -55,8 +59,11 @@ private:
     void request(const QJsonObject &request, const QString &id = QString());
     void readOut();
     void handle(const QJsonObject &o);
+    void startPending();
+    static void endNow(QProcess *p); // the blocking stop, for QODE's exit
 
     QProcess *m_proc = nullptr;
+    QList<QProcess *> m_closing; // stopped, still exiting
     QByteArray m_buffer;
     QByteArray m_stderr;
     QList<QByteArray> m_pending; // written before the process was up

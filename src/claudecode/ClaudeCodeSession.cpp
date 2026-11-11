@@ -5,6 +5,9 @@
 
 #include <QJsonDocument>
 #include <QProcess>
+#include <QTimer>
+
+#include <utility>
 
 namespace claudecode {
 
@@ -15,7 +18,30 @@ Session::Session(QObject *parent)
 
 Session::~Session()
 {
-    stop();
+    // QODE is closing (or the view goes away): give the CLI its time to save, as a stop used to.
+    if (QProcess *p = std::exchange(m_proc, nullptr)) {
+        p->disconnect(this);
+        if (p->state() != QProcess::NotRunning)
+            p->closeWriteChannel();
+        endNow(p);
+        delete p;
+    }
+    for (QProcess *p : std::exchange(m_closing, {})) {
+        p->disconnect(this);
+        endNow(p);
+        delete p;
+    }
+}
+
+void Session::endNow(QProcess *p)
+{
+    if (p->state() == QProcess::NotRunning)
+        return;
+    if (!p->waitForFinished(1500)) {
+        p->terminate();
+        if (!p->waitForFinished(1000))
+            Platform::killTree(p); // Windows: also the node behind claude.cmd
+    }
 }
 
 bool Session::isRunning() const
@@ -87,7 +113,14 @@ void Session::start(const Options &o)
     // The initialize request comes first (the SDK does the same); its answer lists the commands and models.
     m_initId = QStringLiteral("qode-init-%1").arg(++m_nextId);
     request(QJsonObject{{"subtype", "initialize"}}, m_initId);
-    p->start();
+    startPending();
+}
+
+// Starts m_proc once no stopped process is still exiting (see start).
+void Session::startPending()
+{
+    if (m_proc && m_closing.isEmpty() && m_proc->state() == QProcess::NotRunning)
+        m_proc->start();
 }
 
 void Session::stop()
@@ -99,13 +132,37 @@ void Session::stop()
     m_proc = nullptr;
     m_pending.clear();
     p->disconnect(this);
-    p->closeWriteChannel(); // end of input: the CLI saves the conversation and exits
-    if (!p->waitForFinished(1500)) {
-        p->terminate();
-        if (!p->waitForFinished(1000))
-            Platform::killTree(p); // Windows: also the node behind claude.cmd
+    if (p->state() == QProcess::NotRunning) { // its start was still waiting for an older process
+        p->deleteLater();
+        return;
     }
-    p->deleteLater();
+    // Waiting here froze QODE for ~0.7 s (the CLI saving and exiting) on every new or opened conversation.
+    m_closing << p;
+    const auto release = [this, p] {
+        if (m_closing.removeOne(p))
+            startPending();
+    };
+    connect(p, &QProcess::finished, this, [release, p] {
+        release();
+        p->deleteLater();
+    });
+    connect(p, &QProcess::errorOccurred, this, [release, p](QProcess::ProcessError e) {
+        if (e != QProcess::FailedToStart) // no `finished` follows this one
+            return;
+        release();
+        p->deleteLater();
+    });
+    QTimer::singleShot(3000, p, release); // never hold the next start back for longer
+    p->closeWriteChannel(); // end of input: the CLI saves the conversation and exits
+    QTimer::singleShot(1500, p, [p] {
+        if (p->state() == QProcess::NotRunning)
+            return;
+        p->terminate();
+        QTimer::singleShot(1000, p, [p] {
+            if (p->state() != QProcess::NotRunning)
+                Platform::killTree(p); // Windows: also the node behind claude.cmd
+        });
+    });
 }
 
 void Session::write(const QJsonObject &o)

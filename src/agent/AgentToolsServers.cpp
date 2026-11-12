@@ -132,7 +132,9 @@ void AgentTools::registerServerTools()
                                       "run_command waits for the command to end, and a server never ends.\n"
                                       "- When the user reports an error from the running app, or after a change the server does not reload by "
                                       "itself (build files, configuration, server code without hot reload), read server_log, restart it and "
-                                      "check that it comes back up."));
+                                      "check that it comes back up.\n"
+                                      "- Each message's [Editor context] lists the servers and their state: one listed as running is up at that "
+                                      "url; never start it again or ask the user to start it."));
     auto serverParam = Param{"server", "string", "Server id from server_status (web, expo:<folder>, spring, ktor). Optional when there is only one.", false};
     auto detail = [this](const QString &verb) {
         return [this, verb](const QJsonObject &a) {

@@ -1487,6 +1487,70 @@ ToolResult AgentTools::diagnosticsTool(const QJsonObject &a)
     return success(r, !note.isEmpty() && lines.isEmpty() ? note : QStringLiteral("%1, %2").arg(plural(errors, "error", "errors"), plural(warnings, "warning", "warnings")));
 }
 
+ToolResult AgentTools::problemsTool(const QJsonObject &a)
+{
+    if (!m_hooks.ide)
+        return fail(QStringLiteral("the IDE cannot be controlled right now"));
+    QJsonObject args;
+    if (!str(a, "path").trimmed().isEmpty()) {
+        QString abs, err;
+        if (!resolve(str(a, "path"), &abs, &err))
+            return fail(err);
+        args.insert("path", abs);
+    }
+    const QJsonObject r = m_hooks.ide(QStringLiteral("problems"), args);
+    if (r.contains("error"))
+        return fail(r.value("error").toString());
+    const QString level = str(a, "severity").trimmed().toLower();
+    const int maxSeverity = level == QLatin1String("error") ? 1 : level == QLatin1String("all") ? 4 : 2;
+    QVector<Diag> rows;
+    for (const QJsonValue &v : r.value("rows").toArray()) {
+        const QJsonObject o = v.toObject();
+        Diag d;
+        d.path = o.value("path").toString();
+        d.line = o.value("line").toInt();
+        d.column = o.value("column").toInt();
+        d.severity = o.value("severity").toInt(1);
+        d.message = o.value("message").toString();
+        d.source = o.value("source").toString();
+        d.code = o.value("code").toString();
+        if (d.severity <= maxSeverity && !AiEnv::isSensitive(d.path))
+            rows.append(d);
+    }
+    std::stable_sort(rows.begin(), rows.end(), [](const Diag &x, const Diag &y) {
+        return x.severity != y.severity ? x.severity < y.severity : x.path != y.path ? x.path < y.path : x.line < y.line;
+    });
+    QSet<QString> open;
+    for (const QJsonValue &v : r.value("open").toArray())
+        open.insert(Platform::pathKey(v.toString()));
+    QStringList lines;
+    QSet<QString> files;
+    int errors = 0, warnings = 0, skipped = 0;
+    bool closedFiles = false;
+    for (const Diag &d : std::as_const(rows)) {
+        d.severity == 1 ? ++errors : (d.severity == 2 ? ++warnings : 0);
+        files.insert(d.path);
+        closedFiles = closedFiles || (d.source != QLatin1String("terminal") && !open.contains(Platform::pathKey(d.path)));
+        if (lines.size() >= 80) {
+            ++skipped;
+            continue;
+        }
+        lines << diagLine(d);
+    }
+    QJsonObject out{{"problems", lines.isEmpty() ? QStringLiteral("(none)") : lines.join(QLatin1Char('\n'))},
+                    {"errors", errors}, {"warnings", warnings}, {"files", int(files.size())}};
+    QStringList notes;
+    if (skipped)
+        notes << QStringLiteral("%1 more not shown; pass a path").arg(skipped);
+    if (closedFiles)
+        notes << QStringLiteral("files that are not open show their language server's last report; get_diagnostics with a path checks a file's current text");
+    if (lines.isEmpty())
+        notes << QStringLiteral("a language server only reports on the files it has checked (usually the open ones); this is not proof that the project builds");
+    if (!notes.isEmpty())
+        out.insert("note", notes.join(QStringLiteral("; ")));
+    return success(out, QStringLiteral("%1, %2").arg(plural(errors, "error", "errors"), plural(warnings, "warning", "warnings")));
+}
+
 // --- the table ------------------------------------------------------------------------------------------------------
 
 // --- the IDE around the chat ----------------------------------------------------------------------------------------
@@ -1780,6 +1844,15 @@ void AgentTools::registerAll()
          makeSchema({{"path", "string", "File to check. Omit for every open file.", false}, {"severity", "string", "\"error\", \"warning\" (default: errors and warnings) or \"all\".", false}}),
          Risk::ReadOnly, [this](const QJsonObject &a) { return diagnosticsTool(a); },
          [](const QJsonObject &a) { return str(a, "path").isEmpty() ? QStringLiteral("Check diagnostics") : QStringLiteral("Check diagnostics of %1").arg(str(a, "path")); }, {}});
+
+    add({"get_problems", "Everything QODE knows is wrong in the project: the language servers' errors and warnings of every file they "
+                         "reported on, and compiler errors printed in QODE's terminal (source \"terminal\"), as the Tasks > Problems view "
+                         "and the editor show them. The overview; get_diagnostics checks one file against its current text.",
+         withEnum(makeSchema({{"path", "string", "Only this file or folder. Default: the whole project.", false},
+                              {"severity", "string", "error, warning (errors and warnings, default) or all.", false}}),
+                  "severity", {"error", "warning", "all"}),
+         Risk::ReadOnly, [this](const QJsonObject &a) { return problemsTool(a); },
+         [](const QJsonObject &a) { return str(a, "path").isEmpty() ? QStringLiteral("List the problems") : QStringLiteral("List the problems in %1").arg(str(a, "path")); }, {}});
 
     // The window around the chat. None of these asks first: they change only what is shown or how the editor behaves, and
     // installing a language server opens QODE's own installer dialog, which the user starts.

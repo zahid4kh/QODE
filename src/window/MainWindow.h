@@ -391,6 +391,11 @@ private:
     QJsonObject ideInstallServer(const QString &id);
     QJsonObject ideToolGroups() const;
     QJsonObject ideTerminalOutput(int tab, int lines);
+    // Language-server diagnostics of the project's files plus the terminal's compiler problems (get_problems); `path`
+    // limits them to a file or folder.
+    QJsonObject ideProblems(const QString &path) const;
+    // A few lines on what runs and what is wrong (servers, preview, problems, terminal), sent with every chat message.
+    QJsonObject ideSummary();
     // The chat's http_request (MainWindowHttp.cpp): sends a request of a .http file through the HTTP panel; the chat polls.
     QJsonObject ideHttpSend(const QString &path, const QString &request, int line, const QString &environment);
     QJsonObject ideHttpPoll();
@@ -415,6 +420,8 @@ private:
     // The chat's preview tools (MainWindowIdePreview.cpp): the preview shown with its page loaded, or nullptr + `err`.
     WebPreview *idePreview(const QString &server, QString *err);
     QJsonObject idePreviewState(WebPreview *p) const;
+    // Whether the preview is shown and what it shows, without showing it or waiting for a page (preview_status).
+    QJsonObject idePreviewStatus() const;
     QJsonObject idePreviewAction(const QString &action, const QJsonObject &args);
     int m_previewConsoleRead = 0; // the serial of the last console entry preview_console returned
 

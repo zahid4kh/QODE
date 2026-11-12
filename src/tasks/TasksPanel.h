@@ -36,6 +36,14 @@ public:
     void showProblems();
     void addProblems(QObject *source, const QList<BuildProblem> &problems);
     void clearProblems(QObject *source);
+    // Every listed compiler problem from the terminal, in first-seen order (the chat's get_problems).
+    QList<BuildProblem> problems() const
+    {
+        QList<BuildProblem> out;
+        for (const auto &p : m_problems)
+            out << p.second;
+        return out;
+    }
 
     int todoCount() const { return m_todoCount; }
     int bookmarkCount() const { return m_bookmarkCount; }

@@ -18,6 +18,7 @@
 #include "spring/SpringBar.h"
 #include "gradle/GradlePanel.h"
 #include "maven/MavenPanel.h"
+#include "lsp/LspManager.h"
 #include "lsp/LspServers.h"
 #include "media/MarkdownPreview.h"
 #include "media/MediaPanel.h"
@@ -30,6 +31,7 @@
 #include "ktor/KtorPanel.h"
 #include "spring/SpringPanel.h"
 #include "terminal/Terminal.h"
+#include "tasks/TasksPanel.h"
 #include "terminal/TerminalPanel.h"
 
 #include <QAction>
@@ -40,6 +42,7 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QPointer>
+#include <QSet>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QSysInfo>
@@ -162,6 +165,12 @@ QJsonObject MainWindow::ideAction(const QString &action, const QJsonObject &args
         return ideTerminalOutput(args.value("tab").toInt(), args.value("lines").toInt(60));
     if (action == QLatin1String("tool_groups"))
         return ideToolGroups();
+    if (action == QLatin1String("problems"))
+        return ideProblems(args.value("path").toString());
+    if (action == QLatin1String("summary"))
+        return ideSummary();
+    if (action == QLatin1String("preview_status"))
+        return idePreviewStatus();
     if (action.startsWith(QLatin1String("preview_")))
         return idePreviewAction(action, args);
     if (action == QLatin1String("server_status"))
@@ -198,6 +207,82 @@ QJsonObject MainWindow::ideTerminalOutput(int tab, int lines)
     if (tabs.size() > 1)
         o.insert("tabs", QJsonArray::fromStringList(tabs));
     return o;
+}
+
+QJsonObject MainWindow::ideProblems(const QString &path) const
+{
+    if (!m_projects->hasProject())
+        return error(QStringLiteral("no project is open"));
+    const QString root = m_projects->root();
+    const QString scope = path.isEmpty() ? root : path;
+    auto inScope = [&scope](const QString &p) { return Platform::samePath(p, scope) || Platform::isUnder(p, scope); };
+    QJsonArray rows;
+    QStringList paths = m_lsp->diagnosticPaths();
+    std::sort(paths.begin(), paths.end());
+    for (const QString &p : std::as_const(paths)) {
+        if (!inScope(p))
+            continue;
+        for (const LspDiagnostic &d : m_lsp->diagnostics(p))
+            rows.append(QJsonObject{{"path", p}, {"line", d.startLine + 1}, {"column", d.startColumn + 1}, {"severity", d.severity},
+                                    {"message", d.message}, {"source", d.source.isEmpty() ? d.server : d.source}, {"code", d.code}});
+    }
+    for (const BuildProblem &b : m_tasks->problems())
+        if (inScope(b.path))
+            rows.append(QJsonObject{{"path", b.path}, {"line", b.line}, {"column", b.column}, {"severity", b.error ? 1 : 2},
+                                    {"message", b.message}, {"source", "terminal"}});
+    QJsonArray open;
+    for (const QString &p : m_editors->openFilePaths())
+        if (inScope(p))
+            open.append(p);
+    return QJsonObject{{"rows", rows}, {"open", open}};
+}
+
+QJsonObject MainWindow::ideSummary()
+{
+    QStringList lines;
+    QStringList servers;
+    for (const IdeServer &s : ideServers()) {
+        const QJsonObject o = ideServerInfo(s);
+        const QString state = o.value("state").toString();
+        servers << (state == QLatin1String("running") ? QStringLiteral("%1 running at %2").arg(s.id, o.value("url").toString())
+                                                      : QStringLiteral("%1 %2").arg(s.id, state));
+    }
+    if (!servers.isEmpty())
+        lines << QStringLiteral("Servers QODE runs: %1").arg(servers.join(QStringLiteral("; ")));
+#ifdef QODE_HAS_WEBENGINE
+    if ((m_serverBar && m_serverBar->isAvailable()) || (m_expoBar && m_expoBar->isAvailable())) {
+        const QJsonObject p = idePreviewStatus();
+        QString line = p.value("visible").toBool() ? QStringLiteral("Web preview: shown") : QStringLiteral("Web preview: hidden");
+        if (p.value("visible").toBool() && p.contains("url")) {
+            line += QStringLiteral(", %1 on %2").arg(p.value("url").toString(), p.value("device").toString());
+            const int errors = p.value("console").toObject().value("errors").toInt();
+            if (errors > 0)
+                line += QStringLiteral(", %1 console error%2").arg(errors).arg(errors == 1 ? "" : "s");
+        }
+        lines << line;
+    }
+#endif
+    const QJsonArray rows = ideProblems(QString()).value("rows").toArray();
+    int errors = 0, warnings = 0;
+    QSet<QString> files;
+    for (const QJsonValue &v : rows) {
+        const int sev = v.toObject().value("severity").toInt();
+        if (sev > 2)
+            continue;
+        sev == 1 ? ++errors : ++warnings;
+        files.insert(v.toObject().value("path").toString());
+    }
+    if (errors + warnings > 0)
+        lines << QStringLiteral("Problems: %1 error%2, %3 warning%4 in %5 file%6 (get_problems lists them)")
+                     .arg(errors).arg(errors == 1 ? "" : "s").arg(warnings).arg(warnings == 1 ? "" : "s")
+                     .arg(files.size()).arg(files.size() == 1 ? "" : "s");
+    if (m_terminal->isRunning())
+        for (const TerminalPanel::Pane &pane : m_terminal->panes())
+            if (pane.terminal->commandRunning()) {
+                lines << QStringLiteral("Terminal: a command is running in tab %1 (terminal_output shows it)").arg(pane.tab);
+                break;
+            }
+    return QJsonObject{{"lines", QJsonArray::fromStringList(lines)}};
 }
 
 // The chat's tool groups this project offers (AgentTools::allGroups): the preview tools where the web preview has
@@ -300,6 +385,8 @@ QJsonObject MainWindow::ideState() const
     panels.insert("ktor_available", m_ktorAct->isVisible());
 #ifdef QODE_HAS_WEBENGINE
     panels.insert("web_preview_available", m_serverBar->isAvailable());
+    if (m_serverBar->isAvailable() || (m_expoBar && m_expoBar->isAvailable()))
+        out.insert("web_preview", idePreviewStatus());
 #else
     panels.insert("web_preview_available", false);
 #endif

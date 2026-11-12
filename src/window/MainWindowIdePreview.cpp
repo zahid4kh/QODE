@@ -137,6 +137,39 @@ QJsonObject MainWindow::idePreviewState(WebPreview *p) const
     return o;
 }
 
+QJsonObject MainWindow::idePreviewStatus() const
+{
+#ifndef QODE_HAS_WEBENGINE
+    return error(QStringLiteral("this QODE was built without the web preview (Qt WebEngine)"));
+#else
+    if (!(m_serverBar && m_serverBar->isAvailable()) && !(m_expoBar && m_expoBar->isAvailable()))
+        return error(QStringLiteral("this project has nothing to preview (no web dev server or Expo app)"));
+    const bool shown = m_webPreview && rightPanelShows(m_webPreview);
+    QJsonObject o{{"visible", shown}};
+    if (!m_webPreview) {
+        o.insert("note", QStringLiteral("the preview has not been opened since QODE started; show_panel web_preview or preview_screenshot opens it"));
+        o.insert("summary", QStringLiteral("hidden"));
+        return o;
+    }
+    WebPreview *p = m_webPreview;
+    o.insert("shows", p->currentTarget()); // a server id (server_status)
+    o.insert("server_state", stateName(p->currentServer()));
+    if (p->pageShown()) {
+        const QJsonObject page = idePreviewState(p);
+        for (auto it = page.begin(); it != page.end(); ++it)
+            o.insert(it.key(), it.value());
+        o.insert("loading", p->isLoading());
+    } else {
+        o.insert("page", QStringLiteral("none (the server is not running)"));
+    }
+    if (!shown)
+        o.insert("note", QStringLiteral("the panel is hidden; show_panel web_preview shows it (preview_screenshot does too)"));
+    o.insert("summary", (shown ? QStringLiteral("shown") : QStringLiteral("hidden"))
+                            + (p->pageShown() ? QStringLiteral(" · %1").arg(p->currentUrl().toString()) : QString()));
+    return o;
+#endif
+}
+
 QJsonObject MainWindow::idePreviewAction(const QString &action, const QJsonObject &args)
 {
     QString err;

@@ -1015,6 +1015,11 @@ QString AgentPanel::contextFor(const QStringList &mentioned) const
         lines << QStringLiteral("Open tabs: %1").arg(tabs.mid(0, 20).join(QStringLiteral(", ")));
     if (!mentioned.isEmpty())
         lines << QStringLiteral("The user pointed at these files: %1").arg(mentioned.join(QStringLiteral(", ")));
+    // What runs and what is wrong right now (servers, preview, problems, terminal). Part of the message as sent, so it is
+    // replayed unchanged and the cached prefix stays the same.
+    if (m_ide)
+        for (const QJsonValue &v : m_ide(QStringLiteral("summary"), {}).value("lines").toArray())
+            lines << v.toString();
     return lines.isEmpty() ? QString() : QStringLiteral("[Editor context]\n%1\n\n[Request]\n").arg(lines.join(QLatin1Char('\n')));
 }
 

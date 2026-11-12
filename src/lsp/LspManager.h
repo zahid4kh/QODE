@@ -212,6 +212,8 @@ public:
     void setApplyEditHandler(std::function<bool(const QJsonObject &edit)> handler) { m_applyEdit = std::move(handler); }
 
     QVector<LspDiagnostic> diagnostics(const QString &path) const { return m_diagnostics.value(path); }
+    // Every file with diagnostics (the chat's get_problems and its state line); a file that is not open keeps its last report.
+    QStringList diagnosticPaths() const { return m_diagnostics.keys(); }
     int diagnosticCount(int severity) const;
     // For a check right after an edit (the QODE chat): whether a server is meant to handle the file (it may still be
     // starting or be missing), and the pending changes sent at once. syncNow returns the document version the servers now

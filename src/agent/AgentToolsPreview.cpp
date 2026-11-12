@@ -63,7 +63,15 @@ void AgentTools::registerPreviewTools()
                                       "pass reload=true to preview_screenshot (it saves your edits first).\n"
                                       "- preview_click, preview_type and preview_eval act in the page (the user approves them): use them to try what "
                                       "you built (fill a form, open a menu, check a value), then look again.\n"
-                                      "- The preview needs the server running (server_start)."));
+                                      "- The preview needs the server running (server_start). preview_status says whether the preview is "
+                                      "shown and what it shows without a picture; show_panel web_preview opens it."));
+
+    Spec status{"preview_status", "Whether the web preview is shown, which app (server id) it follows and that server's state, and, when a "
+                                  "page is up, its url, title, device, viewport and console error count. Changes nothing and returns no picture.",
+                makeSchema({}), Risk::ReadOnly, [this](const QJsonObject &a) { return previewTool(QStringLiteral("preview_status"), a); },
+                [](const QJsonObject &) { return QStringLiteral("Check the preview"); }, {}};
+    status.group = QStringLiteral("preview");
+    add(status);
 
     Spec shot{"preview_screenshot", "A picture of the web preview's page as a browser at the current device shows it (unscaled CSS pixels), with its "
                                     "url, viewport size and console error count. Shows the preview panel when it is hidden.",

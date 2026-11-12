@@ -194,6 +194,7 @@ private:
     ToolResult undoChanges(const QJsonObject &a);
     ToolResult redoChanges(const QJsonObject &a);
     ToolResult diagnosticsTool(const QJsonObject &a);
+    ToolResult problemsTool(const QJsonObject &a);
     ToolResult terminalOutputTool(const QJsonObject &a);
     QString diagLine(const Diag &d) const;
     // The IDE tools: everything goes through Hooks::ide.

@@ -16,6 +16,7 @@
 #include "claudecode/ClaudeCodeSession.h"
 #include "claudecode/ClaudeCodeTasks.h"
 #include "claudecode/ContextMeter.h"
+#include "claudecode/QodeMcp.h"
 #include "editor/CodeEditor.h"
 #include "editor/Document.h"
 #include "editor/EditorManager.h"
@@ -216,6 +217,7 @@ ClaudeCodePanel::ClaudeCodePanel(QWidget *parent)
     : QWidget(parent)
     , m_auth(new Auth(this))
     , m_session(new Session(this))
+    , m_qode(new QodeMcp(this))
     , m_statsTimer(new QTimer(this))
     , m_stopTimer(new QTimer(this))
     , m_changedTimer(new QTimer(this))
@@ -307,7 +309,19 @@ ClaudeCodePanel::ClaudeCodePanel(QWidget *parent)
     });
     connect(m_session, &Session::messageReceived, this, &ClaudeCodePanel::onMessage);
     connect(m_session, &Session::permissionRequested, this, &ClaudeCodePanel::onPermission);
+    connect(m_session, &Session::mcpMessage, this, [this](const QString &id, const QString &server, const QJsonObject &message) {
+        if (server == QodeMcp::serverName() && m_qode->isReady()) {
+            m_qode->handle(id, message);
+            return;
+        }
+        m_session->answerMcp(id, message.contains(QStringLiteral("id"))
+                                     ? QJsonObject{{"jsonrpc", "2.0"}, {"id", message.value(QStringLiteral("id"))},
+                                                   {"error", QJsonObject{{"code", -32601}, {"message", QStringLiteral("no MCP server '%1' in QODE").arg(server)}}}}
+                                     : QJsonObject());
+    });
+    connect(m_qode, &QodeMcp::reply, m_session, &Session::answerMcp);
     connect(m_session, &Session::permissionCancelled, this, [this](const QString &id) {
+        m_qode->cancel(id);
         if (QWidget *card = m_permissions.take(id))
             card->deleteLater();
         if (m_permissions.isEmpty())
@@ -858,11 +872,30 @@ void ClaudeCodePanel::buildChatPage()
     updateMeter();
 }
 
+void ClaudeCodePanel::setIdeHooks(const std::function<agent::AgentTools::Hooks(std::function<bool()>)> &factory)
+{
+    agent::AgentTools::Hooks hooks = factory([this] { return m_qode->cancelled(); });
+    // Claude Code writes the files on disk: an open tab without unsaved changes is read again before its diagnostics
+    // are fetched, so the language server checks what Claude Code wrote and not the text before it.
+    hooks.diagnostics = [this, diagnostics = hooks.diagnostics](const QString &abs, QVector<agent::Diag> *rows, bool afterEdit, bool settle) {
+        if (m_editors) {
+            if (!abs.isEmpty())
+                m_editors->reloadIfChangedOnDisk(abs);
+            else
+                for (const QString &p : m_editors->openFilePaths())
+                    m_editors->reloadIfChangedOnDisk(p);
+        }
+        return diagnostics ? diagnostics(abs, rows, afterEdit, settle) : QString();
+    };
+    m_qode->setHooks(hooks);
+}
+
 void ClaudeCodePanel::setProject(const QString &root)
 {
     if (root == m_root)
         return;
     m_root = root;
+    m_qode->setRoot(root);
     m_auth->setProjectRoot(root);
     m_session->stop();
     m_sessionId.clear();
@@ -977,6 +1010,9 @@ void ClaudeCodePanel::ensureSession()
     if (o.permissionMode.isEmpty())
         o.permissionMode = QStringLiteral("default");
     o.resume = m_sessionId;
+    m_qode->reset(); // nothing from an earlier process is answered in this one
+    if (m_qode->isReady())
+        o.sdkMcpServers << QodeMcp::serverName();
     m_costBefore = m_cost;
     m_session->start(o);
 }
@@ -1914,6 +1950,11 @@ void ClaudeCodePanel::onPermission(const QString &id, const QJsonObject &request
         m_hint = nullptr;
     }
     const QString tool = str(request, "tool_name");
+    // QODE's own tools that the QODE chat runs without asking (looking, showing a panel) need no card here either.
+    if (m_qode->runsWithoutAsking(tool)) {
+        m_session->answerPermission(id, QJsonObject{{"behavior", "allow"}, {"updatedInput", request.value(QStringLiteral("input"))}});
+        return;
+    }
     QWidget *card = tool == QLatin1String("AskUserQuestion") ? questionCard(id, request)
                     : tool == QLatin1String("ExitPlanMode")  ? planCard(id, request)
                                                              : permissionCard(id, request);

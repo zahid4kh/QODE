@@ -22,6 +22,9 @@ public:
         QString model;           // "" = the account's default; an alias (opus, sonnet, …) or a model id
         QString permissionMode;  // default | acceptEdits | plan | bypassPermissions
         QString resume;          // a session id to continue
+        // MCP servers QODE itself runs, named in the initialize request: their JSON-RPC arrives as `mcpMessage` and is
+        // answered with answerMcp (claudecode/QodeMcp is "qode").
+        QStringList sdkMcpServers;
     };
 
     explicit Session(QObject *parent = nullptr);
@@ -45,12 +48,16 @@ public:
     QString query(const QJsonObject &request);
     // The answer to a can_use_tool request: {"behavior":"allow","updatedInput":…} or {"behavior":"deny","message":…}.
     void answerPermission(const QString &requestId, const QJsonObject &decision);
+    // The answer to an mcp_message request: the server's JSON-RPC reply, or an empty object for a notification.
+    void answerMcp(const QString &requestId, const QJsonObject &reply);
 
 signals:
     void initialized(const QJsonObject &info);       // the initialize response: commands, models, account, …
     void messageReceived(const QJsonObject &message);
     void permissionRequested(const QString &requestId, const QJsonObject &request);
-    void permissionCancelled(const QString &requestId);
+    void permissionCancelled(const QString &requestId); // any control request the CLI withdrew (also an mcp_message)
+    // A JSON-RPC message for one of Options::sdkMcpServers; answer it with answerMcp.
+    void mcpMessage(const QString &requestId, const QString &server, const QJsonObject &message);
     void answered(const QString &requestId, const QJsonObject &response, const QString &error); // error: "" on success
     void exited(int exitCode, const QString &errorText); // errorText: the end of stderr when it did not end cleanly
 

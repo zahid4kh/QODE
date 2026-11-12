@@ -419,7 +419,7 @@ AgentPanel::AgentPanel(QWidget *parent)
     hooks.changed = [this] { scheduleProjectChanged(); };
     hooks.approve = [this](const QString &tool, const QString &title, const QString &detail) { return approve(tool, title, detail); };
     hooks.diagnostics = [this](const QString &abs, QVector<Diag> *rows, bool afterEdit, bool settle) {
-        return collectDiagnostics(abs, rows, afterEdit, settle);
+        return collectDiagnostics(abs, rows, afterEdit, settle, [this] { return m_tools.cancelled(); });
     };
     hooks.knownDiagnostics = [this](const QString &abs, QVector<Diag> *rows) {
         Document *d = m_editors && m_lsp ? m_editors->documentForPath(abs) : nullptr;
@@ -1535,7 +1535,21 @@ void AgentPanel::scheduleProjectChanged()
 
 // --- language server diagnostics -----------------------------------------------------------------------------------
 
-QString AgentPanel::collectDiagnostics(const QString &abs, QVector<Diag> *rows, bool afterEdit, bool settle)
+AgentTools::Hooks AgentPanel::ideHooks(std::function<bool()> cancelled)
+{
+    AgentTools::Hooks h = m_tools.hooks();
+    h.apply = nullptr;
+    h.saveFiles = nullptr;
+    h.pathDeleted = nullptr;
+    h.pathMoved = nullptr;
+    h.approve = [](const QString &, const QString &, const QString &) { return true; };
+    h.diagnostics = [this, cancelled](const QString &abs, QVector<Diag> *rows, bool afterEdit, bool settle) {
+        return collectDiagnostics(abs, rows, afterEdit, settle, cancelled);
+    };
+    return h;
+}
+
+QString AgentPanel::collectDiagnostics(const QString &abs, QVector<Diag> *rows, bool afterEdit, bool settle, const std::function<bool()> &cancelled)
 {
     if (!m_lsp || !m_editors)
         return tr("language server integration is not available");
@@ -1566,7 +1580,7 @@ QString AgentPanel::collectDiagnostics(const QString &abs, QVector<Diag> *rows, 
     QElapsedTimer clock;
     clock.start();
     const int startLimit = afterEdit ? 30000 : 4000;
-    while (!served() && clock.elapsed() < startLimit && !m_tools.cancelled())
+    while (!served() && clock.elapsed() < startLimit && !cancelled())
         wait(150);
     if (!served())
         return tr("no language server is running for %1; use run_command to build or test instead").arg(abs.isEmpty() ? tr("the open files") : QFileInfo(abs).fileName());
@@ -1599,7 +1613,7 @@ QString AgentPanel::collectDiagnostics(const QString &abs, QVector<Diag> *rows, 
                 loop.quit();
         });
         connect(&poll, &QTimer::timeout, &loop, [&] {
-            if (m_tools.cancelled() || clock.elapsed() > limit || fresh())
+            if (cancelled() || clock.elapsed() > limit || fresh())
                 loop.quit();
         });
         poll.start(100);
@@ -1616,7 +1630,7 @@ QString AgentPanel::collectDiagnostics(const QString &abs, QVector<Diag> *rows, 
         connect(&cap, &QTimer::timeout, &loop, &QEventLoop::quit);
         connect(m_lsp, &LspManager::diagnosticsReported, &loop, [&quiet] { quiet.start(1500); });
         connect(&poll, &QTimer::timeout, &loop, [&] {
-            if (m_tools.cancelled())
+            if (cancelled())
                 loop.quit();
         });
         quiet.start(1500);
@@ -1628,7 +1642,7 @@ QString AgentPanel::collectDiagnostics(const QString &abs, QVector<Diag> *rows, 
     for (const QString &p : std::as_const(paths))
         for (const LspDiagnostic &d : m_lsp->diagnostics(p))
             rows->append(toDiag(p, d));
-    if (late && !m_tools.cancelled())
+    if (late && !cancelled())
         return tr("the language server had not finished checking the latest text after %1 s; these results may be out of date").arg(limit / 1000);
     return {};
 }

@@ -185,6 +185,33 @@ QJsonArray AgentTools::claudeToolsJson() const
     return tools;
 }
 
+QJsonArray AgentTools::mcpToolsJson(const QStringList &names) const
+{
+    QJsonArray tools;
+    for (const Spec &s : m_specs) {
+        if (!active(s) || !names.contains(s.name))
+            continue;
+        QJsonObject schema = s.parameters.isEmpty() ? QJsonObject{{"type", "object"}, {"properties", QJsonObject()}} : s.parameters;
+        QJsonObject props = schema.value("properties").toObject();
+        props.remove(QStringLiteral("done")); // ends a QODE chat turn; means nothing to another agent
+        schema.insert("properties", props);
+        QJsonArray required = schema.value("required").toArray();
+        for (int i = int(required.size()) - 1; i >= 0; --i)
+            if (required.at(i).toString() == QLatin1String("done"))
+                required.removeAt(i);
+        if (schema.contains("required"))
+            schema.insert("required", required);
+        tools.append(QJsonObject{{"name", s.name}, {"description", s.description}, {"inputSchema", schema}});
+    }
+    return tools;
+}
+
+bool AgentTools::asksFirst(const QString &name) const
+{
+    const Spec *s = find(name);
+    return s && s->risk == Risk::Dangerous;
+}
+
 void AgentTools::cancel()
 {
     m_cancelled = true;

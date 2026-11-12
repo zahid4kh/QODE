@@ -3,6 +3,7 @@
 #include "claudecode/ClaudeCodeCli.h"
 #include "platform/Platform.h"
 
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QProcess>
 #include <QTimer>
@@ -112,7 +113,17 @@ void Session::start(const Options &o)
     });
     // The initialize request comes first (the SDK does the same); its answer lists the commands and models.
     m_initId = QStringLiteral("qode-init-%1").arg(++m_nextId);
-    request(QJsonObject{{"subtype", "initialize"}}, m_initId);
+    QJsonObject init{{"subtype", "initialize"}};
+    if (!o.sdkMcpServers.isEmpty()) {
+        init.insert("sdkMcpServers", QJsonArray::fromStringList(o.sdkMcpServers));
+        // A server start or a preview load can take minutes; the call must not be moved to the background meanwhile
+        // (its answer is what the model waits for).
+        QJsonObject configs;
+        for (const QString &name : o.sdkMcpServers)
+            configs.insert(name, QJsonObject{{"timeout", 600000}, {"disableAutoBackground", true}});
+        init.insert("sdkMcpServerConfigs", configs);
+    }
+    request(init, m_initId);
     startPending();
 }
 
@@ -219,6 +230,15 @@ void Session::answerPermission(const QString &requestId, const QJsonObject &deci
                       {"response", QJsonObject{{"subtype", "success"}, {"request_id", requestId}, {"response", decision}}}});
 }
 
+void Session::answerMcp(const QString &requestId, const QJsonObject &reply)
+{
+    QJsonObject response;
+    if (!reply.isEmpty())
+        response.insert("mcp_response", reply);
+    write(QJsonObject{{"type", "control_response"},
+                      {"response", QJsonObject{{"subtype", "success"}, {"request_id", requestId}, {"response", response}}}});
+}
+
 void Session::readOut()
 {
     if (!m_proc)
@@ -257,7 +277,11 @@ void Session::handle(const QJsonObject &o)
             emit permissionRequested(id, req);
             return;
         }
-        // Hooks, SDK MCP servers and dialogs are not offered: say so, or the CLI would wait for an answer forever.
+        if (req.value(QStringLiteral("subtype")).toString() == QLatin1String("mcp_message")) {
+            emit mcpMessage(id, req.value(QStringLiteral("server_name")).toString(), req.value(QStringLiteral("message")).toObject());
+            return;
+        }
+        // Hooks and dialogs are not offered: say so, or the CLI would wait for an answer forever.
         write(QJsonObject{{"type", "control_response"},
                           {"response", QJsonObject{{"subtype", "error"}, {"request_id", id}, {"error", "not supported by QODE"}}}});
         return;

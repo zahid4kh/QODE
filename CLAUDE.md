@@ -124,7 +124,7 @@ Linux / Unix code is never deleted: Windows gets a second implementation (the `s
 | Python server, venvs, packages | `python`, `project/PythonEnv` | [dev-docs/python.md](dev-docs/python.md) |
 | QODE chat (agent): providers, tools, diagnostics after edits, usage meter (tokens, cache hits, cost), codebase index (semantic_search), journal undo/redo, slash commands, MCP servers (stdio client, config, dialog, /mcp), Fix with QODE (a failed terminal command or test, Tasks > Problems) | `agent`, `ai`, `mcp`, `window/MainWindowFix.cpp` | [dev-docs/agent.md](dev-docs/agent.md) |
 | Inline edit box (Ctrl+K, `/?`, "Ask about this to make a change"): one streamed Gemini / Claude request, the proposal live in the text, Accept / Reject | `ai/InlineEdit`, `ai/InlineClient`, `window/MainWindowInline.cpp` | [dev-docs/editor.md](dev-docs/editor.md) |
-| Claude Code view: `claude` CLI over stream-json, sign-in, permissions, history, /usage and /mcp cards | `claudecode` | [dev-docs/claude-code.md](dev-docs/claude-code.md) |
+| Claude Code view: `claude` CLI over stream-json, sign-in, permissions, history, /usage and /mcp cards, QODE's own MCP server for the CLI (`QodeMcp`: problems, servers, preview, panels) | `claudecode` | [dev-docs/claude-code.md](dev-docs/claude-code.md) |
 | Terminal (own pty + VT emulator, shell integration for exit codes) and git (shells out to `git`) | `terminal`, `git`, `window/MainWindowGit.cpp` | [dev-docs/terminal-git.md](dev-docs/terminal-git.md) |
 | Game panel (right-hand island, `Ctrl+Alt+P`): a picker with Teqris and Snake, shared drawing in `GameArt`, scores and options per game in `AppPaths::config("games/<id>.json")` (`GameStore`) | `game`, `window/MainWindowGame.cpp` | — |
 

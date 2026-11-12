@@ -99,6 +99,7 @@ public:
     void setTurn(int turn) { m_turn = turn; }
     bool cancelled() const { return m_cancelled; }
     void setHooks(const Hooks &hooks) { m_hooks = hooks; }
+    const Hooks &hooks() const { return m_hooks; }
     // Set before each run (the declarations stay the same within it).
     void setExtraTools(const QVector<ExtraTool> &tools) { m_extra = tools; }
     // Tool groups beyond the core ones that every project gets ("preview", "servers", "http", "jvm_debug"): only the
@@ -120,6 +121,11 @@ public:
     QJsonArray toolsJson() const;
     // The same tools for the Claude Messages API: [{name, description, input_schema, eager_input_streaming}].
     QJsonArray claudeToolsJson() const;
+    // The named tools (those active) as MCP tool definitions [{name, description, inputSchema}], without the QODE chat's
+    // `done` argument: what the Claude Code view offers the CLI as QODE's own MCP server (claudecode/QodeMcp).
+    QJsonArray mcpToolsJson(const QStringList &names) const;
+    // The tool is one the user approves before it runs (Risk::Dangerous); false for unknown names.
+    bool asksFirst(const QString &name) const;
     // Runs one call (asking the user first when the tool needs it).
     ToolResult execute(const QString &name, const QJsonObject &args);
     // The tool's name for the status line: an MCP tool's label ("blender › look"), else the name itself.

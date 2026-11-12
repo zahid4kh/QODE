@@ -54,6 +54,10 @@ public:
     void setLsp(LspManager *lsp) { m_lsp = lsp; }
     // Set by MainWindow: runs the IDE tools (panels, theme, editor options, language servers; see AgentTools::Hooks::ide).
     void setIdeHandler(std::function<QJsonObject(const QString &, const QJsonObject &)> handler) { m_ide = std::move(handler); }
+    // The hooks the Claude Code view's QODE tools run on (claudecode/QodeMcp): files, diagnostics, the code index and the
+    // IDE, but no edits, saves or approvals (the CLI edits the files itself and asks the user before a call). `cancelled`
+    // stops a diagnostics wait.
+    AgentTools::Hooks ideHooks(std::function<bool()> cancelled);
     void focusInput();
     void editApiKey(); // the key of the current model's provider
     void editApiKeyFor(AiEnv::Provider provider);
@@ -95,7 +99,7 @@ private:
     void compact();
     void undoFromUi(int turn, const QString &what);
     void redoFromUi();
-    QString collectDiagnostics(const QString &abs, QVector<Diag> *rows, bool afterEdit, bool settle);
+    QString collectDiagnostics(const QString &abs, QVector<Diag> *rows, bool afterEdit, bool settle, const std::function<bool()> &cancelled);
     bool writeText(const QString &abs, const QString &text);
     void updateSlash();
     void scheduleProjectChanged();

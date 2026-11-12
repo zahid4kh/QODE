@@ -121,6 +121,7 @@ SOURCES += \
     src/claudecode/ClaudeCodePrompt.cpp \
     src/claudecode/ClaudeCodeSession.cpp \
     src/claudecode/ClaudeCodeTasks.cpp \
+    src/claudecode/QodeMcp.cpp \
     src/claudecode/ContextMeter.cpp \
     src/ai/AiChat.cpp \
     src/ai/AiChangeCard.cpp \
@@ -389,6 +390,7 @@ HEADERS += \
     src/claudecode/ClaudeCodePrompt.h \
     src/claudecode/ClaudeCodeSession.h \
     src/claudecode/ClaudeCodeTasks.h \
+    src/claudecode/QodeMcp.h \
     src/claudecode/ContextMeter.h \
     src/ai/AiChat.h \
     src/ai/AiChangeCard.h \

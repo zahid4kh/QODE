@@ -1,6 +1,7 @@
 #pragma once
 
 #include "agent/AgentSession.h"
+#include "agent/AgentTools.h"
 #include "claudecode/ClaudeCodeChanges.h"
 #include "claudecode/ClaudeCodePrompt.h"
 
@@ -37,6 +38,7 @@ namespace claudecode {
 
 class Auth;
 class ContextMeter;
+class QodeMcp;
 class Session;
 class TaskList;
 
@@ -55,6 +57,9 @@ public:
     void setProjectFiles(const QStringList &absolutePaths);
     void setEditors(EditorManager *editors); // its selection goes along with the next message
     void setGitDirty(bool dirty);            // the project has uncommitted changes: offered as a suggestion
+    // QODE's tools for the CLI (QodeMcp): `factory` makes their hooks (AgentPanel::ideHooks) given the bridge's cancel
+    // check. Without it the CLI starts without QODE's MCP server.
+    void setIdeHooks(const std::function<agent::AgentTools::Hooks(std::function<bool()>)> &factory);
     void focusInput();
 
 signals:
@@ -155,6 +160,7 @@ private:
 
     Auth *m_auth;
     Session *m_session;
+    QodeMcp *m_qode;
     QString m_root;
     QStringList m_files;            // project-relative, for @-mentions
     bool m_busy = false;

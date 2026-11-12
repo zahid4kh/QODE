@@ -38,6 +38,8 @@ claudecode::ClaudeCodePanel *AiHub::claudeCode()
     connect(m_claudeCode, &claudecode::ClaudeCodePanel::showRequested, this, &AiHub::claudeCodeRequested);
     if (m_editors)
         m_claudeCode->setEditors(m_editors);
+    // QODE's IDE tools for the CLI run on the QODE chat's hooks (diagnostics, the IDE handler MainWindow set, the index).
+    m_claudeCode->setIdeHooks([this](std::function<bool()> cancelled) { return m_agent->ideHooks(std::move(cancelled)); });
     if (!m_root.isEmpty())
         m_claudeCode->setProject(m_root);
     m_claudeCode->setGitDirty(m_gitDirty);

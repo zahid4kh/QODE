@@ -1352,6 +1352,15 @@ void EditorManager::unwatch(const QString &path)
         m_watcher->removePath(path);
 }
 
+bool EditorManager::reloadIfChangedOnDisk(const QString &path)
+{
+    Document *doc = documentForPath(path);
+    if (!doc || doc->isModified() || !doc->existsOnDisk() || !doc->changedOnDisk())
+        return false;
+    QString err;
+    return doc->reload(&err);
+}
+
 void EditorManager::onWatchedFileChanged(const QString &path)
 {
     if (!m_pendingChanges.contains(path))

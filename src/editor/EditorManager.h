@@ -32,6 +32,9 @@ public:
     bool openFileAt(const QString &path, int line, int column = 0, int length = 0);
     void gotoLine(int line, int column = 0, int length = 0);
     Document *documentForPath(const QString &path) const; // nullptr when not open
+    // Reads an open file again when the tab has no unsaved changes and the file changed on disk (Claude Code edited it),
+    // at once instead of after the watcher's debounce; true when it reloaded.
+    bool reloadIfChangedOnDisk(const QString &path);
     void newUntitled();
 
     Document *currentDocument() const;

@@ -72,6 +72,23 @@ bool QodeMcp::runsWithoutAsking(const QString &cliToolName) const
     return exposed().contains(name) && !m_tools.asksFirst(name);
 }
 
+QString QodeMcp::stateBlock(bool *quiet) const
+{
+    if (quiet)
+        *quiet = true;
+    if (!isReady() || !m_tools.hooks().ide)
+        return {};
+    QStringList lines;
+    for (const QJsonValue &v : m_tools.hooks().ide(QStringLiteral("summary"), {}).value("lines").toArray())
+        lines << QStringLiteral("- ") + v.toString();
+    if (quiet)
+        *quiet = lines.isEmpty();
+    if (lines.isEmpty())
+        lines << QStringLiteral("- QODE runs no servers, reports no problems and no command is running in its terminal.");
+    return QStringLiteral("<ide_state>What QODE runs and shows now (sent when it changes since your last message; the qode "
+                          "tools have the details):\n%1</ide_state>").arg(lines.join(QLatin1Char('\n')));
+}
+
 void QodeMcp::handle(const QString &requestId, const QJsonObject &message)
 {
     if (!message.contains("id")) { // a notification (initialized, cancelled): nothing to answer but the receipt

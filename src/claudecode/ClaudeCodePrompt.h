@@ -42,9 +42,10 @@ struct Prompt {
     Selection selection;
     QString file; // project-relative: an attached file, sent as an `@path` block that the CLI reads itself
     QString quote; // text quoted from a reply, sent as an AiQuote::block ahead of the text
+    QString state; // an <ide_state> block (what QODE runs and shows), set as the message goes out when it changed
 
-    // The message content: the plain text, or content blocks (images, the quote, the text, the file, the selection) when
-    // there are attachments.
+    // The message content: the plain text, or content blocks (images, the quote, the text, the file, the selection, the
+    // IDE state) when there are attachments.
     QJsonValue content() const;
     QString summary() const; // one line, for the queue
 };

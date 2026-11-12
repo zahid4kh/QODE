@@ -89,6 +89,7 @@ private:
     void openConversation(const QString &id);
     void send();                       // the input as it is: sent now, or queued while a turn runs
     void dispatch(const Prompt &prompt);
+    Prompt withState(const Prompt &prompt); // the prompt with the <ide_state> block when it changed
     void askAbout(const QString &text); // "Ask about this": sent (or queued) right away, the draft stays
     void setQuote(const QString &text); // "Quote this": goes with the next message ("" = none)
     void sendNext();                   // the first queued message
@@ -161,6 +162,8 @@ private:
     Auth *m_auth;
     Session *m_session;
     QodeMcp *m_qode;
+    // The <ide_state> block this CLI process last got (null: none yet), so a message only carries it when it changed.
+    QString m_lastState;
     QString m_root;
     QStringList m_files;            // project-relative, for @-mentions
     bool m_busy = false;

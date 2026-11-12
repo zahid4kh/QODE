@@ -1020,6 +1020,7 @@ void ClaudeCodePanel::ensureSession()
         o.systemPromptFile = files.systemPrompt;
     }
     m_costBefore = m_cost;
+    m_lastState.clear(); // a new process: the first message carries the whole state again
     m_session->start(o);
 }
 
@@ -1416,8 +1417,26 @@ void ClaudeCodePanel::dispatch(const Prompt &p)
     m_turnClock.start();
     m_stick = true;
     ensureSession();
-    m_session->sendUser(p.content());
+    m_session->sendUser(withState(p).content());
     setBusy(true);
+}
+
+// Adds the <ide_state> block when it differs from the one this process got last. Not on a slash command (the CLI only
+// reads a command from plain text), and not on the first message when there is nothing to report.
+Prompt ClaudeCodePanel::withState(const Prompt &p)
+{
+    Prompt out = p;
+    if (p.text.startsWith(QLatin1Char('/')))
+        return out;
+    bool quiet = true;
+    const QString block = m_qode->stateBlock(&quiet);
+    if (block.isEmpty() || block == m_lastState)
+        return out;
+    const bool first = m_lastState.isNull();
+    m_lastState = block;
+    if (!(first && quiet))
+        out.state = block;
+    return out;
 }
 
 void ClaudeCodePanel::stopTurn()

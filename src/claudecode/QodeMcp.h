@@ -39,6 +39,9 @@ public:
     void reset();                          // a new CLI process: drop what is queued, stop what runs, answer nothing more
     // `cliToolName` (mcp__qode__x) runs without a permission card: the QODE chat runs x without asking too.
     bool runsWithoutAsking(const QString &cliToolName) const;
+    // What QODE runs and shows now as an <ide_state> block (the QODE chat's editor-context lines: servers, the web
+    // preview, problem counts, a terminal command); `quiet` is set when there is nothing to report. "" when not ready.
+    QString stateBlock(bool *quiet = nullptr) const;
 
 signals:
     void reply(const QString &requestId, const QJsonObject &message); // an empty message answers a notification

@@ -120,7 +120,7 @@ QString Selection::labelOf(const QString &block)
 
 QJsonValue Prompt::content() const
 {
-    if (images.isEmpty() && selection.isEmpty() && file.isEmpty() && quote.isEmpty())
+    if (images.isEmpty() && selection.isEmpty() && file.isEmpty() && quote.isEmpty() && state.isEmpty())
         return text;
     QJsonArray blocks;
     for (const ImageAttachment &img : images)
@@ -134,6 +134,8 @@ QJsonValue Prompt::content() const
         blocks.append(QJsonObject{{"type", "text"}, {"text", history::fileBlock(file)}});
     if (!selection.isEmpty())
         blocks.append(QJsonObject{{"type", "text"}, {"text", selection.block()}});
+    if (!state.isEmpty()) // starts with '<': the history leaves it out of the prompt
+        blocks.append(QJsonObject{{"type", "text"}, {"text", state}});
     return blocks;
 }
 

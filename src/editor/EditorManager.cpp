@@ -1399,6 +1399,13 @@ void EditorManager::processPendingChanges()
         if (!doc->changedOnDisk())
             continue; // our own save
 
+        // Nothing unsaved to lose (an agent, git or a formatter changed the file): read it again without asking.
+        if (!doc->isModified()) {
+            QString err;
+            if (doc->reload(&err))
+                continue;
+        }
+
         m_prompting = true;
         activate(doc);
         QMessageBox box(QMessageBox::Question, tr("File changed"), QString(), QMessageBox::NoButton, this);

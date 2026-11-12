@@ -159,15 +159,7 @@ The server runs in its own process group (a Job Object on Windows) and is stoppe
 
 **Explorer.** Entries are ordered folders, dot folders, dot files, then files (each alphabetical). **View > Appearance > Show Hidden Files in Explorer** hides dot files and folders; `.env*` files always stay visible.
 
-## Code signing policy
-
-Free code signing for the Windows releases is provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org) (being set up: until then the Windows files are unsigned).
-
-- Signed files are built by GitHub Actions ([.github/workflows/windows.yml](.github/workflows/windows.yml)) from a tagged commit of this repository: `qode.exe`, the installers, the uninstaller and the portable zips. Files built anywhere else are never signed.
-- Committers and reviewers: [Zahid Khalilov](https://github.com/zahid4kh)
-- Approvers (each signing request is approved by hand): [Zahid Khalilov](https://github.com/zahid4kh)
-
-### Privacy
+## Privacy
 
 This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. In detail:
 

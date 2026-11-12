@@ -72,8 +72,9 @@ QList<Item> created(bool sizes)
                    "game scores (games\\)"),
          true, true});
     add({QStringLiteral("data"), data,
-         onUnix ? tr("Language servers QODE downloaded (lsp/), local history, scratch files, web preview storage")
-              : tr("Language servers QODE downloaded (lsp\\), local history, scratch files, web preview storage, caches "
+         onUnix ? tr("Language servers QODE downloaded (lsp/), local history, scratch files, web preview storage, QODE's skills for Claude Code (claude-code/)")
+              : tr("Language servers QODE downloaded (lsp\\), local history, scratch files, web preview storage, QODE's skills for Claude Code "
+                   "(claude-code\\), caches "
                    "(cache\\: server indexes, library sources)"),
          true, true});
     if (!Platform::isUnder(AppPaths::cache(), data)) // Windows keeps the cache inside the data folder

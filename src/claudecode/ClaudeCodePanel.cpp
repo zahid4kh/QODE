@@ -17,6 +17,7 @@
 #include "claudecode/ClaudeCodeTasks.h"
 #include "claudecode/ContextMeter.h"
 #include "claudecode/QodeMcp.h"
+#include "claudecode/QodePlugin.h"
 #include "editor/CodeEditor.h"
 #include "editor/Document.h"
 #include "editor/EditorManager.h"
@@ -1011,8 +1012,13 @@ void ClaudeCodePanel::ensureSession()
         o.permissionMode = QStringLiteral("default");
     o.resume = m_sessionId;
     m_qode->reset(); // nothing from an earlier process is answered in this one
-    if (m_qode->isReady())
+    if (m_qode->isReady()) { // the prompt and skills are about QODE's tools: only with them
         o.sdkMcpServers << QodeMcp::serverName();
+        const QodePlugin::Files files = QodePlugin::install();
+        if (!files.pluginDir.isEmpty())
+            o.pluginDirs << files.pluginDir;
+        o.systemPromptFile = files.systemPrompt;
+    }
     m_costBefore = m_cost;
     m_session->start(o);
 }

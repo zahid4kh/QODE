@@ -235,5 +235,11 @@
         <file>templates/qt-widgets/files/src/MainWindow.cpp</file>
         <file>templates/qt-widgets/files/src/MainWindow.h</file>
         <file>templates/qt-widgets/files/src/main.cpp</file>
+        <file>claude-code/plugin.json</file>
+        <file>claude-code/system-prompt.md</file>
+        <file>claude-code/skills/check-ui/SKILL.md</file>
+        <file>claude-code/skills/dev-server/SKILL.md</file>
+        <file>claude-code/skills/expo-web/SKILL.md</file>
+        <file>claude-code/skills/fix-problems/SKILL.md</file>
     </qresource>
 </RCC>

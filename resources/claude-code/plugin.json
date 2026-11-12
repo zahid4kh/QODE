@@ -1,0 +1,5 @@
+{
+  "name": "qode",
+  "version": "@VERSION@",
+  "description": "Workflows for working inside QODE: its problems list, the servers it runs and its web preview."
+}

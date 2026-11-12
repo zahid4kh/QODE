@@ -25,6 +25,8 @@ public:
         // MCP servers QODE itself runs, named in the initialize request: their JSON-RPC arrives as `mcpMessage` and is
         // answered with answerMcp (claudecode/QodeMcp is "qode").
         QStringList sdkMcpServers;
+        QStringList pluginDirs;   // --plugin-dir each (claudecode/QodePlugin)
+        QString systemPromptFile; // --append-system-prompt-file: added to the CLI's own system prompt
     };
 
     explicit Session(QObject *parent = nullptr);

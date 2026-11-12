@@ -72,6 +72,11 @@ void Session::start(const Options &o)
         args << QStringLiteral("--permission-mode") << o.permissionMode;
     if (!o.resume.isEmpty())
         args << QStringLiteral("--resume") << o.resume;
+    for (const QString &dir : o.pluginDirs)
+        args << QStringLiteral("--plugin-dir") << dir;
+    // A file, not --append-system-prompt: a multi-line argument does not survive cmd (claude.cmd) on Windows.
+    if (!o.systemPromptFile.isEmpty())
+        args << QStringLiteral("--append-system-prompt-file") << o.systemPromptFile;
 
     m_buffer.clear();
     m_stderr.clear();

@@ -22,7 +22,7 @@ QJsonObject rpcError(const QJsonValue &id, int code, const QString &message)
 } // namespace
 
 // What Claude Code gets. Not the file, edit, command or git tools (it has its own), not editor_command (it changes
-// unsaved editor buffers while Claude Code writes the files on disk), and not yet the HTTP and debugger tools.
+// unsaved editor buffers while Claude Code writes the files on disk), and not yet the HTTP tools.
 const QStringList &QodeMcp::exposed()
 {
     static const QStringList names{
@@ -33,7 +33,9 @@ const QStringList &QodeMcp::exposed()
         "server_status", "server_start", "server_restart", "server_stop", "server_log",
         // group "preview"
         "preview_status", "preview_screenshot", "preview_console", "preview_set_viewport", "preview_navigate", "preview_click",
-        "preview_type", "preview_eval"};
+        "preview_type", "preview_eval",
+        // group "jvm_debug"
+        "debug_breakpoints", "debug_start", "debug_state", "debug_step", "debug_evaluate", "debug_stop"};
     return names;
 }
 
@@ -92,6 +94,11 @@ QString QodeMcp::stateBlock(bool *quiet) const
 void QodeMcp::handle(const QString &requestId, const QJsonObject &message)
 {
     if (!message.contains("id")) { // a notification (initialized, cancelled): nothing to answer but the receipt
+        // The CLI's MCP client gives up on a call (the user pressed Stop) with notifications/cancelled, naming the
+        // JSON-RPC id; no control_cancel_request comes for it. A long call (debug_start, server_start) would otherwise
+        // keep waiting and hold back every call queued after it.
+        if (message.value("method").toString() == QLatin1String("notifications/cancelled"))
+            cancelCall(message.value("params").toObject().value("requestId"));
         emit reply(requestId, QJsonObject());
         return;
     }
@@ -114,6 +121,23 @@ void QodeMcp::cancel(const QString &requestId)
         }
 }
 
+// The call stops waiting and still answers (its control request is open; the MCP client ignores the late result).
+void QodeMcp::cancelCall(const QJsonValue &rpcId)
+{
+    if (rpcId.isUndefined() || rpcId.isNull())
+        return;
+    if (!m_running.isEmpty() && m_runningRpc == rpcId) {
+        m_tools.cancel();
+        return;
+    }
+    for (int i = 0; i < m_queue.size(); ++i)
+        if (m_queue.at(i).message.value("id") == rpcId) {
+            const Pending p = m_queue.takeAt(i);
+            emit reply(p.id, rpcError(rpcId, -32800, QStringLiteral("request cancelled")));
+            return;
+        }
+}
+
 void QodeMcp::reset()
 {
     m_queue.clear();
@@ -129,6 +153,7 @@ void QodeMcp::next()
         return;
     const Pending p = m_queue.takeFirst();
     m_running = p.id;
+    m_runningRpc = p.message.value("id");
     m_dropRunning = false;
     const QJsonObject out = answer(p.message);
     const bool drop = m_dropRunning;
@@ -206,6 +231,13 @@ QString QodeMcp::instructions() const
             "show_panel web_preview opens it. After a visual change, look at it with preview_screenshot (preview_set_viewport "
             "for phone / tablet / desktop) before you answer, and read preview_console when the page is blank or broken. "
             "preview_click / preview_type / preview_eval try what you built.");
+    if (m_groups.contains(QLatin1String("jvm_debug")))
+        text += QStringLiteral(
+            "\n- QODE has a debugger for Java and Kotlin. To find out why code misbehaves at run time, debug it instead of adding "
+            "print statements: debug_breakpoints add at the lines to look at (the user sees them in the editor), debug_start (a "
+            "file with a main function, a Kotlin script, or the Gradle / Maven project; it builds, runs in QODE's terminal and "
+            "answers at the first stop with the frames and variables), then debug_state, debug_step and debug_evaluate. "
+            "debug_stop when done and remove the breakpoints you added. terminal_output shows what the program printed.");
     return text;
 }
 

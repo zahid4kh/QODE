@@ -3,6 +3,7 @@
 #include "agent/AgentTools.h"
 
 #include <QJsonObject>
+#include <QJsonValue>
 #include <QList>
 #include <QObject>
 #include <QSet>
@@ -48,6 +49,7 @@ signals:
 
 private:
     void next();
+    void cancelCall(const QJsonValue &rpcId); // notifications/cancelled
     QJsonObject answer(const QJsonObject &message);
     QJsonObject callTool(const QString &name, const QJsonObject &args);
     void refreshGroups();
@@ -64,6 +66,7 @@ private:
     };
     QList<Pending> m_queue;
     QString m_running;        // the request being answered
+    QJsonValue m_runningRpc;  // its JSON-RPC id
     bool m_dropRunning = false; // withdrawn or the process went away: its answer is not sent
 };
 

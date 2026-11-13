@@ -238,6 +238,7 @@
         <file>claude-code/plugin.json</file>
         <file>claude-code/system-prompt.md</file>
         <file>claude-code/skills/check-ui/SKILL.md</file>
+        <file>claude-code/skills/debug/SKILL.md</file>
         <file>claude-code/skills/dev-server/SKILL.md</file>
         <file>claude-code/skills/expo-web/SKILL.md</file>
         <file>claude-code/skills/fix-problems/SKILL.md</file>

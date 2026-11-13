@@ -8,6 +8,7 @@
 #include "SideSections.h"
 #include "ai/AiHub.h"
 #include "debug/DebugPanel.h"
+#include "debug/DebugSession.h"
 #include "editor/CodeEditor.h"
 #include "editor/Document.h"
 #include "editor/EditorManager.h"
@@ -276,6 +277,17 @@ QJsonObject MainWindow::ideSummary()
         lines << QStringLiteral("Problems: %1 error%2, %3 warning%4 in %5 file%6 (get_problems lists them)")
                      .arg(errors).arg(errors == 1 ? "" : "s").arg(warnings).arg(warnings == 1 ? "" : "s")
                      .arg(files.size()).arg(files.size() == 1 ? "" : "s");
+    if (m_debug && m_debug->state() != DebugSession::State::Idle) {
+        const QString state = ideDebugState(0, 0, true).value("state").toString();
+        QString line = QStringLiteral("Debugger: a program is %1").arg(state);
+        if (m_debug->state() == DebugSession::State::Suspended && !m_debug->lastStop().frames.isEmpty()) {
+            const DebugStop &stop = m_debug->lastStop();
+            const DebugFrame &f = stop.frames.first();
+            const QString file = resolveSource(f.pkgPath, f.sourceName);
+            line += QStringLiteral(" (%1) at %2:%3").arg(stop.reason, file.isEmpty() ? f.sourceName : ideRelative(file)).arg(f.line);
+        }
+        lines << line + QStringLiteral(" (debug_state shows it)");
+    }
     if (m_terminal->isRunning())
         for (const TerminalPanel::Pane &pane : m_terminal->panes())
             if (pane.terminal->commandRunning()) {

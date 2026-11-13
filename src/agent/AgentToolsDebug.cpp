@@ -7,6 +7,7 @@ namespace agent {
 
 namespace {
 const QStringList kSteps{"over", "into", "out", "continue"};
+const QStringList kBreakpointActions{"add", "remove", "clear", "list"};
 } // namespace
 
 // Waits until the program stopped more often than `stopsBefore` or the session ended, then answers with the full state.
@@ -71,6 +72,9 @@ ToolResult AgentTools::debugTool(const QString &action, const QJsonObject &a)
     }
     if (action == QLatin1String("debug_state"))
         args.insert("expand", str(a, "object_id"));
+    // A call without the schema at hand ({"file": …, "line": 5}) must not pass for a list.
+    if (action == QLatin1String("debug_breakpoints") && !kBreakpointActions.contains(str(a, "action")))
+        return fail(QStringLiteral("action is one of: %1 (with path and line for add / remove)").arg(kBreakpointActions.join(QStringLiteral(", "))));
     QJsonObject r = m_hooks.ide(action, args);
     if (r.contains("error"))
         return fail(r.value("error").toString());
@@ -96,7 +100,7 @@ void AgentTools::registerDebugTools()
           withEnum(makeSchema({{"action", "string", "add, remove, clear (path's or all) or list."},
                                {"path", "string", "A .java / .kt / .kts file.", false},
                                {"line", "integer", "For add / remove.", false}}),
-                   "action", {"add", "remove", "clear", "list"}),
+                   "action", kBreakpointActions),
           Risk::Edit, [this](const QJsonObject &a) { return debugTool(QStringLiteral("debug_breakpoints"), a); },
           [](const QJsonObject &a) {
               const QString action = str(a, "action");

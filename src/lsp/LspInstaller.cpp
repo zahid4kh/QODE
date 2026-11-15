@@ -195,6 +195,9 @@ QNetworkReply *LspInstaller::get(const QUrl &url)
     QNetworkRequest req(url);
     req.setTransferTimeout(kNetworkTimeoutMs);
     req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("QODE"));
+    // download.jetbrains.com (CloudFront) never answers Qt's HTTP/2 requests (November 2026): the
+    // reply hangs until the transfer timeout ("Operation canceled" / "timed out"). HTTP/1.1 answers at once.
+    req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
     m_reply = m_net.get(req);
     return m_reply;
 }

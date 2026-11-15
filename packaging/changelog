@@ -1,3 +1,13 @@
+qode (2.1.1) unstable; urgency=low
+
+  * Claude Code view: QODE's IDE tools for the CLI (problems, diagnostics, servers, web preview, panels, terminal output, the Java / Kotlin debugger)
+  * Claude Code view: QODE's system prompt and skills; QODE's state goes with a message when it changed; Stop no longer freezes QODE
+  * QODE chat: live IDE state, get_problems and preview_status; smoother transcripts in long conversations
+  * Tabs without unsaved changes reload silently when their file changes on disk
+  * Kotlin LSP pinned to 271.2085.0; its download no longer stalls fetching the checksum
+
+ -- zahid4kh <halilzahid@gmail.com>  Sun, 15 Nov 2026 18:38:47 +0100
+
 qode (2.1.0) unstable; urgency=low
 
   * Windows: native build with ConPTY terminal (PowerShell, cmd, Git Bash, WSL), per-user installer and portable zip, both with or without Qt WebEngine

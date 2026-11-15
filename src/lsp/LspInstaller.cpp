@@ -21,11 +21,11 @@
 #include <algorithm>
 
 namespace {
-const char *kPinnedVersion = "263.7084.0"; // JetBrains builds expire: 263.6379.0 stopped starting in November 2026
+const char *kPinnedVersion = "271.2085.0"; // JetBrains builds expire: 263.6379.0 stopped starting in November 2026
 // SHA-256 of the pinned x86_64 archive (Linux .tar.gz, Windows .win.zip), checked in addition to the checksum JetBrains
 // publishes next to it.
-const char *kPinnedSha256X64 = "ae0c4b01e17ab73a4a5227a78ea99e6dcbe3e499600315b22759a4e4cddd11df";
-const char *kPinnedSha256X64Win = "be3bc4ef430cde315e6a83900ffb5d9cc454a36aabe9dd3ba7d4141b2d628164";
+const char *kPinnedSha256X64 = "e398e799027f41749ea33faa57470307d13d40f910961858c7e30adbd778ae08";
+const char *kPinnedSha256X64Win = "da210a7d84a06f855b8b7b04c5bd54936d270e79f3ea13a9c6ddc2f1046b2a98";
 constexpr qint64 kNeededBytes = 1800LL * 1024 * 1024; // archive (~370 MB) + unpacked copy (~1.2 GB) + slack
 constexpr int kNetworkTimeoutMs = 30000;
 

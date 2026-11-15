@@ -29,7 +29,7 @@ A `CLAUDE.local.md` next to this file (git-ignored) holds a contributor's own ma
   - `scripts/build-deb-qt-noweb.sh [--no-build]` (= `build-deb-qt.sh --no-webengine`) — `qode-bundled-noweb_<version>_<arch>.deb`: the same without Qt WebEngine (`CONFIG+=no_webengine`): no web / Expo preview, no Chromium, a much smaller package.
   - `scripts/build-all-debs.sh [--no-build]` builds all three into `debs/`.
   - `packaging/debian/*` hold `@PACKAGE@` / `@VERSION@` / `@FLAVOR@` / `@WEB@` placeholders that `deb_install_scripts` fills in: postinst prints the version, install / upgrade / switch, the Qt flavour, whether the preview is in it and the changelog notes of this version.
-- The version is `VERSION` in QODE.pro; a release also updates `docs/` (package.json, download links) and adds a top entry to `packaging/changelog`.
+- The version is `VERSION` in QODE.pro; a release also updates `docs/package.json` and adds a top entry to `packaging/changelog`. The landing page needs no edit: each download links to the newest GitHub release that has its file (`docs/lib/releases.ts`, refreshed every 15 minutes), so a version published for Linux only leaves the Windows links on the previous one.
 - `docs/` is the unrelated marketing landing page (Next.js 16 / React 19 / Tailwind 4, pnpm): `cd docs && pnpm dev` / `pnpm build`.
 
 Build artifacts (`build*/`, `staging_qode*/`, `debs/`, `.deb` files) are git-ignored.

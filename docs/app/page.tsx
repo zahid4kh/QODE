@@ -24,25 +24,11 @@ import {
 
 import { FilesMock } from "@/components/files-mock";
 import { LinuxIcon, WindowsIcon } from "@/components/os-icons";
+import { getDownloads, RELEASES_PAGE, REPO } from "@/lib/releases";
 
-// bump-version.sh rewrites every "2.1.0" in this file.
-const VERSION = "2.1.0";
-const RELEASE = `https://github.com/zahid4kh/QODE/releases/download/${VERSION}`;
-const RELEASES_PAGE = "https://github.com/zahid4kh/QODE/releases";
-const REPO = "https://github.com/zahid4kh/QODE";
-
-const downloads = {
-  windows: {
-    full: `${RELEASE}/QODE-${VERSION}-setup.exe`,
-    noweb: `${RELEASE}/QODE-${VERSION}-noweb-setup.exe`,
-    fullZip: `${RELEASE}/QODE-${VERSION}-portable.zip`,
-    nowebZip: `${RELEASE}/QODE-${VERSION}-noweb-portable.zip`,
-  },
-  linux: {
-    full: `${RELEASE}/qode-bundled_${VERSION}_amd64.deb`,
-    noweb: `${RELEASE}/qode-bundled-noweb_${VERSION}_amd64.deb`,
-  },
-};
+// Each download links to the newest GitHub release that has its file (see lib/releases.ts), so a version published
+// for Linux only leaves the Windows links on the previous one. The page is built again every 15 minutes.
+export const revalidate = 900; // = REFRESH_SECONDS
 
 const features = [
   {
@@ -136,7 +122,15 @@ const shortcuts = [
 
 const rise = (i: number) => ({ "--i": i }) as React.CSSProperties;
 
-export default function Page() {
+export default async function Page() {
+  const downloads = await getDownloads();
+  const windowsVersion = downloads.windowsFull.version;
+  const linuxVersion = downloads.linuxFull.version;
+  // "v2.1.1" when both have it, "Windows v2.1.0 · Linux v2.1.1" when not
+  const versionText =
+    windowsVersion && windowsVersion === linuxVersion
+      ? `v${windowsVersion}`
+      : [windowsVersion && `Windows v${windowsVersion}`, linuxVersion && `Linux v${linuxVersion}`].filter(Boolean).join(" · ");
   return (
     <main
       id="top"
@@ -225,20 +219,20 @@ export default function Page() {
             </p>
             <div className="flex flex-wrap items-center gap-3">
               <OsButton
-                href={downloads.windows.full}
+                href={downloads.windowsFull.href}
                 icon={<WindowsIcon className="size-4" />}
                 label="Download for Windows"
                 primary
               />
               <OsButton
-                href={downloads.linux.full}
+                href={downloads.linuxFull.href}
                 icon={<LinuxIcon className="size-4" />}
                 label="Download for Linux"
                 primary
               />
             </div>
             <p className="font-code -mt-3 text-xs text-muted-foreground">
-              v{VERSION} · Windows 10+ x64 installer · Debian / Ubuntu amd64 .deb ·{" "}
+              {versionText && `${versionText} · `}Windows 10+ x64 installer · Debian / Ubuntu amd64 .deb ·{" "}
               <a href="#download" className="underline decoration-border underline-offset-4 hover:text-foreground">
                 more options
               </a>
@@ -445,7 +439,7 @@ export default function Page() {
         <div className="relative mx-auto max-w-7xl overflow-hidden rounded-[2rem] border border-primary/30 px-7 py-20 sm:px-16 lg:py-24">
           <div className="aurora !inset-auto !-right-1/4 !top-0 !h-full !w-3/4 !opacity-50" aria-hidden />
           <div className="relative">
-            <p className="eyebrow">Ready when you are · v{VERSION}</p>
+            <p className="eyebrow">Ready when you are{versionText && ` · ${versionText}`}</p>
             <h2 className="font-display mt-6 max-w-3xl text-6xl leading-[0.9] sm:text-8xl">
               Install the editor. <em className="text-gradient">Keep the RAM.</em>
             </h2>
@@ -466,27 +460,27 @@ export default function Page() {
                 </div>
                 <div className="mt-8 flex flex-col gap-3">
                   <DownloadRow
-                    href={downloads.windows.full}
+                    href={downloads.windowsFull.href}
                     title="Full"
                     detail="Installer · with web preview"
-                    file={`QODE-${VERSION}-setup.exe`}
+                    file={downloads.windowsFull.file}
                     primary
                   />
                   <DownloadRow
-                    href={downloads.windows.noweb}
+                    href={downloads.windowsNoweb.href}
                     title="Lite"
                     detail="Installer · no web preview"
-                    file={`QODE-${VERSION}-noweb-setup.exe`}
+                    file={downloads.windowsNoweb.file}
                   />
                 </div>
                 <p className="mt-5 text-xs text-muted-foreground">
                   <PackageOpen className="mr-1.5 inline size-3.5 text-accent" />
                   Portable zip:{" "}
-                  <a className="underline decoration-border underline-offset-4 hover:text-foreground" href={downloads.windows.fullZip}>
+                  <a className="underline decoration-border underline-offset-4 hover:text-foreground" href={downloads.windowsZip.href}>
                     Full
                   </a>{" "}
                   ·{" "}
-                  <a className="underline decoration-border underline-offset-4 hover:text-foreground" href={downloads.windows.nowebZip}>
+                  <a className="underline decoration-border underline-offset-4 hover:text-foreground" href={downloads.windowsNowebZip.href}>
                     Lite
                   </a>
                 </p>
@@ -506,22 +500,22 @@ export default function Page() {
                 </div>
                 <div className="mt-8 flex flex-col gap-3">
                   <DownloadRow
-                    href={downloads.linux.full}
+                    href={downloads.linuxFull.href}
                     title="Full"
                     detail=".deb · with web preview"
-                    file={`qode-bundled_${VERSION}_amd64.deb`}
+                    file={downloads.linuxFull.file}
                     primary
                   />
                   <DownloadRow
-                    href={downloads.linux.noweb}
+                    href={downloads.linuxNoweb.href}
                     title="Lite"
                     detail=".deb · no web preview"
-                    file={`qode-bundled-noweb_${VERSION}_amd64.deb`}
+                    file={downloads.linuxNoweb.file}
                   />
                 </div>
                 <p className="font-code mt-5 overflow-x-auto whitespace-nowrap text-xs text-muted-foreground">
                   <Zap className="mr-1.5 inline size-3.5 text-accent" />
-                  sudo apt install ./qode-bundled_{VERSION}_amd64.deb
+                  sudo apt install ./{downloads.linuxFull.file}
                 </p>
                 <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
                   <FolderLock className="mr-1.5 inline size-3.5 text-accent" />
